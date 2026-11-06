@@ -1082,11 +1082,20 @@ button { cursor: pointer; }
 
 /* TKL Keyboard Chassis */
 .keyboard-chassis {
+  --chroma-color: #00e676;
+  --chroma-opacity: 1;
   padding: 14px;
   border-radius: var(--r-lg);
   background: var(--stage-light), var(--well);
   box-shadow: var(--inset-shadow), inset 0 0 0 1px var(--line-1);
   overflow-x: auto;
+  transition: box-shadow 180ms ease;
+}
+.keyboard-chassis:not([data-chroma-effect="off"]) {
+  box-shadow:
+    var(--inset-shadow),
+    inset 0 0 0 1px color-mix(in srgb, var(--chroma-color) calc(var(--chroma-opacity) * 35%), var(--line-1)),
+    0 0 24px -6px color-mix(in srgb, var(--chroma-color) calc(var(--chroma-opacity) * 28%), transparent);
 }
 .kbd-rows {
   display: flex;
@@ -1103,20 +1112,81 @@ button { cursor: pointer; }
   flex-shrink: 0;
 }
 .keycap {
+  --col-idx: 0;
   position: relative;
   height: 44px;
   min-width: 44px;
   padding: 4px 6px;
   border-radius: 6px;
   background: linear-gradient(180deg, rgb(255 255 255 / 0.055), rgb(255 255 255 / 0.015)), var(--solid-1);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08), 0 2px 3px rgb(0 0 0 / 0.45), inset 0 0 0 1px var(--line-2);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.08),
+    0 2px 3px rgb(0 0 0 / 0.45),
+    inset 0 0 0 1px color-mix(in srgb, var(--chroma-color) calc(var(--chroma-opacity) * 32%), var(--line-2)),
+    0 1px 6px color-mix(in srgb, var(--chroma-color) calc(var(--chroma-opacity) * 22%), transparent);
   color: var(--text-1);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   align-items: flex-start;
   cursor: pointer;
-  transition: transform 90ms ease, box-shadow 120ms ease, background 120ms ease;
+  transition: transform 90ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+.keyboard-chassis[data-chroma-effect="off"] .keycap {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08), 0 2px 3px rgb(0 0 0 / 0.45), inset 0 0 0 1px var(--line-2);
+}
+.keyboard-chassis[data-chroma-effect="breathing"] .keycap {
+  animation: chroma-breathe 3.2s ease-in-out infinite;
+}
+.keyboard-chassis[data-chroma-effect="spectrum"] .keycap {
+  animation: chroma-spectrum 6s linear infinite;
+}
+.keyboard-chassis[data-chroma-effect="wave"] .keycap,
+.keyboard-chassis[data-chroma-effect="wheel"] .keycap {
+  animation: chroma-wave 2.6s linear infinite;
+  animation-delay: calc(var(--col-idx, 0) * -120ms);
+}
+.keyboard-chassis[data-chroma-effect="starlight"] .keycap {
+  animation: chroma-breathe 2.4s ease-in-out infinite;
+  animation-delay: calc(var(--col-idx, 0) * -230ms);
+}
+@keyframes chroma-breathe {
+  0%, 100% { filter: brightness(0.78); }
+  50% { filter: brightness(1.18); }
+}
+@keyframes chroma-spectrum {
+  0% { --chroma-color: #00e676; filter: hue-rotate(0deg); }
+  100% { --chroma-color: #00e676; filter: hue-rotate(360deg); }
+}
+@keyframes chroma-wave {
+  0% {
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.08),
+      0 2px 3px rgb(0 0 0 / 0.45),
+      inset 0 0 0 1px color-mix(in srgb, #00e676 calc(var(--chroma-opacity) * 45%), var(--line-2)),
+      0 1px 7px color-mix(in srgb, #00e676 calc(var(--chroma-opacity) * 28%), transparent);
+  }
+  33% {
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.08),
+      0 2px 3px rgb(0 0 0 / 0.45),
+      inset 0 0 0 1px color-mix(in srgb, #29b6f6 calc(var(--chroma-opacity) * 45%), var(--line-2)),
+      0 1px 7px color-mix(in srgb, #29b6f6 calc(var(--chroma-opacity) * 28%), transparent);
+  }
+  66% {
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.08),
+      0 2px 3px rgb(0 0 0 / 0.45),
+      inset 0 0 0 1px color-mix(in srgb, #ab47bc calc(var(--chroma-opacity) * 45%), var(--line-2)),
+      0 1px 7px color-mix(in srgb, #ab47bc calc(var(--chroma-opacity) * 28%), transparent);
+  }
+  100% {
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.08),
+      0 2px 3px rgb(0 0 0 / 0.45),
+      inset 0 0 0 1px color-mix(in srgb, #00e676 calc(var(--chroma-opacity) * 45%), var(--line-2)),
+      0 1px 7px color-mix(in srgb, #00e676 calc(var(--chroma-opacity) * 28%), transparent);
+  }
 }
 .keycap:hover {
   transform: translateY(-1px);

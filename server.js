@@ -513,6 +513,76 @@ function sendJson(res, statusCode, data) {
   res.end(JSON.stringify(data));
 }
 
+async function syncKeyboardLightingToHardware(pid, slotId, lighting = {}) {
+  const eff = lighting.effect || "static";
+  const hex1 = String(lighting.color1 || "#00e676").replace("#", "");
+  const num1 = parseInt(hex1, 16);
+  const r = Number.isNaN(num1) ? 0 : (num1 >> 16) & 0xff;
+  const g = Number.isNaN(num1) ? 230 : (num1 >> 8) & 0xff;
+  const b = Number.isNaN(num1) ? 118 : num1 & 0xff;
+
+  const hex2 = String(lighting.color2 || "#00d2ff").replace("#", "");
+  const num2 = parseInt(hex2, 16);
+  const r2 = Number.isNaN(num2) ? 0 : (num2 >> 16) & 0xff;
+  const g2 = Number.isNaN(num2) ? 210 : (num2 >> 8) & 0xff;
+  const b2 = Number.isNaN(num2) ? 255 : num2 & 0xff;
+
+  const brightnessPct = lighting.brightness !== undefined ? Number(lighting.brightness) : 100;
+  const speed = Number(lighting.speed || 2);
+  const direction = Number(lighting.waveDirection || 1);
+
+  const profileTargets = Array.from(new Set([Number(slotId) || 1, 1, 0]));
+  let lastRes = null;
+
+  // 1. Force Razer Chroma control over Windows 11 Dynamic Lighting (WDL LampArray)
+  await sendProtocol25Command({
+    productId: pid,
+    packet90: Protocol25.Builders.setForceChromaCtrl(1),
+  }).catch(() => null);
+
+  // 2. Ensure Normal Hardware Mode (0x00, 0x00) & Active Profile Slot (0x05 / 0x04)
+  if (driverState.deviceMode !== "driver") {
+    await sendProtocol25Command({
+      productId: pid,
+      packet90: Protocol25.Builders.setDeviceMode(0x00, 0x00),
+    }).catch(() => null);
+  }
+  await sendProtocol25Command({
+    productId: pid,
+    packet90: Protocol25.Builders.setActiveProfileSlot(Number(slotId) || 1),
+  }).catch(() => null);
+
+  // 3. Synchronize Matrix Brightness (0x0F / 0x04) to active slot & live volatile state (0)
+  for (const profId of profileTargets) {
+    lastRes = await sendProtocol25Command({
+      productId: pid,
+      packet90: Protocol25.Builders.setBrightness(brightnessPct, 0x00, profId),
+    }).catch(() => lastRes);
+  }
+
+  // 4. Synchronize Chroma Effect (0x0F / 0x02) to active slot & live volatile state (0)
+  for (const profId of profileTargets) {
+    lastRes = await sendProtocol25Command({
+      productId: pid,
+      packet90: Protocol25.Builders.setChromaEffect({
+        effect: eff,
+        r,
+        g,
+        b,
+        r2,
+        g2,
+        b2,
+        speed,
+        direction,
+        varStore: profId,
+        ledId: 0x00,
+      }),
+    }).catch(() => lastRes);
+  }
+
+  return lastRes;
+}
+
 async function handleApiElectronRpc(method, arg) {
   switch (method) {
     case "doRzDeviceAction": {
@@ -616,17 +686,7 @@ const server = http.createServer(async (req, res) => {
           }).catch(() => null);
 
           if (activeSlotData.lighting) {
-            const hex = (activeSlotData.lighting.color1 || "#00e676").replace("#", "");
-            const num = parseInt(hex, 16) || 0x00e676;
-            await sendProtocol25Command({
-              productId: pid,
-              packet90: Protocol25.Builders.setChromaEffect({
-                effect: activeSlotData.lighting.effect || "static",
-                r: (num >> 16) & 0xff,
-                g: (num >> 8) & 0xff,
-                b: num & 0xff,
-              }),
-            }).catch(() => null);
+            await syncKeyboardLightingToHardware(pid, slotId, activeSlotData.lighting);
           }
         } else if (isMouse && activeSlotData?.dpiStages) {
           await sendProtocol25Command({
@@ -650,7 +710,10 @@ const server = http.createServer(async (req, res) => {
         };
         saveDriverState();
         const pkt90 = Protocol25.Builders.setActiveProfileSlot(slotId);
-        const hw = await sendProtocol25Command({ productId: pid, packet90: pkt90 }).catch(() => null);
+        let hw = await sendProtocol25Command({ productId: pid, packet90: pkt90 }).catch(() => null);
+        if (!isMouse && devProfiles.slots[slotId]?.lighting) {
+          hw = (await syncKeyboardLightingToHardware(pid, slotId, devProfiles.slots[slotId].lighting)) || hw;
+        }
         return sendJson(res, 200, { ok: true, state: driverState, hw });
       }
 
@@ -692,12 +755,20 @@ const server = http.createServer(async (req, res) => {
         saveDriverState();
       }
 
-      const result = await sendProtocol25Command({
-        productId: pid,
-        interfaceNum: body.interfaceNum ?? 3,
-        reportId: body.reportId ?? 0,
-        packet90,
-      });
+      let result;
+      if (body.slotPatch?.lighting && driverState.profilesByPid[pid]) {
+        const activeSlot = driverState.profilesByPid[pid].activeSlot || 1;
+        const slotLighting = driverState.profilesByPid[pid].slots[activeSlot]?.lighting || body.slotPatch.lighting;
+        result = await syncKeyboardLightingToHardware(pid, activeSlot, slotLighting);
+      }
+      if (!result) {
+        result = await sendProtocol25Command({
+          productId: pid,
+          interfaceNum: body.interfaceNum ?? 3,
+          reportId: body.reportId ?? 0,
+          packet90,
+        });
+      }
 
       return sendJson(res, 200, {
         ...result,
