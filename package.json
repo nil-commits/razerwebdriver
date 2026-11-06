@@ -1,0 +1,20 @@
+{
+  "name": "razerwebdriver",
+  "version": "1.0.0",
+  "description": "Zero-internet, zero-bloat local browser driver for Razer peripherals (Protocol 25 HID + WebHID)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "razer",
+    "synapse",
+    "driver",
+    "protocol-25",
+    "hid",
+    "webhid",
+    "huntsman-v3-pro",
+    "viper-v3-pro"
+  ],
+  "license": "MIT"
+}
