@@ -8,6 +8,8 @@
 (function () {
   "use strict";
 
+  const Protocol25 = window.RazerProtocol25 || window.Protocol25;
+
   // ==========================================================================
   // 1. OpenMouse Top-Right ASCII Glow Field (ported from shared/ascii.ts)
   // ==========================================================================
