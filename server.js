@@ -207,102 +207,136 @@ function selectControlInterfaces(allHidForPid, productId, preferredInterface) {
   });
 }
 
-async function sendProtocol25Command({ productId, interfaceNum = 3, reportId = 0, packet90 }) {
-  const meta = Protocol25.KNOWN_DEVICES[Number(productId)] || {};
-  const body90 = packet90.length === 91 ? [...packet90.slice(1)] : [...packet90];
+const hidHandleCache = new Map(); // pid -> { handle, info }
+const hidMutexByPid = new Map(); // pid -> Promise
 
-  if (meta.defaultTransactionId && body90[1] === 0x1f && meta.defaultTransactionId !== 0x1f) {
-    body90[1] = meta.defaultTransactionId;
-    body90[88] = Protocol25.computeCrc(body90);
+function getOrOpenHidEntry(productId, interfaceNum = 3) {
+  const pidKey = Number(productId) || 679;
+  const cached = hidHandleCache.get(pidKey);
+  if (cached && cached.handle) {
+    return cached;
   }
-
-  const report91 = [reportId & 0xff, ...body90];
-  const parsedReq = Protocol25.parsePacket(report91);
-
-  if (!nodeHid) {
-    const simResp = [...body90];
-    simResp[0] = Protocol25.STATUS.SUCCESS;
-    simResp[88] = Protocol25.computeCrc(simResp);
-    const logItem = recordPacketLog({
-      mode: "simulated-or-webhid",
-      productId,
-      interfaceNum,
-      reportId,
-      txHex: toHex(report91),
-      rxHex: toHex([reportId, ...simResp]),
-      parsedTx: parsedReq,
-      parsedRx: Protocol25.parsePacket([reportId, ...simResp]),
-    });
-    return {
-      ok: true,
-      mode: "simulated-or-webhid",
-      tx: report91,
-      rx: [reportId, ...simResp],
-      parsedRx: logItem.parsedRx,
-      logItem,
-    };
-  }
-
   const allHid = (nodeHid.devices() || []).filter(
-    (d) => d.vendorId === Protocol25.RAZER_VENDOR_ID && (!productId || d.productId === Number(productId))
+    (d) => d.vendorId === Protocol25.RAZER_VENDOR_ID && (!productId || d.productId === pidKey)
   );
   if (allHid.length === 0) {
-    throw new Error(`No live Razer HID interface found for PID ${productId}`);
+    throw new Error(`No live Razer HID interface found for PID ${pidKey}`);
   }
-
-  const candidates = selectControlInterfaces(allHid, productId, interfaceNum);
+  const candidates = selectControlInterfaces(allHid, pidKey, interfaceNum);
   let lastError = null;
-
   for (const targetInfo of candidates) {
-    let handle = null;
     try {
-      handle = new nodeHid.HID(targetInfo.path);
-      await handle.sendFeatureReport(report91);
-      let rawRx = null;
-      for (let attempt = 0; attempt < 5; attempt++) {
-        await new Promise((r) => setTimeout(r, attempt === 0 ? 22 : 30));
-        rawRx = await handle.getFeatureReport(reportId, 91);
-        const statusByte = rawRx ? rawRx[1] ?? rawRx[0] : 0;
-        if (statusByte !== 0x01) break; // Not BUSY
-      }
-      handle.close();
-
-      const rxArr = Array.from(rawRx || []);
-      const parsedRx = Protocol25.parsePacket(rxArr);
-
-      const logItem = recordPacketLog({
-        mode: "native-hid",
-        productId: targetInfo.productId,
-        interfaceNum: targetInfo.interface,
-        path: targetInfo.path,
-        reportId,
-        txHex: toHex(report91),
-        rxHex: toHex(rxArr),
-        parsedTx: parsedReq,
-        parsedRx,
-      });
-
-      return {
-        ok: true,
-        mode: "native-hid",
-        tx: report91,
-        rx: rxArr,
-        parsedRx,
-        logItem,
-      };
+      const handle = new nodeHid.HID(targetInfo.path);
+      const entry = { handle, info: targetInfo };
+      hidHandleCache.set(pidKey, entry);
+      return entry;
     } catch (err) {
       lastError = err;
-      if (handle) {
-        try {
-          handle.close();
-        } catch {
-          // ignore
-        }
-      }
     }
   }
+  throw lastError || new Error(`Unable to open HID handle for PID ${pidKey}`);
+}
 
-  throw lastError || new Error("All candidate HID interfaces rejected sendFeatureReport");
+async function sendProtocol25Command({ productId, interfaceNum = 3, reportId = 0, packet90 }) {
+  const pidKey = Number(productId) || 679;
+  const prevLock = hidMutexByPid.get(pidKey) || Promise.resolve();
+  let releaseLock;
+  const nextLock = new Promise((r) => {
+    releaseLock = r;
+  });
+  hidMutexByPid.set(pidKey, prevLock.then(() => nextLock));
+  await prevLock;
+
+  try {
+    const meta = Protocol25.KNOWN_DEVICES[pidKey] || {};
+    const body90 = packet90.length === 91 ? [...packet90.slice(1)] : [...packet90];
+
+    if (meta.defaultTransactionId && body90[1] === 0x1f && meta.defaultTransactionId !== 0x1f) {
+      body90[1] = meta.defaultTransactionId;
+      body90[88] = Protocol25.computeCrc(body90);
+    }
+
+    const report91 = [reportId & 0xff, ...body90];
+    const parsedReq = Protocol25.parsePacket(report91);
+
+    if (!nodeHid) {
+      const simResp = [...body90];
+      simResp[0] = Protocol25.STATUS.SUCCESS;
+      simResp[88] = Protocol25.computeCrc(simResp);
+      const logItem = recordPacketLog({
+        mode: "simulated-or-webhid",
+        productId: pidKey,
+        interfaceNum,
+        reportId,
+        txHex: toHex(report91),
+        rxHex: toHex([reportId, ...simResp]),
+        parsedTx: parsedReq,
+        parsedRx: Protocol25.parsePacket([reportId, ...simResp]),
+      });
+      return {
+        ok: true,
+        mode: "simulated-or-webhid",
+        tx: report91,
+        rx: [reportId, ...simResp],
+        parsedRx: logItem.parsedRx,
+        logItem,
+      };
+    }
+
+    for (let retry = 0; retry < 2; retry++) {
+      let entry = null;
+      try {
+        entry = getOrOpenHidEntry(pidKey, interfaceNum);
+        const { handle, info: targetInfo } = entry;
+        if (typeof handle.sendFeatureReportSync === "function") {
+          handle.sendFeatureReportSync(report91);
+        } else {
+          await handle.sendFeatureReport(report91);
+        }
+        await new Promise((r) => setTimeout(r, 10));
+        const rawRx =
+          typeof handle.getFeatureReportSync === "function"
+            ? handle.getFeatureReportSync(reportId, 91)
+            : await handle.getFeatureReport(reportId, 91);
+
+        const rxArr = Array.from(rawRx || []);
+        const parsedRx = Protocol25.parsePacket(rxArr);
+
+        const logItem = recordPacketLog({
+          mode: "native-hid",
+          productId: targetInfo.productId,
+          interfaceNum: targetInfo.interface,
+          path: targetInfo.path,
+          reportId,
+          txHex: toHex(report91),
+          rxHex: toHex(rxArr),
+          parsedTx: parsedReq,
+          parsedRx,
+        });
+
+        return {
+          ok: true,
+          mode: "native-hid",
+          tx: report91,
+          rx: rxArr,
+          parsedRx,
+          logItem,
+        };
+      } catch (err) {
+        if (entry?.handle) {
+          try {
+            entry.handle.close();
+          } catch {
+            // ignore
+          }
+        }
+        hidHandleCache.delete(pidKey);
+        if (retry === 1) throw err;
+      }
+    }
+  } finally {
+    releaseLock();
+  }
 }
 
 function toHex(arr) {
@@ -513,76 +547,6 @@ function sendJson(res, statusCode, data) {
   res.end(JSON.stringify(data));
 }
 
-async function syncKeyboardLightingToHardware(pid, slotId, lighting = {}) {
-  const eff = lighting.effect || "static";
-  const hex1 = String(lighting.color1 || "#00e676").replace("#", "");
-  const num1 = parseInt(hex1, 16);
-  const r = Number.isNaN(num1) ? 0 : (num1 >> 16) & 0xff;
-  const g = Number.isNaN(num1) ? 230 : (num1 >> 8) & 0xff;
-  const b = Number.isNaN(num1) ? 118 : num1 & 0xff;
-
-  const hex2 = String(lighting.color2 || "#00d2ff").replace("#", "");
-  const num2 = parseInt(hex2, 16);
-  const r2 = Number.isNaN(num2) ? 0 : (num2 >> 16) & 0xff;
-  const g2 = Number.isNaN(num2) ? 210 : (num2 >> 8) & 0xff;
-  const b2 = Number.isNaN(num2) ? 255 : num2 & 0xff;
-
-  const brightnessPct = lighting.brightness !== undefined ? Number(lighting.brightness) : 100;
-  const speed = Number(lighting.speed || 2);
-  const direction = Number(lighting.waveDirection || 1);
-
-  const profileTargets = Array.from(new Set([Number(slotId) || 1, 1, 0]));
-  let lastRes = null;
-
-  // 1. Force Razer Chroma control over Windows 11 Dynamic Lighting (WDL LampArray)
-  await sendProtocol25Command({
-    productId: pid,
-    packet90: Protocol25.Builders.setForceChromaCtrl(1),
-  }).catch(() => null);
-
-  // 2. Ensure Normal Hardware Mode (0x00, 0x00) & Active Profile Slot (0x05 / 0x04)
-  if (driverState.deviceMode !== "driver") {
-    await sendProtocol25Command({
-      productId: pid,
-      packet90: Protocol25.Builders.setDeviceMode(0x00, 0x00),
-    }).catch(() => null);
-  }
-  await sendProtocol25Command({
-    productId: pid,
-    packet90: Protocol25.Builders.setActiveProfileSlot(Number(slotId) || 1),
-  }).catch(() => null);
-
-  // 3. Synchronize Matrix Brightness (0x0F / 0x04) to active slot & live volatile state (0)
-  for (const profId of profileTargets) {
-    lastRes = await sendProtocol25Command({
-      productId: pid,
-      packet90: Protocol25.Builders.setBrightness(brightnessPct, 0x00, profId),
-    }).catch(() => lastRes);
-  }
-
-  // 4. Synchronize Chroma Effect (0x0F / 0x02) to active slot & live volatile state (0)
-  for (const profId of profileTargets) {
-    lastRes = await sendProtocol25Command({
-      productId: pid,
-      packet90: Protocol25.Builders.setChromaEffect({
-        effect: eff,
-        r,
-        g,
-        b,
-        r2,
-        g2,
-        b2,
-        speed,
-        direction,
-        varStore: profId,
-        ledId: 0x00,
-      }),
-    }).catch(() => lastRes);
-  }
-
-  return lastRes;
-}
-
 async function handleApiElectronRpc(method, arg) {
   switch (method) {
     case "doRzDeviceAction": {
@@ -686,7 +650,17 @@ const server = http.createServer(async (req, res) => {
           }).catch(() => null);
 
           if (activeSlotData.lighting) {
-            await syncKeyboardLightingToHardware(pid, slotId, activeSlotData.lighting);
+            const hex = (activeSlotData.lighting.color1 || "#00e676").replace("#", "");
+            const num = parseInt(hex, 16) || 0x00e676;
+            await sendProtocol25Command({
+              productId: pid,
+              packet90: Protocol25.Builders.setChromaEffect({
+                effect: activeSlotData.lighting.effect || "static",
+                r: (num >> 16) & 0xff,
+                g: (num >> 8) & 0xff,
+                b: num & 0xff,
+              }),
+            }).catch(() => null);
           }
         } else if (isMouse && activeSlotData?.dpiStages) {
           await sendProtocol25Command({
@@ -710,10 +684,7 @@ const server = http.createServer(async (req, res) => {
         };
         saveDriverState();
         const pkt90 = Protocol25.Builders.setActiveProfileSlot(slotId);
-        let hw = await sendProtocol25Command({ productId: pid, packet90: pkt90 }).catch(() => null);
-        if (!isMouse && devProfiles.slots[slotId]?.lighting) {
-          hw = (await syncKeyboardLightingToHardware(pid, slotId, devProfiles.slots[slotId].lighting)) || hw;
-        }
+        const hw = await sendProtocol25Command({ productId: pid, packet90: pkt90 }).catch(() => null);
         return sendJson(res, 200, { ok: true, state: driverState, hw });
       }
 
@@ -755,20 +726,12 @@ const server = http.createServer(async (req, res) => {
         saveDriverState();
       }
 
-      let result;
-      if (body.slotPatch?.lighting && driverState.profilesByPid[pid]) {
-        const activeSlot = driverState.profilesByPid[pid].activeSlot || 1;
-        const slotLighting = driverState.profilesByPid[pid].slots[activeSlot]?.lighting || body.slotPatch.lighting;
-        result = await syncKeyboardLightingToHardware(pid, activeSlot, slotLighting);
-      }
-      if (!result) {
-        result = await sendProtocol25Command({
-          productId: pid,
-          interfaceNum: body.interfaceNum ?? 3,
-          reportId: body.reportId ?? 0,
-          packet90,
-        });
-      }
+      const result = await sendProtocol25Command({
+        productId: pid,
+        interfaceNum: body.interfaceNum ?? 3,
+        reportId: body.reportId ?? 0,
+        packet90,
+      });
 
       return sendJson(res, 200, {
         ...result,

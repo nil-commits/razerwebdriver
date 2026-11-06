@@ -277,15 +277,15 @@
     },
 
     /**
-     * Onboard Memory Profile Slot Selection & Persistence (Class 0x05, Cmd 0x04 / 0x84)
+     * Onboard Memory Profile Slot Selection & Persistence (Class 0x05, Cmd 0x02 / 0x82)
      * slotId: 1..6
      */
     setActiveProfileSlot(slotId = 1, transactionId = 0x1f) {
       return buildPacket({
         commandClass: 0x05,
-        commandId: 0x04,
-        dataSize: 0x01,
-        args: [Math.max(1, Math.min(6, slotId)) & 0xff],
+        commandId: 0x02,
+        dataSize: 0x02,
+        args: [0x01, Math.max(1, Math.min(6, slotId)) & 0xff],
         transactionId,
       });
     },
@@ -293,32 +293,9 @@
     getActiveProfileSlot(transactionId = 0x1f) {
       return buildPacket({
         commandClass: 0x05,
-        commandId: 0x84,
-        dataSize: 0x01,
-        args: [0x00],
-        transactionId,
-      });
-    },
-
-    /**
-     * Force Razer Chroma Control over Windows 11 Dynamic Lighting / LampArray (Class 0x0F, Cmd 0x10 / 0x90)
-     */
-    setForceChromaCtrl(enabled = 1, transactionId = 0x1f) {
-      return buildPacket({
-        commandClass: 0x0f,
-        commandId: 0x10,
-        dataSize: 0x01,
-        args: [enabled ? 0x01 : 0x00],
-        transactionId,
-      });
-    },
-
-    getForceChromaCtrl(transactionId = 0x1f) {
-      return buildPacket({
-        commandClass: 0x0f,
-        commandId: 0x90,
-        dataSize: 0x01,
-        args: [0x00],
+        commandId: 0x82,
+        dataSize: 0x02,
+        args: [0x01, 0x00],
         transactionId,
       });
     },
@@ -406,43 +383,12 @@
       });
     },
 
-    setBrightness(brightnessPct = 100, ledId = 0x00, varStore = 0x01, transactionId = 0x1f) {
-      const num = Number(brightnessPct);
-      const rawByte =
-        num > 100
-          ? Math.max(0, Math.min(255, Math.round(num)))
-          : Math.round((Math.max(0, Math.min(100, num)) / 100) * 255);
+    setBrightness(brightness = 255, ledId = 0x05, varStore = 0x01, transactionId = 0x1f) {
       return buildPacket({
         commandClass: 0x0f,
         commandId: 0x04,
         dataSize: 0x03,
-        args: [varStore & 0xff, ledId & 0xff, rawByte & 0xff],
-        transactionId,
-      });
-    },
-
-    setChromaFrame({
-      row = 0,
-      startCol = 0,
-      endCol = 17,
-      rgbBytes = [],
-      profileId = 0x00,
-      regionId = 0x00,
-      transactionId = 0x1f,
-    } = {}) {
-      const payload = [
-        profileId & 0xff,
-        regionId & 0xff,
-        row & 0xff,
-        startCol & 0xff,
-        endCol & 0xff,
-        ...rgbBytes.slice(0, 72).map((b) => b & 0xff),
-      ];
-      return buildPacket({
-        commandClass: 0x0f,
-        commandId: 0x03,
-        dataSize: payload.length,
-        args: payload,
+        args: [varStore & 0xff, ledId & 0xff, brightness & 0xff],
         transactionId,
       });
     },
@@ -458,26 +404,24 @@
       direction = 1,
       speed = 2,
       varStore = 0x01,
-      ledId = 0x00,
+      ledId = 0x05,
       transactionId = 0x1f,
     } = {}) {
       let args;
-      const waveRate = speed === 1 ? 75 : speed === 3 ? 15 : 40;
-      const waveDir = direction === 2 ? 0x02 : 0x01;
       switch (effect) {
         case "off":
-          args = [varStore & 0xff, ledId & 0xff, 0x00, 0x00, 0x00, 0x00];
+          args = [varStore, ledId, 0x00, 0x00, 0x00, 0x00];
           break;
         case "static":
-          args = [varStore & 0xff, ledId & 0xff, 0x01, 0x00, 0x00, 0x01, r & 0xff, g & 0xff, b & 0xff];
+          args = [varStore, ledId, 0x01, 0x00, 0x00, 0x01, r & 0xff, g & 0xff, b & 0xff];
           break;
         case "breathing":
-          args = [varStore & 0xff, ledId & 0xff, 0x02, 0x01, 0x00, 0x01, r & 0xff, g & 0xff, b & 0xff];
+          args = [varStore, ledId, 0x02, 0x01, 0x00, 0x01, r & 0xff, g & 0xff, b & 0xff];
           break;
         case "breathingDual":
           args = [
-            varStore & 0xff,
-            ledId & 0xff,
+            varStore,
+            ledId,
             0x02,
             0x02,
             0x00,
@@ -491,31 +435,19 @@
           ];
           break;
         case "spectrum":
-          args = [varStore & 0xff, ledId & 0xff, 0x03, 0x00, 0x00, 0x00];
+          args = [varStore, ledId, 0x03, 0x00, 0x00, 0x00];
           break;
         case "wave":
-          args = [varStore & 0xff, ledId & 0xff, 0x04, waveDir, waveRate & 0xff, 0x00];
+          args = [varStore, ledId, 0x04, direction & 0xff, 0x28, 0x00];
           break;
         case "reactive":
-          args = [varStore & 0xff, ledId & 0xff, 0x05, 0x00, Math.max(1, Math.min(4, speed)) & 0xff, 0x01, r & 0xff, g & 0xff, b & 0xff];
-          break;
-        case "ripple":
-          args = [varStore & 0xff, ledId & 0xff, 0x06, 0x00, 0x00, 0x01, r & 0xff, g & 0xff, b & 0xff];
+          args = [varStore, ledId, 0x05, 0x00, speed & 0xff, 0x01, r & 0xff, g & 0xff, b & 0xff];
           break;
         case "starlight":
-          args = [varStore & 0xff, ledId & 0xff, 0x07, 0x01, Math.max(1, Math.min(3, speed)) & 0xff, 0x01, r & 0xff, g & 0xff, b & 0xff];
-          break;
-        case "customFrame":
-          args = [varStore & 0xff, ledId & 0xff, 0x08, 0x00, 0x00, 0x00];
-          break;
-        case "fire":
-          args = [varStore & 0xff, ledId & 0xff, 0x09, 0x00, 0x00, 0x00];
-          break;
-        case "wheel":
-          args = [varStore & 0xff, ledId & 0xff, 0x0a, waveDir, 0x00, 0x00];
+          args = [varStore, ledId, 0x07, 0x01, speed & 0xff, 0x01, r & 0xff, g & 0xff, b & 0xff];
           break;
         default:
-          args = [varStore & 0xff, ledId & 0xff, 0x01, 0x00, 0x00, 0x01, r & 0xff, g & 0xff, b & 0xff];
+          args = [varStore, ledId, 0x01, 0x00, 0x00, 0x01, r & 0xff, g & 0xff, b & 0xff];
       }
       return buildPacket({
         commandClass: 0x0f,
