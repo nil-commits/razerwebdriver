@@ -652,15 +652,19 @@ const server = http.createServer(async (req, res) => {
           if (activeSlotData.lighting) {
             const hex = (activeSlotData.lighting.color1 || "#00e676").replace("#", "");
             const num = parseInt(hex, 16) || 0x00e676;
-            await sendProtocol25Command({
-              productId: pid,
-              packet90: Protocol25.Builders.setChromaEffect({
-                effect: activeSlotData.lighting.effect || "static",
-                r: (num >> 16) & 0xff,
-                g: (num >> 8) & 0xff,
-                b: num & 0xff,
-              }),
-            }).catch(() => null);
+            for (const vs of [0x00, 0x01]) {
+              await sendProtocol25Command({
+                productId: pid,
+                packet90: Protocol25.Builders.setChromaEffect({
+                  effect: activeSlotData.lighting.effect || "static",
+                  r: (num >> 16) & 0xff,
+                  g: (num >> 8) & 0xff,
+                  b: num & 0xff,
+                  varStore: vs,
+                  ledId: 0x00,
+                }),
+              }).catch(() => null);
+            }
           }
         } else if (isMouse && activeSlotData?.dpiStages) {
           await sendProtocol25Command({
@@ -732,6 +736,30 @@ const server = http.createServer(async (req, res) => {
         reportId: body.reportId ?? 0,
         packet90,
       });
+
+      // For Chroma Matrix (Class 0x0F, Cmd 0x02 or 0x04), ensure both live register (profileId 0x00)
+      // and persistent register (profileId 0x01) on regionId 0x00 are updated so the keyboard LEDs
+      // reflect the change immediately regardless of active profile mode.
+      const norm90 = packet90.length === 91 ? packet90.slice(1) : packet90;
+      if (norm90[6] === 0x0f && (norm90[7] === 0x02 || norm90[7] === 0x04)) {
+        const altProfile = norm90[8] === 0x00 ? 0x01 : 0x00;
+        const altArgs = norm90.slice(8, 8 + (norm90[5] || 9));
+        altArgs[0] = altProfile;
+        altArgs[1] = 0x00; // regionId 0x00 for PID 679 Huntsman V3 Pro TKL
+        const altPkt = Protocol25.buildPacket({
+          commandClass: 0x0f,
+          commandId: norm90[7],
+          dataSize: norm90[5],
+          args: altArgs,
+          transactionId: norm90[1] || 0x1f,
+        });
+        await sendProtocol25Command({
+          productId: pid,
+          interfaceNum: body.interfaceNum ?? 3,
+          reportId: body.reportId ?? 0,
+          packet90: altPkt,
+        }).catch(() => null);
+      }
 
       return sendJson(res, 200, {
         ...result,
@@ -863,7 +891,10 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === "/protocol25.js" && req.method === "GET") {
       const content = fs.readFileSync(path.join(__dirname, "protocol25.js"));
-      res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8" });
+      res.writeHead(200, {
+        "Content-Type": "application/javascript; charset=utf-8",
+        "Cache-Control": "no-store",
+      });
       return res.end(content);
     }
 

@@ -19,12 +19,15 @@
  *   [89]     reserved           (0x00)
  */
 (function (root, factory) {
+  const api = factory();
   if (typeof module === "object" && module.exports) {
-    module.exports = factory();
-  } else {
-    root.RazerProtocol25 = factory();
+    module.exports = api;
   }
-})(typeof self !== "undefined" ? self : this, function () {
+  if (root) {
+    root.RazerProtocol25 = api;
+    root.Protocol25 = api;
+  }
+})(typeof globalThis !== "undefined" ? globalThis : typeof self !== "undefined" ? self : this, function () {
   "use strict";
 
   const RAZER_VENDOR_ID = 0x1532; // 5426
@@ -383,7 +386,7 @@
       });
     },
 
-    setBrightness(brightness = 255, ledId = 0x05, varStore = 0x01, transactionId = 0x1f) {
+    setBrightness(brightness = 255, ledId = 0x00, varStore = 0x01, transactionId = 0x1f) {
       return buildPacket({
         commandClass: 0x0f,
         commandId: 0x04,
@@ -404,7 +407,7 @@
       direction = 1,
       speed = 2,
       varStore = 0x01,
-      ledId = 0x05,
+      ledId = 0x00,
       transactionId = 0x1f,
     } = {}) {
       let args;
