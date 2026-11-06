@@ -558,7 +558,7 @@
                 <div class="setting-heading">
                   <div>
                     <h2>Onboard Chroma lighting</h2>
-                    <p>Hardware matrix effects (0x0F / 0x02 &amp; 0x04) with WDL override</p>
+                    <p>Hardware matrix effects without Razer Chroma background services</p>
                   </div>
                   <output id="valBrightness" class="val-pill">100%</output>
                 </div>
@@ -569,38 +569,18 @@
                   <button type="button" class="preset-btn" data-effect="wave">Wave</button>
                   <button type="button" class="preset-btn" data-effect="breathing">Breathing</button>
                   <button type="button" class="preset-btn" data-effect="reactive">Reactive</button>
-                  <button type="button" class="preset-btn" data-effect="ripple">Ripple</button>
                   <button type="button" class="preset-btn" data-effect="starlight">Starlight</button>
-                  <button type="button" class="preset-btn" data-effect="wheel">Wheel</button>
                   <button type="button" class="preset-btn" data-effect="off">Off</button>
                 </div>
 
                 <div class="swatch-row" id="swatchRow">
-                  <button type="button" class="swatch active" data-color="#00e676" style="--sw:#00e676" title="Razer Emerald"></button>
-                  <button type="button" class="swatch" data-color="#00d2ff" style="--sw:#00d2ff" title="Cyber Cyan"></button>
-                  <button type="button" class="swatch" data-color="#a78bfa" style="--sw:#a78bfa" title="ultraviolet"></button>
-                  <button type="button" class="swatch" data-color="#ff3b30" style="--sw:#ff3b30" title="Crimson Red"></button>
-                  <button type="button" class="swatch" data-color="#ffcc00" style="--sw:#ffcc00" title="Solar Amber"></button>
-                  <button type="button" class="swatch" data-color="#ffffff" style="--sw:#ffffff" title="Pure White"></button>
-                  <input type="color" id="inpChromaColor" value="#00e676" style="width:28px;height:28px;cursor:pointer;" title="Custom RGB Color" />
-                </div>
-
-                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
-                  <div style="display:flex;align-items:center;gap:8px;">
-                    <span class="om-label">Direction</span>
-                    <div class="segmented" id="chromaDirGroup">
-                      <button type="button" class="preset-btn active" data-chroma-dir="1">Left → Right</button>
-                      <button type="button" class="preset-btn" data-chroma-dir="2">Right → Left</button>
-                    </div>
-                  </div>
-                  <div style="display:flex;align-items:center;gap:8px;">
-                    <span class="om-label">Speed</span>
-                    <div class="segmented" id="chromaSpeedGroup">
-                      <button type="button" class="preset-btn" data-chroma-speed="1">Slow</button>
-                      <button type="button" class="preset-btn active" data-chroma-speed="2">Medium</button>
-                      <button type="button" class="preset-btn" data-chroma-speed="3">Fast</button>
-                    </div>
-                  </div>
+                  <button type="button" class="swatch active" data-color="#00e676" style="--sw:#00e676"></button>
+                  <button type="button" class="swatch" data-color="#00d2ff" style="--sw:#00d2ff"></button>
+                  <button type="button" class="swatch" data-color="#a78bfa" style="--sw:#a78bfa"></button>
+                  <button type="button" class="swatch" data-color="#ff3b30" style="--sw:#ff3b30"></button>
+                  <button type="button" class="swatch" data-color="#ffcc00" style="--sw:#ffcc00"></button>
+                  <button type="button" class="swatch" data-color="#ffffff" style="--sw:#ffffff"></button>
+                  <input type="color" id="inpChromaColor" value="#00e676" style="width:28px;height:28px;cursor:pointer;" />
                 </div>
 
                 <div class="stepper-slider">

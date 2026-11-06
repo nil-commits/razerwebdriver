@@ -303,16 +303,20 @@
   }
 
   async function sendPacket90(packet90, label = "Command", slotPatch = null, statePatch = null, forceImmediate = false) {
+    if (slotPatch) Object.assign(getActiveSlotData(), slotPatch);
+    if (statePatch) Object.assign(driverState, statePatch);
+
     if (!uiPrefs.instantFlash && !forceImmediate) {
       // Stage in floating Apply Bar
-      if (slotPatch) Object.assign(getActiveSlotData(), slotPatch);
-      if (statePatch) Object.assign(driverState, statePatch);
       stagedQueue.push({ productId: selectedPid, packet90, label, slotPatch, statePatch });
       renderPendingApplyBar();
       renderOverviewPanels();
       updateProfileKeyBox();
       return;
     }
+
+    renderProfileSlotBar();
+    renderOverviewPanels();
 
     try {
       const res = await fetch("/api/send-packet", {
@@ -333,8 +337,6 @@
       const status = data.parsedRx?.statusName || "OK";
       showToast(`${label} → ${status}`);
       void playChime("success");
-      renderProfileSlotBar();
-      renderOverviewPanels();
       updateProfileKeyBox();
       return data;
     } catch (err) {
@@ -765,19 +767,134 @@
   // ==========================================================================
   // 11. Keyboard Matrix & Synchronize All Controls From Active Slot
   // ==========================================================================
-  function renderKeyboardMatrix() {
+  function updateChromaVisuals() {
     const container = document.getElementById("keyboardMatrix");
     if (!container) return;
-    container.innerHTML = "";
-
     const slot = getActiveSlotData();
     const light = slot.lighting || { effect: "static", color1: "#00e676", brightness: 100 };
     const eff = light.effect || "static";
     const brPct = Math.max(0, Math.min(100, Number(light.brightness ?? 100)));
-    container.dataset.chromaEffect = eff;
-    container.style.setProperty("--chroma-color", light.color1 || "#00e676");
-    container.style.setProperty("--chroma-opacity", eff === "off" ? "0" : (brPct / 100).toFixed(2));
+    const hex = light.color1 || "#00e676";
+    const num = parseInt(hex.replace("#", ""), 16) || 0x00e676;
+    const r = (num >> 16) & 0xff;
+    const g = (num >> 8) & 0xff;
+    const b = num & 0xff;
+    const scale = eff === "off" ? 0 : brPct / 100;
 
+    container.dataset.chromaEffect = eff;
+    if (eff === "off" || scale <= 0.01) {
+      container.style.setProperty("--key-color", "#6e7785");
+      container.style.setProperty("--key-glow", "transparent");
+      container.style.setProperty("--kbd-glow", "transparent");
+    } else {
+      const keyAlpha = Math.max(0.35, scale).toFixed(2);
+      const glowAlpha = (0.24 * scale).toFixed(2);
+      const chassisAlpha = (0.22 * scale).toFixed(2);
+      container.style.setProperty("--key-color", `rgba(${r}, ${g}, ${b}, ${keyAlpha})`);
+      container.style.setProperty("--key-glow", `rgba(${r}, ${g}, ${b}, ${glowAlpha})`);
+      container.style.setProperty("--kbd-glow", `rgba(${r}, ${g}, ${b}, ${chassisAlpha})`);
+    }
+  }
+
+  function renderKeyboardMatrix() {
+    const container = document.getElementById("keyboardMatrix");
+    if (!container) return;
+
+    if (!container.dataset.built) {
+      container.innerHTML = "";
+      TKL_ROWS.forEach((row) => {
+        const rowEl = document.createElement("div");
+        rowEl.className = "kbd-row";
+        row.forEach((k, colIdx) => {
+          if (k.spacer) {
+            const sp = document.createElement("div");
+            sp.className = "kbd-spacer";
+            rowEl.appendChild(sp);
+            return;
+          }
+          const keyEl = document.createElement("button");
+          keyEl.type = "button";
+          keyEl.className = "keycap";
+          keyEl.style.setProperty("--col-idx", String(colIdx));
+          if (k.w && k.w !== 1) keyEl.style.width = `${Math.round(k.w * 44 + (k.w - 1) * 5)}px`;
+          if (k.hidden) {
+            keyEl.style.visibility = "hidden";
+            rowEl.appendChild(keyEl);
+            return;
+          }
+
+          const keyId = k.label;
+          keyEl.dataset.key = keyId;
+          keyEl.innerHTML = `
+            <span class="keycap-label">${keyId}</span>
+            <span class="keycap-meta">
+              <span class="keycap-act-val">1.2</span>
+              <span class="keycap-rt-dot" hidden>RT</span>
+            </span>
+          `;
+
+          keyEl.addEventListener("click", (ev) => {
+            const slot = getActiveSlotData();
+            if (ev.ctrlKey || ev.metaKey || ev.shiftKey) {
+              if (selectedKeys.has(keyId)) selectedKeys.delete(keyId);
+              else selectedKeys.add(keyId);
+            } else {
+              if (selectedKeys.size === 1 && selectedKeys.has(keyId)) selectedKeys.clear();
+              else {
+                selectedKeys.clear();
+                selectedKeys.add(keyId);
+              }
+            }
+            focusedRemapKey = keyId;
+            const remapIn = document.getElementById("txtRemapTargetKey");
+            if (remapIn) remapIn.value = keyId;
+            syncRemapControlsForFocusedKey();
+
+            const singleKey = selectedKeys.size === 1 ? Array.from(selectedKeys)[0] : null;
+            const keyOv = singleKey ? slot.perKeyOverrides?.[singleKey] : null;
+            const displayAct = keyOv ? keyOv.act : (slot.actuationMm ?? 1.2);
+            const displayRt = keyOv ? !!keyOv.rt : !!slot.rtEnabled;
+            const displayDown = keyOv ? keyOv.down : (slot.rtDownMm ?? 0.3);
+            const displayUp = keyOv ? keyOv.up : (slot.rtUpMm ?? 0.3);
+
+            const rngAct = document.getElementById("rngActuation");
+            if (rngAct) {
+              rngAct.value = displayAct;
+              updateRangeFill(rngAct);
+              updateActuationVisuals(displayAct);
+            }
+            const chkRt = document.getElementById("chkRapidTrigger");
+            if (chkRt) chkRt.checked = displayRt;
+            syncSwitchTile("tileRtEnable", displayRt);
+
+            const rngDown = document.getElementById("rngRtDown");
+            if (rngDown) {
+              rngDown.value = displayDown;
+              updateRangeFill(rngDown);
+              document.getElementById("valRtDown").textContent = `${Number(displayDown).toFixed(2)} mm`;
+              document.getElementById("valRtDownText").textContent = `${Number(displayDown).toFixed(2)} mm`;
+            }
+            const rngUp = document.getElementById("rngRtUp");
+            if (rngUp) {
+              rngUp.value = displayUp;
+              updateRangeFill(rngUp);
+              document.getElementById("valRtUp").textContent = `${Number(displayUp).toFixed(2)} mm`;
+            }
+            updateActuationPresetHighlight(displayAct, displayRt);
+            updateSelectionScopeBadge();
+            renderKeyboardMatrix();
+          });
+
+          rowEl.appendChild(keyEl);
+        });
+        container.appendChild(rowEl);
+      });
+      container.dataset.built = "true";
+    }
+
+    updateChromaVisuals();
+
+    const slot = getActiveSlotData();
     const globalAct = Number(slot.actuationMm ?? 1.2).toFixed(1);
     const globalRt = !!slot.rtEnabled;
     const overrides = slot.perKeyOverrides || {};
@@ -786,100 +903,22 @@
     const snapB = slot.snapKeyB || "D";
     const bindings = slot.keyBindings?.[kbdActiveLayer] || {};
 
-    TKL_ROWS.forEach((row) => {
-      const rowEl = document.createElement("div");
-      rowEl.className = "kbd-row";
-      row.forEach((k, colIdx) => {
-        if (k.spacer) {
-          const sp = document.createElement("div");
-          sp.className = "kbd-spacer";
-          rowEl.appendChild(sp);
-          return;
-        }
-        const keyEl = document.createElement("button");
-        keyEl.type = "button";
-        keyEl.className = "keycap";
-        keyEl.style.setProperty("--col-idx", String(colIdx));
-        if (k.w && k.w !== 1) keyEl.style.width = `${Math.round(k.w * 44 + (k.w - 1) * 5)}px`;
-        if (k.hidden) {
-          keyEl.style.visibility = "hidden";
-          rowEl.appendChild(keyEl);
-          return;
-        }
+    container.querySelectorAll(".keycap[data-key]").forEach((keyEl) => {
+      const keyId = keyEl.dataset.key;
+      const ov = overrides[keyId];
+      const actVal = ov ? Number(ov.act).toFixed(1) : globalAct;
+      const rtVal = ov ? !!ov.rt : globalRt;
+      const boundFunc = bindings[keyId];
 
-        const keyId = k.label;
-        const ov = overrides[keyId];
-        const actVal = ov ? Number(ov.act).toFixed(1) : globalAct;
-        const rtVal = ov ? !!ov.rt : globalRt;
-        const boundFunc = bindings[keyId];
+      keyEl.classList.toggle("selected", selectedKeys.has(keyId));
+      keyEl.classList.toggle("has-override", !!ov);
+      keyEl.classList.toggle("snap-key", snapOn && (keyId === snapA || keyId === snapB));
+      keyEl.classList.toggle("remapped-key", !!(boundFunc && boundFunc !== "Default"));
 
-        if (selectedKeys.has(keyId)) keyEl.classList.add("selected");
-        if (ov) keyEl.classList.add("has-override");
-        if (snapOn && (keyId === snapA || keyId === snapB)) keyEl.classList.add("snap-key");
-        if (boundFunc && boundFunc !== "Default") keyEl.classList.add("remapped-key");
-
-        keyEl.innerHTML = `
-          <span class="keycap-label">${keyId}</span>
-          <span class="keycap-meta">
-            <span>${actVal}</span>
-            ${rtVal ? `<span class="keycap-rt-dot">RT</span>` : ""}
-          </span>
-        `;
-
-        keyEl.addEventListener("click", (ev) => {
-          if (ev.ctrlKey || ev.metaKey || ev.shiftKey) {
-            if (selectedKeys.has(keyId)) selectedKeys.delete(keyId);
-            else selectedKeys.add(keyId);
-          } else {
-            if (selectedKeys.size === 1 && selectedKeys.has(keyId)) selectedKeys.clear();
-            else {
-              selectedKeys.clear();
-              selectedKeys.add(keyId);
-            }
-          }
-          focusedRemapKey = keyId;
-          const remapIn = document.getElementById("txtRemapTargetKey");
-          if (remapIn) remapIn.value = keyId;
-          syncRemapControlsForFocusedKey();
-
-          const singleKey = selectedKeys.size === 1 ? Array.from(selectedKeys)[0] : null;
-          const keyOv = singleKey ? slot.perKeyOverrides?.[singleKey] : null;
-          const displayAct = keyOv ? keyOv.act : (slot.actuationMm ?? 1.2);
-          const displayRt = keyOv ? !!keyOv.rt : !!slot.rtEnabled;
-          const displayDown = keyOv ? keyOv.down : (slot.rtDownMm ?? 0.3);
-          const displayUp = keyOv ? keyOv.up : (slot.rtUpMm ?? 0.3);
-
-          const rngAct = document.getElementById("rngActuation");
-          if (rngAct) {
-            rngAct.value = displayAct;
-            updateRangeFill(rngAct);
-            updateActuationVisuals(displayAct);
-          }
-          const chkRt = document.getElementById("chkRapidTrigger");
-          if (chkRt) chkRt.checked = displayRt;
-          syncSwitchTile("tileRtEnable", displayRt);
-
-          const rngDown = document.getElementById("rngRtDown");
-          if (rngDown) {
-            rngDown.value = displayDown;
-            updateRangeFill(rngDown);
-            document.getElementById("valRtDown").textContent = `${Number(displayDown).toFixed(2)} mm`;
-            document.getElementById("valRtDownText").textContent = `${Number(displayDown).toFixed(2)} mm`;
-          }
-          const rngUp = document.getElementById("rngRtUp");
-          if (rngUp) {
-            rngUp.value = displayUp;
-            updateRangeFill(rngUp);
-            document.getElementById("valRtUp").textContent = `${Number(displayUp).toFixed(2)} mm`;
-          }
-          updateActuationPresetHighlight(displayAct, displayRt);
-          updateSelectionScopeBadge();
-          renderKeyboardMatrix();
-        });
-
-        rowEl.appendChild(keyEl);
-      });
-      container.appendChild(rowEl);
+      const actEl = keyEl.querySelector(".keycap-act-val");
+      if (actEl && actEl.textContent !== actVal) actEl.textContent = actVal;
+      const rtEl = keyEl.querySelector(".keycap-rt-dot");
+      if (rtEl) rtEl.hidden = !rtVal;
     });
   }
 
@@ -1707,32 +1746,21 @@
     });
 
     // Chroma Lighting
-    const sendChroma = (effectOverride, hexColorOverride) => {
+    const sendChroma = (effect, hexColor) => {
       const slot = getActiveSlotData();
-      if (!slot.lighting) slot.lighting = { effect: "static", color1: "#00e676", brightness: 100, speed: 2, waveDirection: 1 };
-      const effect = effectOverride || slot.lighting.effect || "static";
-      const hexColor = hexColorOverride || slot.lighting.color1 || "#00e676";
+      if (!slot.lighting) slot.lighting = { effect: "static", color1: "#00e676", brightness: 100 };
       slot.lighting.effect = effect;
       slot.lighting.color1 = hexColor;
-      if (slot.lighting.brightness === undefined) slot.lighting.brightness = 100;
-      if (!slot.lighting.speed) slot.lighting.speed = 2;
-      if (!slot.lighting.waveDirection) slot.lighting.waveDirection = 1;
-
-      renderKeyboardMatrix();
-      renderOverviewPanels();
-
+      if (slot.lighting.brightness === undefined) slot.lighting.brightness = Number(document.getElementById("rngBrightness")?.value ?? 100);
+      updateChromaVisuals();
       const num = parseInt(hexColor.replace("#", ""), 16) || 0x00e676;
-      const activeSlotId = Number(getActiveDeviceProfileObj().activeSlot || 1);
       const pkt = Protocol25.Builders.setChromaEffect({
         effect,
         r: (num >> 16) & 0xff,
         g: (num >> 8) & 0xff,
         b: num & 0xff,
-        speed: slot.lighting.speed,
-        direction: slot.lighting.waveDirection,
-        varStore: activeSlotId,
       });
-      sendPacket90(pkt, `Chroma (${effect}, ${hexColor})`, { lighting: slot.lighting });
+      sendPacket90(pkt, `Chroma (${effect})`, { lighting: slot.lighting });
     };
 
     document.querySelectorAll("#effectGrid .preset-btn").forEach((btn) => {
@@ -1763,12 +1791,12 @@
       document.querySelectorAll("#swatchRow .swatch").forEach((s) => {
         s.classList.toggle("active", (s.dataset.color || "").toLowerCase() === c.toLowerCase());
       });
-      renderKeyboardMatrix();
+      updateChromaVisuals();
       clearTimeout(chromaColorTimer);
       chromaColorTimer = setTimeout(() => {
         const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
         sendChroma(activeEff, c);
-      }, 90);
+      }, 45);
     });
 
     document.getElementById("inpChromaColor")?.addEventListener("change", (ev) => {
@@ -1777,47 +1805,32 @@
       sendChroma(activeEff, ev.target.value);
     });
 
-    document.querySelectorAll("#chromaDirGroup [data-chroma-dir]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        document.querySelectorAll("#chromaDirGroup [data-chroma-dir]").forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
-        const slot = getActiveSlotData();
-        if (!slot.lighting) slot.lighting = {};
-        slot.lighting.waveDirection = Number(btn.dataset.chromaDir) || 1;
-        sendChroma();
-      });
-    });
-
-    document.querySelectorAll("#chromaSpeedGroup [data-chroma-speed]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        document.querySelectorAll("#chromaSpeedGroup [data-chroma-speed]").forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
-        const slot = getActiveSlotData();
-        if (!slot.lighting) slot.lighting = {};
-        slot.lighting.speed = Number(btn.dataset.chromaSpeed) || 2;
-        sendChroma();
-      });
-    });
-
     const rngBr = document.getElementById("rngBrightness");
+    let brTimer = null;
     rngBr?.addEventListener("input", () => {
       updateRangeFill(rngBr);
-      document.getElementById("valBrightness").textContent = `${rngBr.value}%`;
-      document.getElementById("valBrightnessOut").textContent = `${rngBr.value}%`;
+      const pct = Number(rngBr.value);
+      document.getElementById("valBrightness").textContent = `${pct}%`;
+      document.getElementById("valBrightnessOut").textContent = `${pct}%`;
       const slot = getActiveSlotData();
       if (!slot.lighting) slot.lighting = {};
-      slot.lighting.brightness = Number(rngBr.value);
-      renderKeyboardMatrix();
+      slot.lighting.brightness = pct;
+      updateChromaVisuals();
+      clearTimeout(brTimer);
+      brTimer = setTimeout(() => {
+        sendPacket90(Protocol25.Builders.setBrightness(Math.round((pct / 100) * 255)), `Brightness ${pct}%`, { lighting: slot.lighting });
+      }, 45);
     });
-    rngBr?.addEventListener("change", () => {
+    rngBr?.addEventListener("change", async () => {
+      clearTimeout(brTimer);
+      const pct = Number(rngBr.value);
       const slot = getActiveSlotData();
       if (!slot.lighting) slot.lighting = {};
-      slot.lighting.brightness = Number(rngBr.value);
-      renderKeyboardMatrix();
-      renderOverviewPanels();
-      const activeSlotId = Number(getActiveDeviceProfileObj().activeSlot || 1);
-      const pkt = Protocol25.Builders.setBrightness(Number(rngBr.value), 0x00, activeSlotId);
-      sendPacket90(pkt, `Brightness ${rngBr.value}%`, { lighting: slot.lighting });
+      slot.lighting.brightness = pct;
+      updateChromaVisuals();
+      await sendPacket90(Protocol25.Builders.setBrightness(Math.round((pct / 100) * 255)), `Brightness ${pct}%`, { lighting: slot.lighting });
+      const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || slot.lighting.effect || "static";
+      sendChroma(activeEff, document.getElementById("inpChromaColor").value);
     });
 
     // Keyboard Polling Rate
