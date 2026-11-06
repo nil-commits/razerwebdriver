@@ -3,639 +3,1032 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Razer Local Web Driver — Offline Hardware Control</title>
+  <title>Razer Web Hub</title>
   <style>
     :root {
-      --bg-0: #090b0e;
-      --bg-1: #11151c;
-      --bg-2: #181e27;
-      --bg-3: #222b38;
-      --border: #283241;
-      --text: #e6edf3;
-      --muted: #8b949e;
-      --accent: #00ff66;
-      --accent-dim: rgba(0, 255, 102, 0.14);
-      --cyan: #00d4ff;
-      --warn: #ffb020;
-      --danger: #ff4d4d;
-      --radius: 10px;
-      --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      --font-mono: "Cascadia Code", "Consolas", "SFMono-Regular", monospace;
+      --bg-base: #0a0c10;
+      --bg-surface: #11141b;
+      --bg-elevated: #171b24;
+      --bg-hover: #1e2330;
+      --border: rgba(255, 255, 255, 0.07);
+      --border-strong: rgba(255, 255, 255, 0.14);
+      --text-primary: #f3f5f8;
+      --text-secondary: #949a1;
+      --text-muted: #646b78;
+      --accent: #00e676;
+      --accent-soft: rgba(0, 230, 118, 0.12);
+      --accent-glow: rgba(0, 230, 118, 0.28);
+      --amber: #ffb300;
+      --amber-soft: rgba(255, 179, 0, 0.14);
+      --cyan: #00d2ff;
+      --cyan-soft: rgba(0, 210, 255, 0.14);
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
+      --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-mono: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
     body {
-      background: var(--bg-0);
-      color: var(--text);
+      background: radial-gradient(circle at 50% 0%, #141923 0%, var(--bg-base) 65%);
+      color: var(--text-primary);
       font-family: var(--font-sans);
-      min-height: 100vh;
+      height: 100vh;
+      overflow: hidden;
       display: flex;
       flex-direction: column;
+      -webkit-font-smoothing: antialiased;
     }
-    header {
-      background: var(--bg-1);
-      border-bottom: 1px solid var(--border);
-      padding: 14px 24px;
+
+    /* TOP BAR (Wootility / MCHOSE Hub style) */
+    .topbar {
+      height: 62px;
+      padding: 0 28px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
-      flex-wrap: wrap;
+      border-bottom: 1px solid var(--border);
+      background: rgba(10, 12, 16, 0.75);
+      backdrop-filter: blur(16px);
+      z-index: 20;
     }
+
     .brand {
       display: flex;
       align-items: center;
       gap: 12px;
     }
-    .brand-dot {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: var(--accent);
-      box-shadow: 0 0 12px var(--accent);
+    .brand-logo {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #00e676, #00b0ff);
+      display: grid;
+      place-items: center;
+      color: #050807;
+      font-weight: 900;
+      font-size: 0.9rem;
+      box-shadow: 0 0 18px rgba(0, 230, 118, 0.25);
     }
-    .brand h1 {
-      font-size: 1.05rem;
+    .brand-title {
       font-weight: 700;
-      letter-spacing: 0.02em;
+      font-size: 0.96rem;
+      letter-spacing: -0.01em;
     }
-    .brand span {
-      font-size: 0.78rem;
-      color: var(--muted);
-      background: var(--bg-2);
-      border: 1px solid var(--border);
-      padding: 2px 8px;
+    .brand-sub {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      font-weight: 500;
+      margin-left: 4px;
+    }
+
+    /* DEVICE SWITCHER PILLS */
+    .device-switcher {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-surface);
+      padding: 4px;
       border-radius: 999px;
+      border: 1px solid var(--border);
     }
-    .header-actions {
+    .dev-pill {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 7px 16px;
+      border-radius: 999px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.18s ease;
+    }
+    .dev-pill:hover {
+      color: var(--text-primary);
+    }
+    .dev-pill.active {
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35), inset 0 0 0 1px var(--border-strong);
+    }
+    .dev-pill .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--text-muted);
+    }
+    .dev-pill.active .dot {
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+    }
+
+    /* TOP RIGHT STATUS & ACTIONS */
+    .top-actions {
       display: flex;
       align-items: center;
       gap: 10px;
-      flex-wrap: wrap;
     }
-    .badge {
+    .status-chip {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
       font-size: 0.75rem;
-      padding: 4px 10px;
-      border-radius: 6px;
-      background: var(--bg-2);
-      border: 1px solid var(--border);
-      color: var(--muted);
-      font-family: var(--font-mono);
+      color: #9ba3b0;
+      font-weight: 500;
     }
-    .badge.ok {
-      color: var(--accent);
-      border-color: rgba(0, 255, 102, 0.35);
-      background: var(--accent-dim);
+    .status-chip .pulse {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
     }
-    button {
-      background: var(--bg-2);
-      color: var(--text);
+    .btn-ghost {
+      background: var(--bg-surface);
+      color: var(--text-primary);
       border: 1px solid var(--border);
-      padding: 7px 14px;
-      border-radius: 7px;
-      font-size: 0.83rem;
+      padding: 7px 13px;
+      border-radius: 999px;
+      font-size: 0.76rem;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.15s ease;
     }
-    button:hover {
-      border-color: var(--accent);
-      background: var(--bg-3);
+    .btn-ghost:hover {
+      border-color: var(--border-strong);
+      background: var(--bg-elevated);
     }
-    button.primary {
-      background: var(--accent);
-      color: #041208;
-      border-color: var(--accent);
-    }
-    button.primary:hover {
-      filter: brightness(1.1);
-    }
-    .layout {
-      display: grid;
-      grid-template-columns: 290px 1fr;
+
+    /* WORKSPACE: STAGE TOP + DOCK BOTTOM */
+    .workspace {
       flex: 1;
-      min-height: 0;
-    }
-    aside {
-      background: var(--bg-1);
-      border-right: 1px solid var(--border);
-      padding: 18px;
       display: flex;
       flex-direction: column;
-      gap: 18px;
+      min-height: 0;
+      position: relative;
     }
-    .section-label {
-      font-size: 0.72rem;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--muted);
-      font-weight: 700;
-      margin-bottom: 8px;
+
+    /* HERO VISUAL STAGE */
+    .stage {
+      flex: 1;
+      min-height: 250px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px 32px 12px;
+      position: relative;
     }
-    .device-card {
-      background: var(--bg-2);
+
+    .stage-meta {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 14px;
+      font-size: 0.76rem;
+      color: #8c95a4;
+    }
+    .stage-meta span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.03);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 12px;
+      padding: 4px 11px;
+      border-radius: 999px;
+    }
+    .stage-meta strong {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    /* INTERACTIVE TKL KEYBOARD (Wootility-inspired) */
+    .kbd-chassis {
+      background: linear-gradient(180deg, #191d26 0%, #101319 100%);
+      padding: 16px 18px 18px;
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65), 0 0 40px var(--kbd-glow, rgba(0, 230, 118, 0.08));
+      display: flex;
+      gap: 14px;
+      transition: box-shadow 0.3s ease;
+    }
+    .kbd-main-block, .kbd-nav-block {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .kbd-row {
+      display: flex;
+      gap: 5px;
+    }
+    .kbd-row.fn-row {
+      margin-bottom: 5px;
+    }
+    .keycap {
+      height: 36px;
+      width: calc(var(--u, 1) * 36px + (var(--u, 1) - 1) * 5px);
+      background: #181c24;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-bottom: 3px solid #0b0d12;
+      border-radius: 6px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.65rem;
+      font-weight: 600;
+      color: var(--key-color, #d8dee9);
+      position: relative;
       cursor: pointer;
-      transition: all 0.15s ease;
-      margin-bottom: 8px;
+      transition: transform 0.08s ease, border-color 0.15s ease, box-shadow 0.2s ease;
+      box-shadow: inset 0 0 10px var(--key-glow, rgba(0, 230, 118, 0.08));
     }
-    .device-card.active {
+    .keycap:hover {
+      transform: translateY(-1px);
+      border-color: rgba(255, 255, 255, 0.28);
+    }
+    .keycap.selected {
       border-color: var(--accent);
-      box-shadow: inset 3px 0 0 var(--accent);
+      box-shadow: 0 0 12px var(--accent-glow), inset 0 0 8px var(--accent-soft);
     }
-    .device-card .dev-title {
-      font-weight: 700;
-      font-size: 0.9rem;
+    .keycap.snaptap-key {
+      border-color: var(--amber) !important;
+      box-shadow: 0 0 12px rgba(255, 179, 0, 0.35), inset 0 0 10px rgba(255, 179, 0, 0.18) !important;
+    }
+    .keycap .k-sub {
+      font-size: 0.52rem;
+      font-family: var(--font-mono);
+      color: #8b949e;
+      margin-top: 1px;
+    }
+    .key-spacer {
+      width: calc(var(--u, 1) * 36px);
+    }
+
+    /* INTERACTIVE VIPER V3 PRO MOUSE STAGE */
+    .mouse-stage {
+      display: flex;
+      align-items: center;
+      gap: 42px;
+    }
+    .mouse-shell {
+      width: 148px;
+      height: 246px;
+      background: linear-gradient(180deg, #1d222d 0%, #11141c 100%);
+      border: 1.5px solid rgba(255, 255, 255, 0.13);
+      border-radius: 68px 68px 58px 58px;
+      position: relative;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65), 0 0 35px rgba(0, 230, 118, 0.08);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .mouse-buttons {
+      width: 100%;
+      height: 92px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    }
+    .mouse-btn-l { border-right: 1px solid rgba(255, 255, 255, 0.07); }
+    .mouse-wheel {
+      position: absolute;
+      top: 26px;
+      width: 16px;
+      height: 42px;
+      border-radius: 999px;
+      background: #0d1016;
+      border: 1.5px solid var(--accent);
+      box-shadow: 0 0 10px var(--accent-glow);
+    }
+    .mouse-logo {
+      margin-top: auto;
+      margin-bottom: 38px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 14px var(--accent);
+    }
+    .mouse-Side-pills {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .mouse-metric-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 12px 18px;
+      min-width: 195px;
+    }
+    .mouse-metric-card .m-label {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
       margin-bottom: 4px;
     }
-    .device-card .dev-meta {
-      font-size: 0.75rem;
-      color: var(--muted);
+    .mouse-metric-card .m-val {
+      font-size: 1.3rem;
+      font-weight: 700;
       font-family: var(--font-mono);
+      color: var(--text-primary);
     }
-    .nav-tabs {
+
+    /* BOTTOM INSPECTOR DOCK (Wootility / Corsair Web Hub style) */
+    .dock {
+      height: 335px;
+      background: var(--bg-surface);
+      border-top: 1px solid var(--border);
       display: flex;
       flex-direction: column;
+      z-index: 15;
+    }
+
+    .dock-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 28px;
+      height: 48px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(17, 20, 27, 0.9);
+    }
+    .dock-tabs {
+      display: flex;
       gap: 6px;
+      height: 100%;
     }
-    .nav-tab {
-      text-align: left;
-      padding: 9px 12px;
-      border-radius: 7px;
+    .dock-tab {
       background: transparent;
-      border: 1px solid transparent;
-      color: var(--muted);
+      border: none;
+      color: #8b949e;
+      font-size: 0.82rem;
       font-weight: 600;
+      padding: 0 16px;
+      height: 100%;
+      cursor: pointer;
+      position: relative;
+      transition: color 0.15s ease;
     }
-    .nav-tab:hover {
-      color: var(--text);
-      background: var(--bg-2);
+    .dock-tab:hover {
+      color: var(--text-primary);
     }
-    .nav-tab.active {
+    .dock-tab.active {
       color: var(--accent);
-      background: var(--accent-dim);
-      border-color: rgba(0, 255, 102, 0.35);
     }
-    main {
-      padding: 24px;
+    .dock-tab.active::after {
+      content: "";
+      position: absolute;
+      bottom: 0;
+      left: 12px;
+      right: 12px;
+      height: 2px;
+      border-radius: 2px;
+      background: var(--accent);
+      box-shadow: 0 0 10px var(--accent);
+    }
+
+    .dock-status {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.76rem;
+      color: #8b949e;
+    }
+    .save-toast {
+      color: var(--accent);
+      font-weight: 600;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    .save-toast.show {
+      opacity: 1;
+    }
+
+    .dock-content {
+      flex: 1;
+      padding: 22px 28px;
       overflow-y: auto;
       display: flex;
-      flex-direction: column;
-      gap: 20px;
+      justify-content: center;
     }
-    .grid-2 {
+    .panel {
+      width: 100%;
+      max-width: 1120px;
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-      gap: 18px;
+      grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+      gap: 20px;
+      align-items: start;
     }
-    .card {
-      background: var(--bg-1);
+
+    .module-card {
+      background: var(--bg-elevated);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 18px;
+      border-radius: var(--radius-md);
+      padding: 18px 20px;
       display: flex;
       flex-direction: column;
       gap: 14px;
     }
-    .card h2 {
-      font-size: 0.98rem;
+    .module-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .module-title {
+      font-size: 0.88rem;
       font-weight: 700;
+      color: var(--text-primary);
+    }
+    .module-badge {
+      font-size: 0.72rem;
+      font-family: var(--font-mono);
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .module-badge.amber {
+      background: var(--amber-soft);
+      color: var(--amber);
+    }
+    .module-desc {
+      font-size: 0.76rem;
+      color: #8c95a4;
+      line-height: 1.45;
+    }
+
+    /* SLIDERS & PRESETS */
+    .slider-block {
       display: flex;
-      align-items: center;
-      justify-content: space-between;
+      flex-direction: column;
+      gap: 7px;
     }
-    .card p.desc {
-      font-size: 0.8rem;
-      color: var(--muted);
-      line-height: 1.4;
-    }
-    .control-row {
+    .slider-top {
       display: flex;
-      align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      padding: 6px 0;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      font-size: 0.79rem;
     }
-    .control-row:last-child { border-bottom: none; }
-    .control-row label {
-      font-size: 0.84rem;
+    .slider-top span:first-child {
+      color: #c9d1d9;
       font-weight: 500;
     }
-    .control-row .val {
+    .slider-top .s-val {
       font-family: var(--font-mono);
-      font-size: 0.82rem;
+      font-weight: 700;
       color: var(--accent);
-      min-width: 58px;
-      text-align: right;
     }
     input[type="range"] {
-      flex: 1;
-      accent-color: var(--accent);
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 6px;
+      background: #0d1016;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      outline: none;
       cursor: pointer;
     }
-    input[type="color"] {
-      width: 44px;
-      height: 30px;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      background: var(--bg-2);
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 10px var(--accent-glow);
       cursor: pointer;
+      transition: transform 0.1s ease;
     }
-    select, input[type="number"], input[type="text"] {
-      background: var(--bg-2);
-      color: var(--text);
-      border: 1px solid var(--border);
-      padding: 6px 10px;
-      border-radius: 6px;
-      font-size: 0.83rem;
-      font-family: var(--font-mono);
+    input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.15);
     }
-    .pill-group {
+
+    /* WOOTILITY-STYLE SWITCH STEM TRAVEL VISUALIZER */
+    .stem-gauge {
       display: flex;
-      flex-wrap: wrap;
+      align-items: center;
+      gap: 16px;
+      background: #10131a;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 16px;
+    }
+    .stem-track {
+      width: 34px;
+      height: 92px;
+      background: #090b0f;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 6px;
+      position: relative;
+      overflow: hidden;
+    }
+    .stem-fill {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 30%;
+      background: linear-gradient(180deg, rgba(0, 230, 118, 0.35), rgba(0, 230, 118, 0.75));
+      border-bottom: 2px solid var(--accent);
+      transition: height 0.15s ease;
+    }
+    .stem-scale {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      height: 92px;
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      color: var(--text-muted);
+    }
+
+    /* PRESET GRID / EFFECT CARDS */
+    .preset-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
       gap: 8px;
     }
-    .pill {
-      padding: 6px 12px;
-      border-radius: 6px;
-      font-size: 0.8rem;
-    }
-    .pill.active {
-      background: var(--accent);
-      color: #041208;
-      border-color: var(--accent);
-    }
-    .hex-box {
-      background: #06080a;
+    .preset-btn {
+      background: #11141c;
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 12px;
-      font-family: var(--font-mono);
-      font-size: 0.75rem;
-      line-height: 1.55;
-      color: #9cdcfe;
-      overflow-x: auto;
-      white-space: pre-wrap;
-      word-break: break-all;
+      padding: 9px 10px;
+      color: #c9d1d9;
+      font-size: 0.76rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.15s ease;
     }
-    .log-list {
+    .preset-btn:hover {
+      background: var(--bg-hover);
+      border-color: var(--border-strong);
+    }
+    .preset-btn.active {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* COLOR SWATCHES */
+    .swatch-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .swatch {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.15);
+      cursor: pointer;
+      transition: transform 0.12s ease;
+    }
+    .swatch:hover { transform: scale(1.12); }
+    .swatch.active {
+      border-color: #fff;
+      box-shadow: 0 0 10px currentColor;
+    }
+    input[type="color"] {
+      width: 30px;
+      height: 28px;
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      background: transparent;
+      cursor: pointer;
+    }
+
+    /* TOGGLE SWITCH */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 0;
+    }
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 40px;
+      height: 22px;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .switch-slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background: #0d1016;
+      border: 1px solid var(--border-strong);
+      border-radius: 999px;
+      transition: 0.2s;
+    }
+    .switch-slider::before {
+      position: absolute;
+      content: "";
+      height: 14px;
+      width: 14px;
+      left: 3px;
+      bottom: 3px;
+      background: #8b949e;
+      border-radius: 50%;
+      transition: 0.2s;
+    }
+    .switch input:checked + .switch-slider {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+    }
+    .switch input:checked + .switch-slider::before {
+      transform: translateX(18px);
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+    }
+
+    /* SNAP TAP PAIR VISUAL */
+    .snaptap-pair {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      padding: 10px;
+      background: #10131a;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .snaptap-keybox {
+      width: 48px;
+      height: 48px;
+      background: #181c24;
+      border: 1.5px solid var(--amber);
+      border-radius: 8px;
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 1.05rem;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    /* PROTOCOL DRAWER (Hidden by default for clean UX) */
+    .drawer {
+      position: fixed;
+      top: 62px;
+      right: 0;
+      bottom: 0;
+      width: 460px;
+      background: rgba(15, 18, 25, 0.97);
+      backdrop-filter: blur(20px);
+      border-left: 1px solid var(--border-strong);
+      z-index: 50;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      transform: translateX(100%);
+      transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .drawer.open {
+      transform: translateX(0);
+    }
+    .log-feed {
+      flex: 1;
+      overflow-y: auto;
       display: flex;
       flex-direction: column;
       gap: 8px;
-      max-height: 340px;
-      overflow-y: auto;
-    }
-    .log-item {
-      background: #07090c;
-      border: 1px solid var(--border);
-      border-radius: 7px;
-      padding: 10px;
       font-family: var(--font-mono);
-      font-size: 0.74rem;
+      font-size: 0.7rem;
     }
-    .log-item .log-head {
-      display: flex;
-      justify-content: space-between;
-      color: var(--muted);
-      margin-bottom: 4px;
+    .log-card {
+      background: #080a0e;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 11px;
+      line-height: 1.45;
     }
-    .log-item .tx { color: var(--accent); }
-    .log-item .rx { color: var(--cyan); }
+    .log-card .tx { color: var(--accent); word-break: break-all; }
+    .log-card .rx { color: var(--cyan); word-break: break-all; }
+
     .hidden { display: none !important; }
-    @media (max-width: 860px) {
-      .layout { grid-template-columns: 1fr; }
-      aside { border-right: none; border-bottom: 1px solid var(--border); }
-    }
   </style>
 </head>
 <body>
-  <header>
+  <!-- TOP NAVIGATION BAR -->
+  <header class="topbar">
     <div class="brand">
-      <div class="brand-dot"></div>
-      <h1>RAZER LOCAL WEB DRIVER</h1>
-      <span>Protocol 25 • Zero Cloud / Zero Telemetry</span>
+      <div class="brand-logo">R</div>
+      <div>
+        <span class="brand-title">Razer Web Hub</span>
+        <span class="brand-sub">Local Protocol 25 Driver</span>
+      </div>
     </div>
-    <div class="header-actions">
-      <span id="badgeRuntime" class="badge">Connecting...</span>
-      <span id="badgeTransport" class="badge">Transport:Checking</span>
-      <button id="btnWebHid" title="Connect directly from Chromium/Edge/Chrome via WebHID (VID 0x1532)">
-        Connect Browser WebHID (0x1532)
-      </button>
-      <button id="btnRefresh">Refresh Hardware</button>
+
+    <!-- Connected Device Switcher -->
+    <div class="device-switcher" id="deviceSwitcher"></div>
+
+    <div class="top-actions">
+      <div class="status-chip" id="transportChip">
+        <span class="pulse"></span>
+        <span id="transportLabel">Local Native HID</span>
+      </div>
+      <button class="btn-ghost" id="btnWebHid" title="Direct Browser WebHID connection">WebHID</button>
+      <button class="btn-ghost" id="btnToggleDrawer" title="Inspect raw 91-byte Protocol 25 packets">&lt;/&gt; Inspector</button>
     </div>
   </header>
 
-  <div class="layout">
-    <aside>
-      <div>
-        <div class="section-label">Detected Razer Hardware</div>
-        <div id="deviceList"></div>
+  <div class="workspace">
+    <!-- INTERACTIVE DEVICE STAGE -->
+    <section class="stage">
+      <div class="stage-meta">
+        <span>Device <strong id="metaName">Razer Huntsman V3 Pro Tenkeyless</strong></span>
+        <span>PID <strong id="metaPid">0x02A7</strong></span>
+        <span>Firmware <strong id="metaFw">v1.04.00</strong></span>
+        <span>Mode <strong id="metaMode">Onboard Memory</strong></span>
       </div>
 
-      <div>
-        <div class="section-label">Driver Modules</div>
-        <div class="nav-tabs">
-          <button class="nav-tab active" data-tab="tab-lighting">Chroma &amp; Matrix Lighting</button>
-          <button class="nav-tab" data-tab="tab-huntsman">Analog &amp; Rapid Trigger (V3 Pro)</button>
-          <button class="nav-tab" data-tab="tab-mouse">Mouse DPI, Polling &amp; Power</button>
-          <button class="nav-tab" data-tab="tab-mapping">Mapping Engine &amp; Audio</button>
-          <button class="nav-tab" data-tab="tab-protocol">Protocol 25 Packet Studio</button>
+      <!-- KEYBOARD VISUALIZER (Shown when Keyboard is active) -->
+      <div id="keyboardStage" class="kbd-chassis">
+        <div class="kbd-main-block" id="kbdMainRows"></div>
+        <div class="kbd-nav-block" id="kbdNavRows"></div>
+      </div>
+
+      <!-- MOUSE VISUALIZER (Shown when Mouse is active) -->
+      <div id="mouseStage" class="mouse-stage hidden">
+        <div class="mouse-Side-pills">
+          <div class="mouse-metric-card">
+            <div class="m-label">Active Sensitivity</div>
+            <div class="m-val" id="stageDpiVal">1600 DPI</div>
+          </div>
+          <div class="mouse-metric-card">
+            <div class="m-label">HyperPolling Rate</div>
+            <div class="m-val" id="stagePollVal">1000 Hz</div>
+          </div>
+        </div>
+
+        <div class="mouse-shell" id="mouseVisual">
+          <div class="mouse-buttons">
+            <div class="mouse-btn-l"></div>
+            <div class="mouse-btn-r"></div>
+          </div>
+          <div class="mouse-wheel" id="mouseWheelGlow"></div>
+          <div class="mouse-logo" id="mouseLogoGlow"></div>
+        </div>
+
+        <div class="mouse-Side-pills">
+          <div class="mouse-metric-card">
+            <div class="m-label">Wireless Link</div>
+            <div class="m-val" style="color:var(--accent);">Dongle 0xFF</div>
+          </div>
+          <div class="mouse-metric-card">
+            <div class="m-label">Firmware</div>
+            <div class="m-val" id="stageMouseFw">v1.11.00</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CONTEXTUAL BOTTOM DOCK -->
+    <section class="dock">
+      <div class="dock-nav">
+        <div class="dock-tabs" id="dockTabs">
+          <button class="dock-tab active" data-panel="panel-actuation" data-for="keyboard">Actuation &amp; Rapid Trigger</button>
+          <button class="dock-tab" data-panel="panel-snaptap" data-for="keyboard">Snap Tap (SOCD)</button>
+          <button class="dock-tab" data-panel="panel-dpi" data-for="mouse">DPI &amp; Polling</button>
+          <button class="dock-tab" data-panel="panel-lighting" data-for="all">Lighting</button>
+          <button class="dock-tab" data-panel="panel-system" data-for="all">Device &amp; Mode</button>
+        </div>
+        <div class="dock-status">
+          <span id="saveToast" class="save-toast">✓ Synced to Hardware</span>
+          <span>Zero Cloud • 127.0.0.1</span>
         </div>
       </div>
 
-      <div style="margin-top:auto;">
-        <div class="section-label">Bloat &amp; Telemetry Stripped</div>
-        <div style="font-size:0.75rem; color:var(--muted); line-height:1.5;">
-          ✓ No <code>apps.razer.com</code> remote UI<br/>
-          ✓ No Razer ID / Cloud Login<br/>
-          ✓ No Sentry crash telemetry<br/>
-          ✓ No GMS3 WMI process scanner
-        </div>
-      </div>
-    </aside>
-
-    <main>
-      <!-- TAB 1: CHROMA & LIGHTING -->
-      <section id="tab-lighting" class="tab-panel">
-        <div class="grid-2">
-          <div class="card">
-            <h2>
-              <span>Chroma Matrix Effect</span>
-              <span class="badge">Class 0x0F / Cmd 0x02</span>
-            </h2>
-            <p class="desc">
-              Directly programs the onboard lighting controller via 90-byte Protocol 25 feature reports without running Chroma Studio background services.
-            </p>
-            <div class="section-label">Effect Preset</div>
-            <div class="pill-group" id="effectGroup">
-              <button class="pill active" data-effect="static">Static RGB</button>
-              <button class="pill" data-effect="wave">Wave</button>
-              <button class="pill" data-effect="spectrum">Spectrum Cycle</button>
-              <button class="pill" data-effect="breathing">Breathing</button>
-              <button class="pill" data-effect="breathingDual">Dual Breathing</button>
-              <button class="pill" data-effect="reactive">Reactive</button>
-              <button class="pill" data-effect="starlight">Starlight</button>
-              <button class="pill" data-effect="off">LED Off</button>
+      <div class="dock-content">
+        <!-- PANEL 1: ACTUATION & RAPID TRIGGER (Wootility Style) -->
+        <div id="panel-actuation" class="panel">
+          <div class="module-card">
+            <div class="module-header">
+              <span class="module-title">Analog Actuation Point</span>
+              <span class="module-badge" id="badgeActuation">1.2 mm</span>
             </div>
-
-            <div class="control-row">
-              <label for="colorPrimary">Primary Color (RGB)</label>
-              <input type="color" id="colorPrimary" value="#00ff66" />
-            </div>
-            <div class="control-row">
-              <label for="colorSecondary">Secondary Color (Dual/Starlight)</label>
-              <input type="color" id="colorSecondary" value="#00aaff" />
-            </div>
-            <div class="control-row">
-              <label for="selWaveDir">Wave Direction</label>
-              <select id="selWaveDir">
-                <option value="1">Left → Right (0x01)</option>
-                <option value="2">Right → Left (0x02)</option>
-              </select>
-            </div>
-            <div class="control-row">
-              <label for="rngSpeed">Effect Speed</label>
-              <input type="range" id="rngSpeed" min="1" max="4" step="1" value="2" />
-              <span class="val" id="valSpeed">2</span>
-            </div>
-            <button class="primary" id="btnApplyLighting">Apply Chroma Effect to Hardware</button>
-          </div>
-
-          <div class="card">
-            <h2>
-              <span>Hardware Brightness &amp; Device Mode</span>
-              <span class="badge">Class 0x0F / 0x00</span>
-            </h2>
-            <p class="desc">
-              Control onboard LED matrix brightness (0–255) and toggle between Hardware Standalone Mode (<code>0x00</code>) and Driver Mode (<code>0x03</code>).
-            </p>
-            <div class="control-row">
-              <label for="rngBrightness">Matrix Brightness</label>
-              <input type="range" id="rngBrightness" min="0" max="100" value="100" />
-              <span class="val" id="valBrightness">100%</span>
-            </div>
-            <button id="btnApplyBrightness">Set Hardware Brightness</button>
-
-            <hr style="border:none; border-top:1px solid var(--border); margin:6px 0;" />
-
-            <div class="section-label">Operating Mode (Class 0x00, Cmd 0x04)</div>
-            <div class="pill-group">
-              <button id="btnModeNormal" class="pill active">Normal / Onboard Mode (0x00, 0x00)</button>
-              <button id="btnModeDriver" class="pill">Software Driver Mode (0x03, 0x00)</button>
-            </div>
-            <p class="desc" style="margin-top:4px;">
-              Your cached restore profile (<code>5426_679.json</code>) uses <code>[0,0,0,0,0,2,0,4,0...6,0]</code> to restore Huntsman V3 Pro TKL to standalone onboard mode on exit.
-            </p>
-            <button id="btnReplayRestore">Replay Saved Restore Packet (5426_679.json)</button>
-          </div>
-        </div>
-      </section>
-
-      <!-- TAB 2: HUNTSMAN V3 PRO TKL ANALOG & RAPID TRIGGER -->
-      <section id="tab-huntsman" class="tab-panel hidden">
-        <div class="grid-2">
-          <div class="card">
-            <h2>
-              <span>Analog Optical Actuation &amp; Rapid Trigger</span>
-              <span class="badge">PID 0x02A7 (679)</span>
-            </h2>
-            <p class="desc">
-              Configure Gen-2 Razer Analog Optical Switches on the Razer Huntsman V3 Pro TKL (0.1 mm – 4.0 mm actuation range).
-            </p>
-            <div class="control-row">
-              <label for="rngActuation">Actuation Point</label>
-              <input type="range" id="rngActuation" min="0.1" max="4.0" step="0.1" value="1.2" />
-              <span class="val" id="valActuation">1.2 mm</span>
-            </div>
-            <div class="control-row">
-              <label for="chkRapidTrigger">Rapid Trigger</label>
-              <input type="checkbox" id="chkRapidTrigger" checked />
-            </div>
-            <div class="control-row">
-              <label for="rngRtDown">Rapid Trigger Downstroke Sensitivity</label>
-              <input type="range" id="rngRtDown" min="0.1" max="2.0" step="0.1" value="0.3" />
-              <span class="val" id="valRtDown">0.3 mm</span>
-            </div>
-            <div class="control-row">
-              <label for="rngRtUp">Rapid Trigger Upstroke Reset</label>
-              <input type="range" id="rngRtUp" min="0.1" max="2.0" step="0.1" value="0.3" />
-              <span class="val" id="valRtUp">0.3 mm</span>
-            </div>
-            <div class="pill-group">
-              <button class="pill" data-act-preset="fps">FPS Competitive (0.4mm / RT 0.1mm)</button>
-              <button class="pill" data-act-preset="balanced">Balanced (1.2mm / RT 0.3mm)</button>
-              <button class="pill" data-act-preset="typing">Typing Safe (2.0mm / RT Off)</button>
-            </div>
-            <button class="primary" id="btnApplyHuntsman">Apply Actuation &amp; Rapid Trigger</button>
-          </div>
-
-          <div class="card">
-            <h2>
-              <span>Razer Snap Tap (SOCD) &amp; Game Mode</span>
-              <span class="badge">Firmware + Mapping Engine</span>
-            </h2>
-            <p class="desc">
-              Prioritizes the latest directional input between two opposing keys (default <code>A</code> + <code>D</code>) without releasing the previous key.
-            </p>
-            <div class="control-row">
-              <label for="chkSnapTap">Enable Snap Tap (Last Input Priority)</label>
-              <input type="checkbox" id="chkSnapTap" checked />
-            </div>
-            <div class="control-row">
-              <label>Opposing Key Pair</label>
-              <div style="display:flex; gap:8px;">
-                <input type="text" id="inpSnapA" value="A" style="width:54px; text-align:center;" maxlength="2" />
-                <input type="text" id="inpSnapB" value="D" style="width:54px; text-align:center;" maxlength="2" />
+            <div style="display:flex; gap:18px; align-items:center;">
+              <div class="stem-gauge">
+                <div class="stem-track">
+                  <div class="stem-fill" id="stemFill"></div>
+                </div>
+                <div class="stem-scale">
+                  <span>0.1</span>
+                  <span>2.0</span>
+                  <span>4.0</span>
+                </div>
+              </div>
+              <div style="flex:1; display:flex; flex-direction:column; gap:12px;">
+                <div class="slider-block">
+                  <div class="slider-top">
+                    <span>Trigger Distance</span>
+                    <span class="s-val" id="valActuation">1.2 mm</span>
+                  </div>
+                  <input type="range" id="rngActuation" min="0.1" max="4.0" step="0.1" value="1.2" />
+                </div>
+                <div class="preset-grid">
+                  <button class="preset-btn" data-act-preset="esports">⚡ 0.4 mm Fast</button>
+                  <button class="preset-btn active" data-act-preset="balanced">🎯 1.2 mm Default</button>
+                  <button class="preset-btn" data-act-preset="typing">⌨️ 2.0 mm Typing</button>
+                </div>
               </div>
             </div>
-            <button class="primary" id="btnApplySnapTap">Apply Snap Tap Configuration</button>
           </div>
-        </div>
-      </section>
 
-      <!-- TAB 3: MOUSE DPI, POLLING & POWER -->
-      <section id="tab-mouse" class="tab-panel hidden">
-        <div class="grid-2">
-          <div class="card">
-            <h2>
-              <span>Sensor DPI &amp; HyperPolling Rate</span>
-              <span class="badge">Class 0x04 / Class 0x00</span>
-            </h2>
-            <p class="desc">
-              Direct X/Y DPI programming (Class 0x04, Cmd 0x05) and USB/HyperPolling rate selection up to 8000 Hz.
+          <div class="module-card">
+            <div class="module-header">
+              <span class="module-title">Rapid Trigger</span>
+              <label class="switch">
+                <input type="checkbox" id="chkRapidTrigger" checked />
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+            <p class="module-desc">
+              Dynamically resets keys the instant they travel upward, allowing immediate repeat inputs without passing a fixed reset point.
             </p>
-            <div class="control-row">
-              <label for="rngDpiX">Horizontal DPI (X)</label>
-              <input type="range" id="rngDpiX" min="100" max="30000" step="50" value="1600" />
-              <span class="val" id="valDpiX">1600</span>
+            <div class="slider-block">
+              <div class="slider-top">
+                <span>Press Sensitivity (Downstroke)</span>
+                <span class="s-val" id="valRtDown">0.3 mm</span>
+              </div>
+              <input type="range" id="rngRtDown" min="0.1" max="2.0" step="0.1" value="0.3" />
             </div>
-            <div class="control-row">
-              <label for="rngDpiY">Vertical DPI (Y)</label>
-              <input type="range" id="rngDpiY" min="100" max="30000" step="50" value="1600" />
-              <span class="val" id="valDpiY">1600</span>
-            </div>
-            <div class="pill-group">
-              <button class="pill" data-dpi="400">400</button>
-              <button class="pill" data-dpi="800">800</button>
-              <button class="pill active" data-dpi="1600">1600</button>
-              <button class="pill" data-dpi="3200">3200</button>
-              <button class="pill" data-dpi="6400">6400</button>
-            </div>
-            <button class="primary" id="btnApplyDpi">Send DPI to Sensor</button>
-
-            <hr style="border:none; border-top:1px solid var(--border); margin:6px 0;" />
-
-            <div class="section-label">USB / HyperPolling Rate (Hz)</div>
-            <div class="pill-group" id="pollingGroup">
-              <button class="pill" data-hz="125">125 Hz</button>
-              <button class="pill" data-hz="500">500 Hz</button>
-              <button class="pill active" data-hz="1000">1000 Hz</button>
-              <button class="pill" data-hz="2000">2000 Hz</button>
-              <button class="pill" data-hz="4000">4000 Hz</button>
-              <button class="pill" data-hz="8000">8000 Hz</button>
+            <div class="slider-block">
+              <div class="slider-top">
+                <span>Reset Sensitivity (Upstroke)</span>
+                <span class="s-val" id="valRtUp">0.3 mm</span>
+              </div>
+              <input type="range" id="rngRtUp" min="0.1" max="2.0" step="0.1" value="0.3" />
             </div>
           </div>
+        </div>
 
-          <div class="card">
-            <h2>
-              <span>Firmware &amp; Battery Telemetry</span>
-              <span class="badge">Class 0x00 / Class 0x07</span>
-            </h2>
-            <p class="desc">
-              Query hardware firmware revision (<code>0x00, 0x81</code>) and wireless battery level (<code>0x07, 0x80</code>) on demand—no background polling bloat.
+        <!-- PANEL 2: SNAP TAP (SOCD) -->
+        <div id="panel-snaptap" class="panel hidden">
+          <div class="module-card">
+            <div class="module-header">
+              <span class="module-title">Razer Snap Tap (Last Input Priority)</span>
+              <label class="switch">
+                <input type="checkbox" id="chkSnapTap" checked />
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+            <p class="module-desc">
+              When two opposing movement keys are held simultaneously, the most recent input overrides the previous one for instant counter-strafing.
             </p>
-            <div class="control-row">
-              <label>Firmware Version</label>
-              <span class="val" id="valFirmware">—</span>
-            </div>
-            <div class="control-row">
-              <label>Battery Level</label>
-              <span class="val" id="valBattery">—</span>
-            </div>
-            <div style="display:flex; gap:10px;">
-              <button id="btnQueryFw">Query Firmware (0x00 / 0x81)</button>
-              <button id="btnQueryBattery">Query Battery (0x07 / 0x80)</button>
+            <div class="snaptap-pair">
+              <input type="text" id="inpSnapA" class="snaptap-keybox" value="A" maxlength="1" />
+              <span style="color:var(--amber); font-weight:700;">⇄ Priority Pair ⇄</span>
+              <input type="text" id="inpSnapB" class="snaptap-keybox" value="D" maxlength="1" />
             </div>
           </div>
         </div>
-      </section>
 
-      <!-- TAB 4: MAPPING ENGINE & AUDIO -->
-      <section id="tab-mapping" class="tab-panel hidden">
-        <div class="grid-2">
-          <div class="card">
-            <h2>
-              <span>Native Mapping Engine (mapping_engine.dll)</span>
-              <span class="badge">FFI Bridge</span>
-            </h2>
-            <p class="desc">
-              Controls Razer's local <code>CommonDLL\mapping_engine.dll</code> input hook engine without loading the cloud Synapse shell.
+        <!-- PANEL 3: MOUSE DPI & POLLING (MCHOSE / Corsair Web Hub Style) -->
+        <div id="panel-dpi" class="panel hidden">
+          <div class="module-card">
+            <div class="module-header">
+              <span class="module-title">DPI Stage &amp; Fine Sensitivity</span>
+              <span class="module-badge" id="badgeDpi">1600 DPI</span>
+            </div>
+            <div class="preset-grid" id="dpiStageGrid">
+              <button class="preset-btn" data-dpi="400" style="border-left:3px solid #ff5252;">400 DPI</button>
+              <button class="preset-btn" data-dpi="800" style="border-left:3px solid #40c4ff;">800 DPI</button>
+              <button class="preset-btn active" data-dpi="1600" style="border-left:3px solid #00e676;">1600 DPI</button>
+              <button class="preset-btn" data-dpi="3200" style="border-left:3px solid #ffd740;">3200 DPI</button>
+              <button class="preset-btn" data-dpi="6400" style="border-left:3px solid #e040fb;">6400 DPI</button>
+            </div>
+            <div class="slider-block">
+              <div class="slider-top">
+                <span>Sensor DPI (50 DPI steps)</span>
+                <span class="s-val" id="valDpiSlider">1600</span>
+              </div>
+              <input type="range" id="rngDpi" min="100" max="30000" step="50" value="1600" />
+            </div>
+          </div>
+
+          <div class="module-card">
+            <div class="module-header">
+              <span class="module-title">HyperPolling Wireless Rate</span>
+              <span class="module-badge" id="badgePolling">1000 Hz</span>
+            </div>
+            <p class="module-desc">
+              Select USB / HyperPolling report frequency. Higher rates reduce input latency down to 0.125 ms.
             </p>
-            <div class="control-row">
-              <label>Global Device Mapping Hooks</label>
-              <span class="val" id="valMappingStatus">Enabled</span>
+            <div class="preset-grid" id="pollingGrid">
+              <button class="preset-btn" data-hz="125">125 Hz</button>
+              <button class="preset-btn" data-hz="500">500 Hz</button>
+              <button class="preset-btn active" data-hz="1000">1000 Hz</button>
+              <button class="preset-btn" data-hz="2000">2000 Hz</button>
+              <button class="preset-btn" data-hz="4000">4000 Hz</button>
+              <button class="preset-btn" data-hz="8000">8000 Hz</button>
             </div>
-            <div style="display:flex; gap:10px;">
-              <button class="primary" id="btnEnableHooks">Enable Mapping Hooks</button>
-              <button id="btnDisableHooks">Disable Mapping Hooks</button>
+          </div>
+        </div>
+
+        <!-- PANEL 4: LIGHTING (Chroma Hardware Controller) -->
+        <div id="panel-lighting" class="panel hidden">
+          <div class="module-card">
+            <div class="module-header">
+              <span class="module-title">Lighting Effect</span>
+              <span class="module-badge" id="badgeEffect">Static</span>
+            </div>
+            <div class="preset-grid" id="effectGrid">
+              <button class="preset-btn active" data-effect="static">Static</button>
+              <button class="preset-btn" data-effect="wave">Wave</button>
+              <button class="preset-btn" data-effect="spectrum">Spectrum</button>
+              <button class="preset-btn" data-effect="reactive">Reactive</button>
+              <button class="preset-btn" data-effect="breathing">Breathing</button>
+              <button class="preset-btn" data-effect="starlight">Starlight</button>
+              <button class="preset-btn" data-effect="off">Off</button>
             </div>
           </div>
 
-          <div class="card">
-            <h2>
-              <span>Audio &amp; Sidetone (simple_service.dll)</span>
-              <span class="badge">FFI Audio Bridge</span>
-            </h2>
-            <p class="desc">
-              Direct volume and headset sidetone control via <code>CommonDLL\simple_service.dll</code>.
+          <div class="module-card">
+            <div class="module-header">
+              <span class="module-title">Color &amp; Brightness</span>
+              <span class="module-badge" id="badgeBright">100%</span>
+            </div>
+            <div class="swatch-row" id="swatchRow">
+              <div class="swatch active" data-color="#00e676" style="background:#00e676;"></div>
+              <div class="swatch" data-color="#00d2ff" style="background:#00d2ff;"></div>
+              <div class="swatch" data-color="#ffb300" style="background:#ffb300;"></div>
+              <div class="swatch" data-color="#ff3d71" style="background:#ff3d71;"></div>
+              <div class="swatch" data-color="#a855f7" style="background:#a855f7;"></div>
+              <div class="swatch" data-color="#ffffff" style="background:#ffffff;"></div>
+              <input type="color" id="colorPicker" value="#00e676" title="Custom RGB Color" />
+            </div>
+            <div class="slider-block">
+              <div class="slider-top">
+                <span>Onboard LED Brightness</span>
+                <span class="s-val" id="valBrightness">100%</span>
+              </div>
+              <input type="range" id="rngBrightness" min="0" max="100" value="100" />
+            </div>
+          </div>
+        </div>
+
+        <!-- PANEL 5: DEVICE & ONBOARD MODE -->
+        <div id="panel-system" class="panel hidden">
+          <div class="module-card">
+            <div class="module-header">
+              <span class="module-title">Hardware Operating Mode</span>
+              <span class="module-badge" id="badgeMode">Onboard (0x00)</span>
+            </div>
+            <p class="module-desc">
+              Onboard Mode runs entirely from the device's built-in memory with zero background software required.
             </p>
-            <div class="control-row">
-              <label for="rngSpeaker">Speaker Volume</label>
-              <input type="range" id="rngSpeaker" min="0" max="100" value="80" />
-              <span class="val" id="valSpeaker">80%</span>
+            <div class="preset-grid">
+              <button class="preset-btn active" id="btnModeNormal">Onboard Memory (0x00)</button>
+              <button class="preset-btn" id="btnModeDriver">Software Driver (0x03)</button>
             </div>
-            <div class="control-row">
-              <label for="rngSidetone">Headset Sidetone</label>
-              <input type="range" id="rngSidetone" min="0" max="100" value="35" />
-              <span class="val" id="valSidetone">35%</span>
+          </div>
+
+          <div class="module-card">
+            <div class="module-header">
+              <span class="module-title">Hardware Diagnostics</span>
+              <button class="btn-ghost" id="btnQueryFw">Refresh Telemetry</button>
+            </div>
+            <div class="toggle-row">
+              <span style="font-size:0.8rem; color:#c9d1d9;">Global Input Mapping Hooks (mapping_engine.dll)</span>
+              <label class="switch">
+                <input type="checkbox" id="chkMappingHooks" checked />
+                <span class="switch-slider"></span>
+              </label>
             </div>
           </div>
         </div>
-      </section>
-
-      <!-- TAB 5: PROTOCOL 25 PACKET STUDIO -->
-      <section id="tab-protocol" class="tab-panel hidden">
-        <div class="card">
-          <h2>
-            <span>Custom Protocol 25 Feature Report Builder (90-Byte + Auto XOR CRC)</span>
-            <span class="badge">CRC = XOR(bytes[2..87])</span>
-          </h2>
-          <p class="desc">
-            Build, inspect, and transmit arbitrary Razer Protocol 25 packets. Byte 88 is automatically computed as the XOR checksum of bytes 2 through 87.
-          </p>
-          <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center;">
-            <label>Class (Hex): <input type="text" id="inpCmdClass" value="0x00" style="width:70px;" /></label>
-            <label>Cmd ID (Hex): <input type="text" id="inpCmdId" value="0x04" style="width:70px;" /></label>
-            <label>Data Size: <input type="number" id="inpDataSize" value="2" min="0" max="80" style="width:70px;" /></label>
-            <label style="flex:1; min-width:220px;">Args (Hex bytes): <input type="text" id="inpArgsHex" value="00 00" style="width:100%;" /></label>
-            <button class="primary" id="btnSendCustomPacket">Build &amp; Send 91-Byte Report</button>
-          </div>
-          <div class="section-label">Live 91-Byte Feature Report Preview (Report ID + 90-Byte Body)</div>
-          <div id="customPacketPreview" class="hex-box"></div>
-        </div>
-
-        <div class="card">
-          <h2>
-            <span>Live Hardware Feature Report Inspector (TX / RX)</span>
-            <button id="btnClearLogs" style="font-size:0.74rem; padding:4px 10px;">Clear Log</button>
-          </h2>
-          <div id="packetLogList" class="log-list"></div>
-        </div>
-      </section>
-    </main>
+      </div>
+    </section>
   </div>
+
+  <!-- SLIDE-OVER PROTOCOL 25 PACKET DRAWER -->
+  <aside class="drawer" id="protocolDrawer">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <strong style="font-size:0.9rem;">Protocol 25 Frame Inspector (91-Byte HID)</strong>
+      <button class="btn-ghost" id="btnCloseDrawer">Close</button>
+    </div>
+    <p style="font-size:0.74rem; color:#8b949e;">
+      Live 91-byte USB HID Feature Reports transmitted between browser and Razer hardware. Byte 88 is the XOR CRC over bytes 2..87.
+    </p>
+    <div style="display:flex; gap:8px;">
+      <button class="btn-ghost" id="btnClearLogs" style="width:100%;">Clear Packet History</button>
+    </div>
+    <div class="log-feed" id="packetLogList"></div>
+  </aside>
 
   <script src="/protocol25.js"></script>
   <script src="/app.js"></script>

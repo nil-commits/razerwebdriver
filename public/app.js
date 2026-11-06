@@ -1,24 +1,159 @@
 /**
- * Razer Local Web Driver — Browser Application & WebHID + window.apiElectron Bridge
+ * Razer Web Hub — Wootility / MCHOSE / Corsair Web Hub Inspired Controller
+ * Instant auto-apply, interactive TKL keyboard & Viper V3 Pro visualizers,
+ * and zero-bloat local Protocol 25 hardware sync.
  */
 (function () {
   "use strict";
 
   const P25 = window.RazerProtocol25;
 
-  let currentDevices = [];
+  // TKL Keyboard Layout Definition for Interactive Stage
+  const TKL_MAIN_ROWS = [
+    {
+      fnRow: true,
+      keys: [
+        { label: "ESC", u: 1 },
+        { spacer: 1 },
+        { label: "F1", u: 1 },
+        { label: "F2", u: 1 },
+        { label: "F3", u: 1 },
+        { label: "F4", u: 1 },
+        { spacer: 0.5 },
+        { label: "F5", u: 1 },
+        { label: "F6", u: 1 },
+        { label: "F7", u: 1 },
+        { label: "F8", u: 1 },
+        { spacer: 0.5 },
+        { label: "F9", u: 1 },
+        { label: "F10", u: 1 },
+        { label: "F11", u: 1 },
+        { label: "F12", u: 1 },
+      ],
+    },
+    {
+      keys: [
+        { label: "`", u: 1 },
+        { label: "1", u: 1 },
+        { label: "2", u: 1 },
+        { label: "3", u: 1 },
+        { label: "4", u: 1 },
+        { label: "5", u: 1 },
+        { label: "6", u: 1 },
+        { label: "7", u: 1 },
+        { label: "8", u: 1 },
+        { label: "9", u: 1 },
+        { label: "0", u: 1 },
+        { label: "-", u: 1 },
+        { label: "=", u: 1 },
+        { label: "BKSP", u: 2 },
+      ],
+    },
+    {
+      keys: [
+        { label: "TAB", u: 1.5 },
+        { label: "Q", u: 1 },
+        { label: "W", u: 1 },
+        { label: "E", u: 1 },
+        { label: "R", u: 1 },
+        { label: "T", u: 1 },
+        { label: "Y", u: 1 },
+        { label: "U", u: 1 },
+        { label: "I", u: 1 },
+        { label: "O", u: 1 },
+        { label: "P", u: 1 },
+        { label: "[", u: 1 },
+        { label: "]", u: 1 },
+        { label: "\\", u: 1.5 },
+      ],
+    },
+    {
+      keys: [
+        { label: "CAPS", u: 1.75 },
+        { label: "A", u: 1 },
+        { label: "S", u: 1 },
+        { label: "D", u: 1 },
+        { label: "F", u: 1 },
+        { label: "G", u: 1 },
+        { label: "H", u: 1 },
+        { label: "J", u: 1 },
+        { label: "K", u: 1 },
+        { label: "L", u: 1 },
+        { label: ";", u: 1 },
+        { label: "'", u: 1 },
+        { label: "ENTER", u: 2.25 },
+      ],
+    },
+    {
+      keys: [
+        { label: "SHIFT", u: 2.25 },
+        { label: "Z", u: 1 },
+        { label: "X", u: 1 },
+        { label: "C", u: 1 },
+        { label: "V", u: 1 },
+        { label: "B", u: 1 },
+        { label: "N", u: 1 },
+        { label: "M", u: 1 },
+        { label: ",", u: 1 },
+        { label: ".", u: 1 },
+        { label: "/", u: 1 },
+        { label: "SHIFT", u: 2.75 },
+      ],
+    },
+    {
+      keys: [
+        { label: "CTRL", u: 1.25 },
+        { label: "WIN", u: 1.25 },
+        { label: "ALT", u: 1.25 },
+        { label: "SPACE", u: 6.25 },
+        { label: "ALT", u: 1.25 },
+        { label: "FN", u: 1.25 },
+        { label: "MENU", u: 1.25 },
+        { label: "CTRL", u: 1.25 },
+      ],
+    },
+  ];
+
+  const TKL_NAV_ROWS = [
+    { fnRow: true, keys: [{ label: "PRT", u: 1 }, { label: "SCR", u: 1 }, { label: "PAU", u: 1 }] },
+    { keys: [{ label: "INS", u: 1 }, { label: "HM", u: 1 }, { label: "PGU", u: 1 }] },
+    { keys: [{ label: "DEL", u: 1 }, { label: "END", u: 1 }, { label: "PGD", u: 1 }] },
+    { keys: [{ spacer: 3 }] },
+    { keys: [{ spacer: 1 }, { label: "▲", u: 1 }, { spacer: 1 }] },
+    { keys: [{ label: "◀", u: 1 }, { label: "▼", u: 1 }, { label: "▶", u: 1 }] },
+  ];
+
+  let devices = [];
   let selectedDevice = {
     vendorId: 5426,
     productId: 679,
     hexPid: "0x02A7",
-    productName: "Razer Huntsman V3 Pro TKL",
+    productName: "Razer Huntsman V3 Pro Tenkeyless",
+    category: "keyboard-analog",
     interface: 3,
     protocol: "25",
   };
-  let webHidDevice = null;
 
-  // Expose a compatible window.apiElectron shim so any original Razer Synapse frontend code
-  // or console command can call window.apiElectron.doRzDeviceAction(...) in any browser!
+  let uiState = {
+    actuationMm: 1.2,
+    rtEnabled: true,
+    rtDownMm: 0.3,
+    rtUpMm: 0.3,
+    snapTapEnabled: true,
+    snapKeyA: "A",
+    snapKeyB: "D",
+    effect: "static",
+    colorHex: "#00e676",
+    brightness: 100,
+    dpi: 1600,
+    pollingHz: 1000,
+    deviceMode: "normal",
+  };
+
+  let webHidDevice = null;
+  let toastTimer = null;
+
+  // Expose window.apiElectron compatibility bridge
   window.apiElectron = {
     doRzDeviceAction: async (arg) => {
       const res = await fetch("/api/rpc", {
@@ -36,47 +171,124 @@
       });
       return (await res.json()).result;
     },
-    doSimpleServiceAction: async (arg) => {
-      const res = await fetch("/api/rpc", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ method: "doSimpleServiceAction", arg }),
-      });
-      return (await res.json()).result;
-    },
   };
 
-  // Helper: parse "#RRGGBB" to [r, g, b]
+  function showSyncedToast(msg = "✓ Synced to Hardware") {
+    const el = document.getElementById("saveToast");
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 1600);
+  }
+
   function hexToRgb(hex) {
-    const clean = (hex || "#00ff66").replace("#", "");
+    const clean = (hex || "#00e676").replace("#", "");
     const num = parseInt(clean, 16);
     return [(num >> 16) & 0xff, (num >> 8) & 0xff, num & 0xff];
   }
 
-  function formatHex(bytes) {
-    return Array.from(bytes || [])
-      .map((b) => (b & 0xff).toString(16).toUpperCase().padStart(2, "0"))
-      .join(" ");
+  // Render interactive TKL keyboard
+  function buildKeyboardStage() {
+    const renderBlock = (containerId, rows) => {
+      const container = document.getElementById(containerId);
+      container.innerHTML = "";
+      rows.forEach((row) => {
+        const rowEl = document.createElement("div");
+        rowEl.className = `kbd-row ${row.fnRow ? "fn-row" : ""}`;
+        row.keys.forEach((k) => {
+          if (k.spacer) {
+            const sp = document.createElement("div");
+            sp.className = "key-spacer";
+            sp.style.setProperty("--u", k.spacer);
+            rowEl.appendChild(sp);
+            return;
+          }
+          const cap = document.createElement("div");
+          cap.className = "keycap";
+          cap.dataset.key = k.label;
+          cap.style.setProperty("--u", k.u || 1);
+          cap.innerHTML = `<span>${k.label}</span><span class="k-sub">${uiState.actuationMm.toFixed(1)}</span>`;
+          cap.addEventListener("click", () => {
+            cap.classList.toggle("selected");
+          });
+          rowEl.appendChild(cap);
+        });
+        container.appendChild(rowEl);
+      });
+    };
+    renderBlock("kbdMainRows", TKL_MAIN_ROWS);
+    renderBlock("kbdNavRows", TKL_NAV_ROWS);
+    updateVisualStage();
   }
 
-  /**
-   * Sends a 90-byte Protocol 25 packet via:
-   *   1. Connected Browser WebHID handle (if the user clicked "Connect Browser WebHID"), AND/OR
-   *   2. Local Hardware Server (/api/send-packet)
-   */
-  async function sendPacket90(packet90, statePatch = null) {
-    let webHidResult = null;
+  // Synchronize visual keyboard & mouse stage with current state
+  function updateVisualStage() {
+    const isMouse =
+      selectedDevice.category === "mouse" ||
+      selectedDevice.productId === 193 ||
+      selectedDevice.productId === 192;
 
+    document.getElementById("keyboardStage").classList.toggle("hidden", isMouse);
+    document.getElementById("mouseStage").classList.toggle("hidden", !isMouse);
+    document.getElementById("metaName").textContent = selectedDevice.productName;
+    document.getElementById("metaPid").textContent = selectedDevice.hexPid || `0x${selectedDevice.productId.toString(16)}`;
+
+    // Filter contextual dock tabs
+    const tabs = document.querySelectorAll(".dock-tab");
+    let activeVisible = false;
+    tabs.forEach((t) => {
+      const target = t.dataset.for;
+      const show =
+        target === "all" ||
+        (target === "keyboard" && !isMouse) ||
+        (target === "mouse" && isMouse);
+      t.classList.toggle("hidden", !show);
+      if (show && t.classList.contains("active")) activeVisible = true;
+    });
+
+    if (!activeVisible) {
+      const firstVisible = Array.from(tabs).find((t) => !t.classList.contains("hidden"));
+      if (firstVisible) firstVisible.click();
+    }
+
+    // Update stem gauge height (0.1mm..4.0mm -> 5%..100%)
+    const pctStem = Math.max(6, Math.min(100, (uiState.actuationMm / 4.0) * 100));
+    document.getElementById("stemFill").style.height = `${pctStem}%`;
+
+    // Update keycaps lighting, actuation sub-labels, and Snap Tap highlights
+    const alpha = Math.max(0.12, (uiState.brightness / 100) * 0.65);
+    const color = uiState.effect === "off" ? "#484f58" : uiState.colorHex;
+    const kbdStage = document.getElementById("keyboardStage");
+    kbdStage.style.setProperty("--kbd-glow", uiState.effect === "off" ? "transparent" : `${color}22`);
+
+    document.querySelectorAll(".keycap").forEach((cap) => {
+      const k = cap.dataset.key;
+      const sub = cap.querySelector(".k-sub");
+      if (sub) sub.textContent = `${uiState.actuationMm.toFixed(1)}`;
+      cap.style.setProperty("--key-color", uiState.effect === "off" ? "#6e7681" : color);
+      cap.style.setProperty(
+        "--key-glow",
+        uiState.effect === "off" ? "transparent" : `${color}${Math.round(alpha * 90).toString(16).padStart(2, "0")}`
+      );
+      const isSnap =
+        uiState.snapTapEnabled &&
+        (k === uiState.snapKeyA.toUpperCase() || k === uiState.snapKeyB.toUpperCase());
+      cap.classList.toggle("snaptap-key", isSnap);
+    });
+
+    // Update Mouse stage metrics & glow
+    document.getElementById("stageDpiVal").textContent = `${uiState.dpi} DPI`;
+    document.getElementById("stagePollVal").textContent = `${uiState.pollingHz} Hz`;
+    document.getElementById("mouseWheelGlow").style.borderColor = color;
+    document.getElementById("mouseLogoGlow").style.background = color;
+  }
+
+  async function sendPacket90(packet90, statePatch = null, toastLabel = "✓ Synced to Hardware") {
     if (webHidDevice && webHidDevice.opened) {
       try {
-        const u8 = new Uint8Array(packet90);
-        await webHidDevice.sendFeatureReport(0x00, u8);
-        await new Promise((r) => setTimeout(r, 6));
-        const dv = await webHidDevice.receiveFeatureReport(0x00);
-        const rxBytes = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
-        webHidResult = Array.from(rxBytes);
-      } catch (err) {
-        console.warn("WebHID feature report warning:", err.message);
+        await webHidDevice.sendFeatureReport(0x00, new Uint8Array(packet90));
+      } catch {
+        // fallback to server
       }
     }
 
@@ -92,87 +304,64 @@
       }),
     });
     const data = await res.json();
-    await refreshStatus();
-    return { ...data, webHidResult };
+    showSyncedToast(toastLabel);
+    if (data.logItem) {
+      prependPacketLog(data.logItem);
+    }
+    return data;
   }
 
-  // Connect Browser WebHID directly to Razer USB device (VID 0x1532)
-  async function connectBrowserWebHid() {
-    if (!navigator.hid) {
-      alert("WebHID is available in Chromium-based browsers (Chrome, Edge, Brave). Using local server bridge.");
-      return;
-    }
-    try {
-      const devices = await navigator.hid.requestDevice({
-        filters: [{ vendorId: 0x1532 }],
-      });
-      if (!devices || devices.length === 0) return;
-      // Prefer control interface with feature reports
-      const chosen =
-        devices.find((d) => d.collections?.some((c) => c.featureReports?.length > 0)) || devices[0];
-      if (!chosen.opened) {
-        await chosen.open();
-      }
-      webHidDevice = chosen;
-      const badge = document.getElementById("badgeTransport");
-      badge.textContent = `WebHID Connected: ${chosen.productName || "0x1532"}`;
-      badge.classList.add("ok");
-    } catch (err) {
-      console.error("WebHID connect error:", err);
-    }
-  }
-
-  function renderDevices(devices) {
-    const container = document.getElementById("deviceList");
+  function renderDeviceSwitcher() {
+    const container = document.getElementById("deviceSwitcher");
     container.innerHTML = "";
-    for (const dev of devices) {
-      const card = document.createElement("div");
-      card.className = `device-card ${dev.productId === selectedDevice.productId ? "active" : ""}`;
-      card.innerHTML = `
-        <div class="dev-title">${dev.productName}</div>
-        <div class="dev-meta">VID: 0x1532 • PID: ${dev.hexPid} (${dev.productId})</div>
-        <div class="dev-meta">Protocol ${dev.protocol} • Interface ${dev.interface} • ${
-        dev.connectedLive ? "Live HID" : "Restore Profile"
-      }</div>
+    devices.forEach((dev) => {
+      const btn = document.createElement("button");
+      btn.className = `dev-pill ${dev.productId === selectedDevice.productId ? "active" : ""}`;
+      btn.innerHTML = `
+        <span class="dot"></span>
+        <span>${dev.productName.replace("Razer ", "")}</span>
       `;
-      card.addEventListener("click", () => {
+      btn.addEventListener("click", () => {
         selectedDevice = dev;
-        renderDevices(currentDevices);
+        renderDeviceSwitcher();
+        updateVisualStage();
+        queryDeviceFirmware();
       });
-      container.appendChild(card);
-    }
+      container.appendChild(btn);
+    });
   }
 
-  function renderPacketLogs(logs) {
+  function prependPacketLog(item) {
     const list = document.getElementById("packetLogList");
-    if (!logs || logs.length === 0) {
-      list.innerHTML = `<div class="log-item"><div class="log-head">No packets sent yet. Use any control or click "Build & Send".</div></div>`;
-      return;
+    const pTx = item.parsedTx || {};
+    const pRx = item.parsedRx || {};
+    const div = document.createElement("div");
+    div.className = "log-card";
+    div.innerHTML = `
+      <div style="display:flex; justify-content:space-between; color:#8b949e; margin-bottom:4px;">
+        <span>PID ${item.productId} • Class 0x${(pTx.commandClass ?? 0).toString(16).toUpperCase().padStart(2, "0")} Cmd 0x${(pTx.commandId ?? 0).toString(16).toUpperCase().padStart(2, "0")} • CRC 0x${(pTx.crc ?? 0).toString(16).toUpperCase().padStart(2, "0")}</span>
+        <span>${pRx.statusName || "OK"}</span>
+      </div>
+      <div class="tx">TX: ${item.txHex}</div>
+      <div class="rx">RX: ${item.rxHex}</div>
+    `;
+    list.prepend(div);
+  }
+
+  async function queryDeviceFirmware() {
+    try {
+      const res = await sendPacket90(P25.Builders.getFirmwareVersion(), null, "✓ Device Ready");
+      const args = res.parsedRx?.args || [];
+      if (args.length >= 2 && (args[0] > 0 || args[1] > 0)) {
+        const fw = `v${args[0]}.${String(args[1]).padStart(2, "0")}.00`;
+        document.getElementById("metaFw").textContent = fw;
+        if (selectedDevice.productId === 193) {
+          document.getElementById("stageMouseFw").textContent = fw;
+        }
+      }
+    } catch {
+      // ignore
     }
-    list.innerHTML = logs
-      .map((item) => {
-        const pTx = item.parsedTx || {};
-        const pRx = item.parsedRx || {};
-        return `
-        <div class="log-item">
-          <div class="log-head">
-            <span>#${item.id} • PID ${item.productId} (If ${item.interfaceNum}) • Class 0x${(
-          pTx.commandClass ?? 0
-        )
-          .toString(16)
-          .toUpperCase()
-          .padStart(2, "0")} Cmd 0x${(pTx.commandId ?? 0)
-          .toString(16)
-          .toUpperCase()
-          .padStart(2, "0")} • CRC 0x${(pTx.crc ?? 0).toString(16).toUpperCase().padStart(2, "0")}</span>
-            <span>${pRx.statusName || item.mode} • ${new Date(item.timestamp).toLocaleTimeString()}</span>
-          </div>
-          <div class="tx">TX [91B]: ${item.txHex}</div>
-          <div class="rx">RX [91B]: ${item.rxHex}</div>
-        </div>
-      `;
-      })
-      .join("");
   }
 
   async function refreshStatus() {
@@ -181,322 +370,307 @@
       const data = await res.json();
       if (!data.ok) return;
 
-      currentDevices = data.devices || [];
-      if (currentDevices.length > 0 && !currentDevices.some((d) => d.productId === selectedDevice.productId)) {
-        selectedDevice = currentDevices[0];
+      devices = data.devices || [];
+      if (devices.length > 0 && !devices.some((d) => d.productId === selectedDevice.productId)) {
+        selectedDevice = devices[0];
       }
-      renderDevices(currentDevices);
-      renderPacketLogs(data.packetHistory || []);
+      renderDeviceSwitcher();
+      updateVisualStage();
 
-      const rtBadge = document.getElementById("badgeRuntime");
-      rtBadge.textContent = data.nativeStatus?.runtime || "Local Server";
-      rtBadge.classList.add("ok");
+      const label = document.getElementById("transportLabel");
+      label.textContent = data.nativeStatus?.hidLoaded ? "Native HID.node Active" : "Local Bridge Ready";
 
-      if (!webHidDevice) {
-        const trBadge = document.getElementById("badgeTransport");
-        trBadge.textContent = data.nativeStatus?.hidLoaded
-          ? "Transport: Native node-rz-hid"
-          : "Transport: Local Bridge + WebHID Ready";
-        if (data.nativeStatus?.hidLoaded) trBadge.classList.add("ok");
-      }
+      const list = document.getElementById("packetLogList");
+      list.innerHTML = "";
+      (data.packetHistory || []).slice().reverse().forEach(prependPacketLog);
     } catch (err) {
-      console.warn("Status poll failed:", err);
+      console.warn("Status refresh error:", err);
     }
   }
 
-  // Update live preview in Protocol 25 Packet Studio
-  function updateCustomPacketPreview() {
-    const commandClass = parseInt(document.getElementById("inpCmdClass").value, 16) || 0;
-    const commandId = parseInt(document.getElementById("inpCmdId").value, 16) || 0;
-    const dataSize = parseInt(document.getElementById("inpDataSize").value, 10) || 0;
-    const rawArgs = document
-      .getElementById("inpArgsHex")
-      .value.trim()
-      .split(/[\s,]+/)
-      .filter(Boolean)
-      .map((h) => parseInt(h, 16) || 0);
-
+  // Push Actuation & Rapid Trigger to hardware
+  async function syncActuationHardware() {
+    const actUnits = Math.round(uiState.actuationMm * 10);
+    const downUnits = Math.round(uiState.rtDownMm * 10);
+    const upUnits = Math.round(uiState.rtUpMm * 10);
     const pkt90 = P25.buildPacket({
-      commandClass,
-      commandId,
-      dataSize,
-      args: rawArgs,
-      transactionId: 0x1f,
+      commandClass: 0x0b,
+      commandId: 0x02,
+      dataSize: 0x06,
+      args: [0x01, actUnits, uiState.rtEnabled ? 0x01 : 0x00, downUnits, upUnits, 0x00],
     });
-    const report91 = [0x00, ...pkt90];
-    document.getElementById("customPacketPreview").textContent =
-      `Report91 (${report91.length} bytes) | XOR CRC (Byte 88) = 0x${pkt90[88]
-        .toString(16)
-        .toUpperCase()
-        .padStart(2, "0")} (${pkt90[88]}):\n` + formatHex(report91);
-    return pkt90;
+    await sendPacket90(
+      pkt90,
+      {
+        huntsman: {
+          actuationMm: uiState.actuationMm,
+          rapidTriggerEnabled: uiState.rtEnabled,
+          rapidTriggerDownMm: uiState.rtDownMm,
+          rapidTriggerUpMm: uiState.rtUpMm,
+        },
+      },
+      `✓ Actuation ${uiState.actuationMm.toFixed(1)}mm Synced`
+    );
   }
 
-  // Wire UI Events
-  function initUi() {
-    // Tab switching
-    document.querySelectorAll(".nav-tab").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        document.querySelectorAll(".nav-tab").forEach((b) => b.classList.remove("active"));
-        document.querySelectorAll(".tab-panel").forEach((p) => p.classList.add("hidden"));
-        btn.classList.add("active");
-        document.getElementById(btn.dataset.tab).classList.remove("hidden");
-      });
+  // Push Chroma Lighting to hardware
+  async function syncLightingHardware() {
+    const [r, g, b] = hexToRgb(uiState.colorHex);
+    const pkt90 = P25.Builders.setChromaEffect({
+      effect: uiState.effect,
+      r,
+      g,
+      b,
     });
-
-    document.getElementById("btnWebHid").addEventListener("click", connectBrowserWebHid);
-    document.getElementById("btnRefresh").addEventListener("click", refreshStatus);
-
-    // Effect pills
-    let activeEffect = "static";
-    document.querySelectorAll("#effectGroup .pill").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        document.querySelectorAll("#effectGroup .pill").forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
-        activeEffect = btn.dataset.effect;
-      });
-    });
-
-    document.getElementById("rngSpeed").addEventListener("input", (e) => {
-      document.getElementById("valSpeed").textContent = e.target.value;
-    });
-
-    document.getElementById("btnApplyLighting").addEventListener("click", async () => {
-      const [r, g, b] = hexToRgb(document.getElementById("colorPrimary").value);
-      const [r2, g2, b2] = hexToRgb(document.getElementById("colorSecondary").value);
-      const direction = Number(document.getElementById("selWaveDir").value);
-      const speed = Number(document.getElementById("rngSpeed").value);
-
-      const pkt90 = P25.Builders.setChromaEffect({
-        effect: activeEffect,
-        r,
-        g,
-        b,
-        r2,
-        g2,
-        b2,
-        direction,
-        speed,
-      });
-      await sendPacket90(pkt90, {
+    await sendPacket90(
+      pkt90,
+      {
         lighting: {
-          effect: activeEffect,
-          color1: document.getElementById("colorPrimary").value,
-          color2: document.getElementById("colorSecondary").value,
-          waveDirection: direction,
-          speed,
+          effect: uiState.effect,
+          color1: uiState.colorHex,
+          brightness: uiState.brightness,
         },
+      },
+      `✓ Lighting (${uiState.effect}) Synced`
+    );
+  }
+
+  function wireEvents() {
+    // Dock tabs
+    document.querySelectorAll(".dock-tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        document.querySelectorAll(".dock-tab").forEach((t) => t.classList.remove("active"));
+        document.querySelectorAll(".panel").forEach((p) => p.classList.add("hidden"));
+        tab.classList.add("active");
+        document.getElementById(tab.dataset.panel).classList.remove("hidden");
       });
     });
 
-    // Brightness
-    document.getElementById("rngBrightness").addEventListener("input", (e) => {
-      document.getElementById("valBrightness").textContent = `${e.target.value}%`;
+    // Inspector Drawer
+    const drawer = document.getElementById("protocolDrawer");
+    document.getElementById("btnToggleDrawer").addEventListener("click", () => {
+      drawer.classList.toggle("open");
+    });
+    document.getElementById("btnCloseDrawer").addEventListener("click", () => {
+      drawer.classList.remove("open");
+    });
+    document.getElementById("btnClearLogs").addEventListener("click", async () => {
+      await fetch("/api/clear-logs", { method: "POST" });
+      document.getElementById("packetLogList").innerHTML = "";
     });
 
-    document.getElementById("btnApplyBrightness").addEventListener("click", async () => {
-      const pct = Number(document.getElementById("rngBrightness").value);
-      const raw255 = Math.round((pct / 100) * 255);
-      const pkt90 = P25.Builders.setBrightness(raw255);
-      await sendPacket90(pkt90, { lighting: { brightness: pct } });
+    // Browser WebHID
+    document.getElementById("btnWebHid").addEventListener("click", async () => {
+      if (!navigator.hid) return;
+      try {
+        const list = await navigator.hid.requestDevice({ filters: [{ vendorId: 0x1532 }] });
+        if (list && list[0]) {
+          if (!list[0].opened) await list[0].open();
+          webHidDevice = list[0];
+          document.getElementById("transportLabel").textContent = "Direct WebHID Connected";
+        }
+      } catch {
+        // user cancelled
+      }
     });
 
-    // Device Mode (Normal 0x00 vs Driver 0x03)
+    // Actuation slider & presets
+    const rngAct = document.getElementById("rngActuation");
+    const rngRtDown = document.getElementById("rngRtDown");
+    const rngRtUp = document.getElementById("rngRtUp");
+    const chkRt = document.getElementById("chkRapidTrigger");
+
+    rngAct.addEventListener("input", (e) => {
+      uiState.actuationMm = Number(e.target.value);
+      const txt = `${uiState.actuationMm.toFixed(1)} mm`;
+      document.getElementById("valActuation").textContent = txt;
+      document.getElementById("badgeActuation").textContent = txt;
+      updateVisualStage();
+    });
+    rngAct.addEventListener("change", syncActuationHardware);
+
+    rngRtDown.addEventListener("input", (e) => {
+      uiState.rtDownMm = Number(e.target.value);
+      document.getElementById("valRtDown").textContent = `${uiState.rtDownMm.toFixed(1)} mm`;
+    });
+    rngRtDown.addEventListener("change", syncActuationHardware);
+
+    rngRtUp.addEventListener("input", (e) => {
+      uiState.rtUpMm = Number(e.target.value);
+      document.getElementById("valRtUp").textContent = `${uiState.rtUpMm.toFixed(1)} mm`;
+    });
+    rngRtUp.addEventListener("change", syncActuationHardware);
+
+    chkRt.addEventListener("change", (e) => {
+      uiState.rtEnabled = e.target.checked;
+      syncActuationHardware();
+    });
+
+    document.querySelectorAll("[data-act-preset]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("[data-act-preset]").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        const p = btn.dataset.actPreset;
+        if (p === "esports") {
+          uiState.actuationMm = 0.4;
+          uiState.rtEnabled = true;
+          uiState.rtDownMm = 0.1;
+          uiState.rtUpMm = 0.1;
+        } else if (p === "balanced") {
+          uiState.actuationMm = 1.2;
+          uiState.rtEnabled = true;
+          uiState.rtDownMm = 0.3;
+          uiState.rtUpMm = 0.3;
+        } else {
+          uiState.actuationMm = 2.0;
+          uiState.rtEnabled = false;
+          uiState.rtDownMm = 0.5;
+          uiState.rtUpMm = 0.5;
+        }
+        rngAct.value = uiState.actuationMm;
+        chkRt.checked = uiState.rtEnabled;
+        rngRtDown.value = uiState.rtDownMm;
+        rngRtUp.value = uiState.rtUpMm;
+        rngAct.dispatchEvent(new Event("input"));
+        rngRtDown.dispatchEvent(new Event("input"));
+        rngRtUp.dispatchEvent(new Event("input"));
+        syncActuationHardware();
+      });
+    });
+
+    // Snap Tap
+    const syncSnapTap = async () => {
+      uiState.snapTapEnabled = document.getElementById("chkSnapTap").checked;
+      uiState.snapKeyA = (document.getElementById("inpSnapA").value || "A").toUpperCase();
+      uiState.snapKeyB = (document.getElementById("inpSnapB").value || "D").toUpperCase();
+      updateVisualStage();
+      const pkt90 = P25.buildPacket({
+        commandClass: 0x0b,
+        commandId: 0x08,
+        dataSize: 0x04,
+        args: [
+          0x01,
+          uiState.snapTapEnabled ? 0x01 : 0x00,
+          uiState.snapKeyA.charCodeAt(0) & 0xff,
+          uiState.snapKeyB.charCodeAt(0) & 0xff,
+        ],
+      });
+      await sendPacket90(pkt90, null, "✓ Snap Tap Synced");
+    };
+    document.getElementById("chkSnapTap").addEventListener("change", syncSnapTap);
+    document.getElementById("inpSnapA").addEventListener("change", syncSnapTap);
+    document.getElementById("inpSnapB").addEventListener("change", syncSnapTap);
+
+    // Mouse DPI & Polling
+    const rngDpi = document.getElementById("rngDpi");
+    rngDpi.addEventListener("input", (e) => {
+      uiState.dpi = Number(e.target.value);
+      document.getElementById("valDpiSlider").textContent = uiState.dpi;
+      document.getElementById("badgeDpi").textContent = `${uiState.dpi} DPI`;
+      updateVisualStage();
+    });
+    rngDpi.addEventListener("change", async () => {
+      const pkt90 = P25.Builders.setDpiXY(uiState.dpi, uiState.dpi);
+      await sendPacket90(pkt90, { mouse: { dpiX: uiState.dpi, dpiY: uiState.dpi } }, `✓ ${uiState.dpi} DPI Synced`);
+    });
+
+    document.querySelectorAll("#dpiStageGrid .preset-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        document.querySelectorAll("#dpiStageGrid .preset-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        uiState.dpi = Number(btn.dataset.dpi);
+        rngDpi.value = uiState.dpi;
+        rngDpi.dispatchEvent(new Event("input"));
+        const pkt90 = P25.Builders.setDpiXY(uiState.dpi, uiState.dpi);
+        await sendPacket90(pkt90, { mouse: { dpiX: uiState.dpi, dpiY: uiState.dpi } }, `✓ ${uiState.dpi} DPI Synced`);
+      });
+    });
+
+    document.querySelectorAll("#pollingGrid .preset-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        document.querySelectorAll("#pollingGrid .preset-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        uiState.pollingHz = Number(btn.dataset.hz);
+        document.getElementById("badgePolling").textContent = `${uiState.pollingHz} Hz`;
+        updateVisualStage();
+        const pkt90 = P25.Builders.setPollingRate(uiState.pollingHz);
+        await sendPacket90(pkt90, { mouse: { pollingHz: uiState.pollingHz } }, `✓ ${uiState.pollingHz} Hz Synced`);
+      });
+    });
+
+    // Lighting Effects, Swatches & Brightness
+    document.querySelectorAll("#effectGrid .preset-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#effectGrid .preset-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        uiState.effect = btn.dataset.effect;
+        document.getElementById("badgeEffect").textContent = btn.textContent;
+        updateVisualStage();
+        syncLightingHardware();
+      });
+    });
+
+    document.querySelectorAll("#swatchRow .swatch").forEach((sw) => {
+      sw.addEventListener("click", () => {
+        document.querySelectorAll("#swatchRow .swatch").forEach((s) => s.classList.remove("active"));
+        sw.classList.add("active");
+        uiState.colorHex = sw.dataset.color;
+        document.getElementById("colorPicker").value = uiState.colorHex;
+        updateVisualStage();
+        syncLightingHardware();
+      });
+    });
+
+    document.getElementById("colorPicker").addEventListener("input", (e) => {
+      uiState.colorHex = e.target.value;
+      updateVisualStage();
+    });
+    document.getElementById("colorPicker").addEventListener("change", syncLightingHardware);
+
+    const rngBright = document.getElementById("rngBrightness");
+    rngBright.addEventListener("input", (e) => {
+      uiState.brightness = Number(e.target.value);
+      const txt = `${uiState.brightness}%`;
+      document.getElementById("valBrightness").textContent = txt;
+      document.getElementById("badgeBright").textContent = txt;
+      updateVisualStage();
+    });
+    rngBright.addEventListener("change", async () => {
+      const raw255 = Math.round((uiState.brightness / 100) * 255);
+      await sendPacket90(
+        P25.Builders.setBrightness(raw255),
+        { lighting: { brightness: uiState.brightness } },
+        `✓ Brightness ${uiState.brightness}% Synced`
+      );
+    });
+
+    // Device Mode
     document.getElementById("btnModeNormal").addEventListener("click", async () => {
       document.getElementById("btnModeNormal").classList.add("active");
       document.getElementById("btnModeDriver").classList.remove("active");
-      const pkt90 = P25.Builders.setDeviceMode(0x00, 0x00, 0x00);
-      await sendPacket90(pkt90, { deviceMode: "normal" });
+      document.getElementById("metaMode").textContent = "Onboard Memory";
+      document.getElementById("badgeMode").textContent = "Onboard (0x00)";
+      await sendPacket90(P25.Builders.setDeviceMode(0x00, 0x00, 0x00), { deviceMode: "normal" }, "✓ Onboard Mode Set");
     });
 
     document.getElementById("btnModeDriver").addEventListener("click", async () => {
       document.getElementById("btnModeDriver").classList.add("active");
       document.getElementById("btnModeNormal").classList.remove("active");
-      const pkt90 = P25.Builders.setDeviceMode(0x03, 0x00, 0x1f);
-      await sendPacket90(pkt90, { deviceMode: "driver" });
+      document.getElementById("metaMode").textContent = "Software Driver";
+      document.getElementById("badgeMode").textContent = "Driver (0x03)";
+      await sendPacket90(P25.Builders.setDeviceMode(0x03, 0x00, 0x1f), { deviceMode: "driver" }, "✓ Driver Mode Set");
     });
 
-    // Replay exact 5426_679.json restore packet
-    document.getElementById("btnReplayRestore").addEventListener("click", async () => {
-      const pkt90 = P25.Builders.setDeviceMode(0x00, 0x00, 0x00);
-      await sendPacket90(pkt90, { deviceMode: "normal" });
-    });
+    document.getElementById("btnQueryFw").addEventListener("click", queryDeviceFirmware);
 
-    // Huntsman V3 Pro TKL Actuation & Rapid Trigger
-    const rngAct = document.getElementById("rngActuation");
-    const rngRtDown = document.getElementById("rngRtDown");
-    const rngRtUp = document.getElementById("rngRtUp");
-
-    rngAct.addEventListener("input", (e) => {
-      document.getElementById("valActuation").textContent = `${Number(e.target.value).toFixed(1)} mm`;
-    });
-    rngRtDown.addEventListener("input", (e) => {
-      document.getElementById("valRtDown").textContent = `${Number(e.target.value).toFixed(1)} mm`;
-    });
-    rngRtUp.addEventListener("input", (e) => {
-      document.getElementById("valRtUp").textContent = `${Number(e.target.value).toFixed(1)} mm`;
-    });
-
-    document.querySelectorAll("[data-act-preset]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const preset = btn.dataset.actPreset;
-        if (preset === "fps") {
-          rngAct.value = 0.4;
-          rngRtDown.value = 0.1;
-          rngRtUp.value = 0.1;
-          document.getElementById("chkRapidTrigger").checked = true;
-        } else if (preset === "balanced") {
-          rngAct.value = 1.2;
-          rngRtDown.value = 0.3;
-          rngRtUp.value = 0.3;
-          document.getElementById("chkRapidTrigger").checked = true;
-        } else {
-          rngAct.value = 2.0;
-          rngRtDown.value = 0.5;
-          rngRtUp.value = 0.5;
-          document.getElementById("chkRapidTrigger").checked = false;
-        }
-        rngAct.dispatchEvent(new Event("input"));
-        rngRtDown.dispatchEvent(new Event("input"));
-        rngRtUp.dispatchEvent(new Event("input"));
-      });
-    });
-
-    document.getElementById("btnApplyHuntsman").addEventListener("click", async () => {
-      const actMm = Number(rngAct.value);
-      const rtEnabled = document.getElementById("chkRapidTrigger").checked;
-      const rtDownMm = Number(rngRtDown.value);
-      const rtUpMm = Number(rngRtUp.value);
-
-      // Encode actuation in 0.1mm units (1..40)
-      const actUnits = Math.round(actMm * 10);
-      const downUnits = Math.round(rtDownMm * 10);
-      const upUnits = Math.round(rtUpMm * 10);
-
-      const pkt90 = P25.buildPacket({
-        commandClass: 0x0b,
-        commandId: 0x02,
-        dataSize: 0x06,
-        args: [0x01, actUnits, rtEnabled ? 0x01 : 0x00, downUnits, upUnits, 0x00],
-      });
-      await sendPacket90(pkt90, {
-        huntsman: {
-          actuationMm: actMm,
-          rapidTriggerEnabled: rtEnabled,
-          rapidTriggerDownMm: rtDownMm,
-          rapidTriggerUpMm: rtUpMm,
-        },
-      });
-    });
-
-    document.getElementById("btnApplySnapTap").addEventListener("click", async () => {
-      const enabled = document.getElementById("chkSnapTap").checked;
-      const keyA = document.getElementById("inpSnapA").value.toUpperCase() || "A";
-      const keyB = document.getElementById("inpSnapB").value.toUpperCase() || "D";
-      const pkt90 = P25.buildPacket({
-        commandClass: 0x0b,
-        commandId: 0x08,
-        dataSize: 0x04,
-        args: [0x01, enabled ? 0x01 : 0x00, keyA.charCodeAt(0) & 0xff, keyB.charCodeAt(0) & 0xff],
-      });
-      await sendPacket90(pkt90, {
-        huntsman: {
-          snapTapEnabled: enabled,
-          snapTapKeyA: keyA,
-          snapTapKeyB: keyB,
-        },
-      });
-    });
-
-    // Mouse DPI & Polling
-    const rngDpiX = document.getElementById("rngDpiX");
-    const rngDpiY = document.getElementById("rngDpiY");
-    rngDpiX.addEventListener("input", (e) => {
-      document.getElementById("valDpiX").textContent = e.target.value;
-    });
-    rngDpiY.addEventListener("input", (e) => {
-      document.getElementById("valDpiY").textContent = e.target.value;
-    });
-
-    document.querySelectorAll("[data-dpi]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        document.querySelectorAll("[data-dpi]").forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
-        rngDpiX.value = btn.dataset.dpi;
-        rngDpiY.value = btn.dataset.dpi;
-        rngDpiX.dispatchEvent(new Event("input"));
-        rngDpiY.dispatchEvent(new Event("input"));
-      });
-    });
-
-    document.getElementById("btnApplyDpi").addEventListener("click", async () => {
-      const dpiX = Number(rngDpiX.value);
-      const dpiY = Number(rngDpiY.value);
-      const pkt90 = P25.Builders.setDpiXY(dpiX, dpiY);
-      await sendPacket90(pkt90, { mouse: { dpiX, dpiY } });
-    });
-
-    document.querySelectorAll("#pollingGroup .pill").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        document.querySelectorAll("#pollingGroup .pill").forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
-        const hz = Number(btn.dataset.hz);
-        const pkt90 = P25.Builders.setPollingRate(hz);
-        await sendPacket90(pkt90, { mouse: { pollingHz: hz } });
-      });
-    });
-
-    // Firmware & Battery queries
-    document.getElementById("btnQueryFw").addEventListener("click", async () => {
-      const pkt90 = P25.Builders.getFirmwareVersion();
-      const res = await sendPacket90(pkt90);
-      const args = res.parsedRx?.args || [];
-      document.getElementById("valFirmware").textContent = `v${args[0] ?? 1}.${String(args[1] ?? 0).padStart(2, "0")}.00`;
-    });
-
-    document.getElementById("btnQueryBattery").addEventListener("click", async () => {
-      const pkt90 = P25.Builders.getBatteryLevel();
-      const res = await sendPacket90(pkt90);
-      const raw = res.parsedRx?.args?.[1] ?? 255;
-      const pct = Math.round((raw / 255) * 100);
-      document.getElementById("valBattery").textContent = `${pct}% (0x${raw.toString(16).toUpperCase()})`;
-    });
-
-    // Mapping Engine hooks
-    document.getElementById("btnEnableHooks").addEventListener("click", async () => {
-      await window.apiElectron.doMappingEngineAction({ action: "enableAllDevicesHooks" });
-      document.getElementById("valMappingStatus").textContent = "Enabled";
-    });
-    document.getElementById("btnDisableHooks").addEventListener("click", async () => {
-      await window.apiElectron.doMappingEngineAction({ action: "disableAllDevicesHooks" });
-      document.getElementById("valMappingStatus").textContent = "Disabled";
-    });
-
-    // Audio sliders
-    document.getElementById("rngSpeaker").addEventListener("input", (e) => {
-      document.getElementById("valSpeaker").textContent = `${e.target.value}%`;
-    });
-    document.getElementById("rngSidetone").addEventListener("input", (e) => {
-      document.getElementById("valSidetone").textContent = `${e.target.value}%`;
-    });
-
-    // Custom Protocol 25 Packet Studio
-    ["inpCmdClass", "inpCmdId", "inpDataSize", "inpArgsHex"].forEach((id) => {
-      document.getElementById(id).addEventListener("input", updateCustomPacketPreview);
-    });
-    updateCustomPacketPreview();
-
-    document.getElementById("btnSendCustomPacket").addEventListener("click", async () => {
-      const pkt90 = updateCustomPacketPreview();
-      await sendPacket90(pkt90);
-    });
-
-    document.getElementById("btnClearLogs").addEventListener("click", async () => {
-      await fetch("/api/clear-logs", { method: "POST" });
-      await refreshStatus();
+    document.getElementById("chkMappingHooks").addEventListener("change", async (e) => {
+      const action = e.target.checked ? "enableAllDevicesHooks" : "disableAllDevicesHooks";
+      await window.apiElectron.doMappingEngineAction({ action });
+      showSyncedToast(e.target.checked ? "✓ Mapping Hooks Enabled" : "✓ Mapping Hooks Disabled");
     });
   }
 
-  initUi();
+  buildKeyboardStage();
+  wireEvents();
   refreshStatus();
 })();
