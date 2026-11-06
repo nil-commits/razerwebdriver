@@ -1662,9 +1662,10 @@
       syncSwitchTile("tileSnapTap", slot.snapTapEnabled);
       renderKeyboardMatrix();
       const pkt = Protocol25.Builders.setSnapTap({
+        slotId: getActiveDeviceProfileObj().activeSlot || 1,
         enabled: slot.snapTapEnabled,
-        keyA: slot.snapKeyA.charCodeAt(0),
-        keyB: slot.snapKeyB.charCodeAt(0),
+        keyA: slot.snapKeyA,
+        keyB: slot.snapKeyB,
       });
       sendPacket90(pkt, `Snap Tap (${slot.snapKeyA}+${slot.snapKeyB}: ${slot.snapTapEnabled ? "ON" : "OFF"})`, {
         snapTapEnabled: slot.snapTapEnabled,
@@ -1718,8 +1719,9 @@
       const pkt = Protocol25.Builders.setKeyBinding({
         slotId: getActiveDeviceProfileObj().activeSlot || 1,
         keyId: focusedRemapKey.charCodeAt(0),
+        keyLabel: focusedRemapKey,
         isHypershift: kbdActiveLayer === "hypershift",
-        functionCode: fn === "Default" ? 0 : 1,
+        functionName: fn,
       });
       sendPacket90(pkt, `Bind [${focusedRemapKey}] (${kbdActiveLayer}) → ${fn}`, {
         keyBindings: slot.keyBindings,
@@ -1731,7 +1733,16 @@
       if (slot.keyBindings?.[kbdActiveLayer]) delete slot.keyBindings[kbdActiveLayer][focusedRemapKey];
       document.getElementById("selKeyFunction").value = "Default";
       renderKeyboardMatrix();
-      showToast(`Reset [${focusedRemapKey}] to default`);
+      const pkt = Protocol25.Builders.setKeyBinding({
+        slotId: getActiveDeviceProfileObj().activeSlot || 1,
+        keyId: focusedRemapKey.charCodeAt(0),
+        keyLabel: focusedRemapKey,
+        isHypershift: kbdActiveLayer === "hypershift",
+        functionName: "Default",
+      });
+      sendPacket90(pkt, `Reset [${focusedRemapKey}] (${kbdActiveLayer}) → Default`, {
+        keyBindings: slot.keyBindings,
+      });
     });
 
     // Custom Protocol 25 Packet
