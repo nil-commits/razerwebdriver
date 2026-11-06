@@ -771,6 +771,13 @@
     container.innerHTML = "";
 
     const slot = getActiveSlotData();
+    const light = slot.lighting || { effect: "static", color1: "#00e676", brightness: 100 };
+    const eff = light.effect || "static";
+    const brPct = Math.max(0, Math.min(100, Number(light.brightness ?? 100)));
+    container.dataset.chromaEffect = eff;
+    container.style.setProperty("--chroma-color", light.color1 || "#00e676");
+    container.style.setProperty("--chroma-opacity", eff === "off" ? "0" : (brPct / 100).toFixed(2));
+
     const globalAct = Number(slot.actuationMm ?? 1.2).toFixed(1);
     const globalRt = !!slot.rtEnabled;
     const overrides = slot.perKeyOverrides || {};
@@ -782,7 +789,7 @@
     TKL_ROWS.forEach((row) => {
       const rowEl = document.createElement("div");
       rowEl.className = "kbd-row";
-      row.forEach((k) => {
+      row.forEach((k, colIdx) => {
         if (k.spacer) {
           const sp = document.createElement("div");
           sp.className = "kbd-spacer";
@@ -792,6 +799,7 @@
         const keyEl = document.createElement("button");
         keyEl.type = "button";
         keyEl.className = "keycap";
+        keyEl.style.setProperty("--col-idx", String(colIdx));
         if (k.w && k.w !== 1) keyEl.style.width = `${Math.round(k.w * 44 + (k.w - 1) * 5)}px`;
         if (k.hidden) {
           keyEl.style.visibility = "hidden";
@@ -978,7 +986,7 @@
       document.getElementById("chkDisableAltF4").checked = !!gm.disableAltF4;
       syncSwitchTile("tileDisableAltF4", !!gm.disableAltF4);
 
-      const light = slot.lighting || { effect: "static", color1: "#00e676", brightness: 100 };
+      const light = slot.lighting || { effect: "static", color1: "#00e676", brightness: 100, speed: 2, waveDirection: 1 };
       const rngBr = document.getElementById("rngBrightness");
       if (rngBr) {
         rngBr.value = light.brightness ?? 100;
@@ -992,6 +1000,12 @@
       });
       document.querySelectorAll("#swatchRow .swatch").forEach((s) => {
         s.classList.toggle("active", (s.dataset.color || "").toLowerCase() === (light.color1 || "#00e676").toLowerCase());
+      });
+      document.querySelectorAll("#chromaDirGroup [data-chroma-dir]").forEach((b) => {
+        b.classList.toggle("active", Number(b.dataset.chromaDir) === Number(light.waveDirection || 1));
+      });
+      document.querySelectorAll("#chromaSpeedGroup [data-chroma-speed]").forEach((b) => {
+        b.classList.toggle("active", Number(b.dataset.chromaSpeed) === Number(light.speed || 2));
       });
 
       const kbdHz = Number(slot.pollingHz || 1000);
@@ -1693,19 +1707,32 @@
     });
 
     // Chroma Lighting
-    const sendChroma = (effect, hexColor) => {
+    const sendChroma = (effectOverride, hexColorOverride) => {
       const slot = getActiveSlotData();
-      if (!slot.lighting) slot.lighting = {};
+      if (!slot.lighting) slot.lighting = { effect: "static", color1: "#00e676", brightness: 100, speed: 2, waveDirection: 1 };
+      const effect = effectOverride || slot.lighting.effect || "static";
+      const hexColor = hexColorOverride || slot.lighting.color1 || "#00e676";
       slot.lighting.effect = effect;
       slot.lighting.color1 = hexColor;
+      if (slot.lighting.brightness === undefined) slot.lighting.brightness = 100;
+      if (!slot.lighting.speed) slot.lighting.speed = 2;
+      if (!slot.lighting.waveDirection) slot.lighting.waveDirection = 1;
+
+      renderKeyboardMatrix();
+      renderOverviewPanels();
+
       const num = parseInt(hexColor.replace("#", ""), 16) || 0x00e676;
+      const activeSlotId = Number(getActiveDeviceProfileObj().activeSlot || 1);
       const pkt = Protocol25.Builders.setChromaEffect({
         effect,
         r: (num >> 16) & 0xff,
         g: (num >> 8) & 0xff,
         b: num & 0xff,
+        speed: slot.lighting.speed,
+        direction: slot.lighting.waveDirection,
+        varStore: activeSlotId,
       });
-      sendPacket90(pkt, `Chroma (${effect})`, { lighting: slot.lighting });
+      sendPacket90(pkt, `Chroma (${effect}, ${hexColor})`, { lighting: slot.lighting });
     };
 
     document.querySelectorAll("#effectGrid .preset-btn").forEach((btn) => {
@@ -1727,9 +1754,49 @@
       });
     });
 
+    let chromaColorTimer = null;
+    document.getElementById("inpChromaColor")?.addEventListener("input", (ev) => {
+      const c = ev.target.value;
+      const slot = getActiveSlotData();
+      if (!slot.lighting) slot.lighting = {};
+      slot.lighting.color1 = c;
+      document.querySelectorAll("#swatchRow .swatch").forEach((s) => {
+        s.classList.toggle("active", (s.dataset.color || "").toLowerCase() === c.toLowerCase());
+      });
+      renderKeyboardMatrix();
+      clearTimeout(chromaColorTimer);
+      chromaColorTimer = setTimeout(() => {
+        const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
+        sendChroma(activeEff, c);
+      }, 90);
+    });
+
     document.getElementById("inpChromaColor")?.addEventListener("change", (ev) => {
+      clearTimeout(chromaColorTimer);
       const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
       sendChroma(activeEff, ev.target.value);
+    });
+
+    document.querySelectorAll("#chromaDirGroup [data-chroma-dir]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#chromaDirGroup [data-chroma-dir]").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        const slot = getActiveSlotData();
+        if (!slot.lighting) slot.lighting = {};
+        slot.lighting.waveDirection = Number(btn.dataset.chromaDir) || 1;
+        sendChroma();
+      });
+    });
+
+    document.querySelectorAll("#chromaSpeedGroup [data-chroma-speed]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#chromaSpeedGroup [data-chroma-speed]").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        const slot = getActiveSlotData();
+        if (!slot.lighting) slot.lighting = {};
+        slot.lighting.speed = Number(btn.dataset.chromaSpeed) || 2;
+        sendChroma();
+      });
     });
 
     const rngBr = document.getElementById("rngBrightness");
@@ -1737,12 +1804,19 @@
       updateRangeFill(rngBr);
       document.getElementById("valBrightness").textContent = `${rngBr.value}%`;
       document.getElementById("valBrightnessOut").textContent = `${rngBr.value}%`;
+      const slot = getActiveSlotData();
+      if (!slot.lighting) slot.lighting = {};
+      slot.lighting.brightness = Number(rngBr.value);
+      renderKeyboardMatrix();
     });
     rngBr?.addEventListener("change", () => {
       const slot = getActiveSlotData();
       if (!slot.lighting) slot.lighting = {};
       slot.lighting.brightness = Number(rngBr.value);
-      const pkt = Protocol25.Builders.setBrightness(Number(rngBr.value));
+      renderKeyboardMatrix();
+      renderOverviewPanels();
+      const activeSlotId = Number(getActiveDeviceProfileObj().activeSlot || 1);
+      const pkt = Protocol25.Builders.setBrightness(Number(rngBr.value), 0x00, activeSlotId);
       sendPacket90(pkt, `Brightness ${rngBr.value}%`, { lighting: slot.lighting });
     });
 
