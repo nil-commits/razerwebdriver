@@ -6,32 +6,32 @@
   <title>Razer Web Hub</title>
   <style>
     :root {
-      --bg-base: #0a0c10;
-      --bg-surface: #11141b;
-      --bg-elevated: #171b24;
-      --bg-hover: #1e2330;
+      --bg-base: #090b0f;
+      --bg-surface: #11141c;
+      --bg-elevated: #171b25;
+      --bg-hover: #1f2533;
       --border: rgba(255, 255, 255, 0.07);
-      --border-strong: rgba(255, 255, 255, 0.14);
+      --border-strong: rgba(255, 255, 255, 0.15);
       --text-primary: #f3f5f8;
-      --text-secondary: #949a1;
-      --text-muted: #646b78;
+      --text-muted: #7a8394;
       --accent: #00e676;
       --accent-soft: rgba(0, 230, 118, 0.12);
       --accent-glow: rgba(0, 230, 118, 0.28);
       --amber: #ffb300;
       --amber-soft: rgba(255, 179, 0, 0.14);
       --cyan: #00d2ff;
-      --cyan-soft: rgba(0, 210, 255, 0.14);
+      --cyan-soft: rgba(0, 210, 255, 0.15);
+      --purple: #a855f7;
+      --purple-soft: rgba(168, 85, 247, 0.16);
       --radius-sm: 8px;
       --radius-md: 12px;
-      --radius-lg: 18px;
       --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       --font-mono: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
     body {
-      background: radial-gradient(circle at 50% 0%, #141923 0%, var(--bg-base) 65%);
+      background: radial-gradient(circle at 50% 0%, #151a25 0%, var(--bg-base) 68%);
       color: var(--text-primary);
       font-family: var(--font-sans);
       height: 100vh;
@@ -41,15 +41,16 @@
       -webkit-font-smoothing: antialiased;
     }
 
-    /* TOP BAR (Wootility / MCHOSE Hub style) */
+    /* TOP BAR */
     .topbar {
-      height: 62px;
-      padding: 0 28px;
+      height: 60px;
+      padding: 0 24px;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 14px;
       border-bottom: 1px solid var(--border);
-      background: rgba(10, 12, 16, 0.75);
+      background: rgba(9, 11, 15, 0.8);
       backdrop-filter: blur(16px);
       z-index: 20;
     }
@@ -57,7 +58,7 @@
     .brand {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
     }
     .brand-logo {
       width: 28px;
@@ -69,25 +70,15 @@
       color: #050807;
       font-weight: 900;
       font-size: 0.9rem;
-      box-shadow: 0 0 18px rgba(0, 230, 118, 0.25);
+      box-shadow: 0 0 16px rgba(0, 230, 118, 0.25);
     }
-    .brand-title {
-      font-weight: 700;
-      font-size: 0.96rem;
-      letter-spacing: -0.01em;
-    }
-    .brand-sub {
-      font-size: 0.72rem;
-      color: var(--text-muted);
-      font-weight: 500;
-      margin-left: 4px;
-    }
+    .brand-title { font-weight: 700; font-size: 0.94rem; }
 
-    /* DEVICE SWITCHER PILLS */
+    /* DEVICE SWITCHER */
     .device-switcher {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       background: var(--bg-surface);
       padding: 4px;
       border-radius: 999px;
@@ -96,24 +87,22 @@
     .dev-pill {
       display: flex;
       align-items: center;
-      gap: 9px;
-      padding: 7px 16px;
+      gap: 8px;
+      padding: 6px 14px;
       border-radius: 999px;
       border: none;
       background: transparent;
       color: var(--text-muted);
-      font-size: 0.82rem;
+      font-size: 0.8rem;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.18s ease;
+      transition: all 0.16s ease;
     }
-    .dev-pill:hover {
-      color: var(--text-primary);
-    }
+    .dev-pill:hover { color: var(--text-primary); }
     .dev-pill.active {
       background: var(--bg-elevated);
       color: var(--text-primary);
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35), inset 0 0 0 1px var(--border-strong);
+      box-shadow: inset 0 0 0 1px var(--border-strong);
     }
     .dev-pill .dot {
       width: 7px;
@@ -126,37 +115,62 @@
       box-shadow: 0 0 8px var(--accent);
     }
 
-    /* TOP RIGHT STATUS & ACTIONS */
+    /* ONBOARD PROFILE SLOT BAR IN HEADER */
+    .slot-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-surface);
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+    }
+    .slot-bar-label {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      padding: 0 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .slot-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: #a1aab8;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .slot-pill:hover { color: var(--text-primary); background: rgba(255,255,255,0.04); }
+    .slot-pill.active {
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      border-color: var(--border-strong);
+    }
+    .slot-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
     .top-actions {
       display: flex;
       align-items: center;
-      gap: 10px;
-    }
-    .status-chip {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      padding: 6px 12px;
-      border-radius: 999px;
-      background: var(--bg-surface);
-      border: 1px solid var(--border);
-      font-size: 0.75rem;
-      color: #9ba3b0;
-      font-weight: 500;
-    }
-    .status-chip .pulse {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--accent);
+      gap: 8px;
     }
     .btn-ghost {
       background: var(--bg-surface);
       color: var(--text-primary);
       border: 1px solid var(--border);
-      padding: 7px 13px;
+      padding: 6px 12px;
       border-radius: 999px;
-      font-size: 0.76rem;
+      font-size: 0.75rem;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.15s ease;
@@ -165,145 +179,178 @@
       border-color: var(--border-strong);
       background: var(--bg-elevated);
     }
+    .btn-primary-pill {
+      background: var(--accent);
+      color: #041208;
+      border: none;
+      padding: 6px 13px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: filter 0.15s ease;
+    }
+    .btn-primary-pill:hover { filter: brightness(1.1); }
 
-    /* WORKSPACE: STAGE TOP + DOCK BOTTOM */
+    /* WORKSPACE */
     .workspace {
       flex: 1;
       display: flex;
       flex-direction: column;
       min-height: 0;
-      position: relative;
     }
 
-    /* HERO VISUAL STAGE */
+    /* STAGE */
     .stage {
       flex: 1;
-      min-height: 250px;
+      min-height: 245px;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 20px 32px 12px;
-      position: relative;
+      padding: 14px 28px 10px;
+      gap: 10px;
     }
 
-    .stage-meta {
+    .stage-toolbar {
       display: flex;
       align-items: center;
-      gap: 14px;
-      margin-bottom: 14px;
-      font-size: 0.76rem;
-      color: #8c95a4;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
     }
-    .stage-meta span {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      background: rgba(255, 255, 255, 0.03);
+    .tool-chip {
+      background: rgba(255, 255, 255, 0.035);
       border: 1px solid var(--border);
+      color: #9ba3b0;
       padding: 4px 11px;
       border-radius: 999px;
-    }
-    .stage-meta strong {
-      color: var(--text-primary);
+      font-size: 0.73rem;
       font-weight: 600;
+      cursor: pointer;
+      transition: all 0.14s ease;
+    }
+    .tool-chip:hover, .tool-chip.active {
+      color: var(--text-primary);
+      border-color: var(--border-strong);
+      background: var(--bg-elevated);
+    }
+    .tool-chip.hypershift-active {
+      background: var(--purple-soft);
+      border-color: var(--purple);
+      color: #e9d5ff;
     }
 
-    /* INTERACTIVE TKL KEYBOARD (Wootility-inspired) */
+    /* TKL KEYBOARD CHASSIS */
     .kbd-chassis {
       background: linear-gradient(180deg, #191d26 0%, #101319 100%);
-      padding: 16px 18px 18px;
-      border-radius: 18px;
+      padding: 14px 16px 16px;
+      border-radius: 16px;
       border: 1px solid rgba(255, 255, 255, 0.1);
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65), 0 0 40px var(--kbd-glow, rgba(0, 230, 118, 0.08));
+      box-shadow: 0 22px 55px rgba(0, 0, 0, 0.65), 0 0 38px var(--kbd-glow, rgba(0, 230, 118, 0.08));
       display: flex;
-      gap: 14px;
-      transition: box-shadow 0.3s ease;
+      gap: 13px;
     }
     .kbd-main-block, .kbd-nav-block {
       display: flex;
       flex-direction: column;
-      gap: 5px;
+      gap: 4px;
     }
-    .kbd-row {
-      display: flex;
-      gap: 5px;
-    }
-    .kbd-row.fn-row {
-      margin-bottom: 5px;
-    }
+    .kbd-row { display: flex; gap: 4px; }
+    .kbd-row.fn-row { margin-bottom: 4px; }
     .keycap {
-      height: 36px;
-      width: calc(var(--u, 1) * 36px + (var(--u, 1) - 1) * 5px);
+      height: 34px;
+      width: calc(var(--u, 1) * 34px + (var(--u, 1) - 1) * 4px);
       background: #181c24;
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-bottom: 3px solid #0b0d12;
-      border-radius: 6px;
+      border-radius: 5px;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      font-size: 0.65rem;
+      font-size: 0.62rem;
       font-weight: 600;
       color: var(--key-color, #d8dee9);
       position: relative;
       cursor: pointer;
-      transition: transform 0.08s ease, border-color 0.15s ease, box-shadow 0.2s ease;
+      transition: transform 0.08s ease, border-color 0.14s ease;
       box-shadow: inset 0 0 10px var(--key-glow, rgba(0, 230, 118, 0.08));
     }
     .keycap:hover {
       transform: translateY(-1px);
-      border-color: rgba(255, 255, 255, 0.28);
+      border-color: rgba(255, 255, 255, 0.3);
     }
     .keycap.selected {
-      border-color: var(--accent);
-      box-shadow: 0 0 12px var(--accent-glow), inset 0 0 8px var(--accent-soft);
+      border-color: var(--accent) !important;
+      box-shadow: 0 0 10px var(--accent-glow), inset 0 0 8px var(--accent-soft) !important;
+    }
+    .keycap.custom-act {
+      border-color: var(--cyan);
+    }
+    .keycap.remapped::after {
+      content: "";
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--purple);
     }
     .keycap.snaptap-key {
       border-color: var(--amber) !important;
       box-shadow: 0 0 12px rgba(255, 179, 0, 0.35), inset 0 0 10px rgba(255, 179, 0, 0.18) !important;
     }
     .keycap .k-sub {
-      font-size: 0.52rem;
+      font-size: 0.5rem;
       font-family: var(--font-mono);
       color: #8b949e;
       margin-top: 1px;
     }
-    .key-spacer {
-      width: calc(var(--u, 1) * 36px);
-    }
+    .key-spacer { width: calc(var(--u, 1) * 34px); }
 
-    /* INTERACTIVE VIPER V3 PRO MOUSE STAGE */
+    /* VIPER V3 PRO INTERACTIVE MOUSE STAGE */
     .mouse-stage {
       display: flex;
       align-items: center;
-      gap: 42px;
+      gap: 36px;
     }
     .mouse-shell {
-      width: 148px;
-      height: 246px;
+      width: 146px;
+      height: 236px;
       background: linear-gradient(180deg, #1d222d 0%, #11141c 100%);
-      border: 1.5px solid rgba(255, 255, 255, 0.13);
-      border-radius: 68px 68px 58px 58px;
+      border: 1.5px solid rgba(255, 255, 255, 0.14);
+      border-radius: 66px 66px 56px 56px;
       position: relative;
       box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65), 0 0 35px rgba(0, 230, 118, 0.08);
       display: flex;
       flex-direction: column;
       align-items: center;
     }
-    .mouse-buttons {
-      width: 100%;
-      height: 92px;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    .mouse-hotspot {
+      position: absolute;
+      background: rgba(23, 27, 37, 0.92);
+      border: 1px solid var(--border-strong);
+      color: var(--text-primary);
+      padding: 4px 9px;
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.14s ease;
     }
-    .mouse-btn-l { border-right: 1px solid rgba(255, 255, 255, 0.07); }
+    .mouse-hotspot:hover, .mouse-hotspot.active {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
     .mouse-wheel {
       position: absolute;
       top: 26px;
       width: 16px;
-      height: 42px;
+      height: 40px;
       border-radius: 999px;
       background: #0d1016;
       border: 1.5px solid var(--accent);
@@ -311,14 +358,14 @@
     }
     .mouse-logo {
       margin-top: auto;
-      margin-bottom: 38px;
+      margin-bottom: 34px;
       width: 10px;
       height: 10px;
       border-radius: 50%;
       background: var(--accent);
       box-shadow: 0 0 14px var(--accent);
     }
-    .mouse-Side-pills {
+    .mouse-side-col {
       display: flex;
       flex-direction: column;
       gap: 10px;
@@ -327,71 +374,61 @@
       background: var(--bg-surface);
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
-      padding: 12px 18px;
-      min-width: 195px;
+      padding: 10px 16px;
+      min-width: 185px;
     }
     .mouse-metric-card .m-label {
-      font-size: 0.7rem;
+      font-size: 0.68rem;
       color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.06em;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
     }
     .mouse-metric-card .m-val {
-      font-size: 1.3rem;
+      font-size: 1.15rem;
       font-weight: 700;
       font-family: var(--font-mono);
-      color: var(--text-primary);
     }
 
-    /* BOTTOM INSPECTOR DOCK (Wootility / Corsair Web Hub style) */
+    /* BOTTOM INSPECTOR DOCK */
     .dock {
-      height: 335px;
+      height: 350px;
       background: var(--bg-surface);
       border-top: 1px solid var(--border);
       display: flex;
       flex-direction: column;
       z-index: 15;
     }
-
     .dock-nav {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 28px;
-      height: 48px;
+      padding: 0 24px;
+      height: 46px;
       border-bottom: 1px solid var(--border);
-      background: rgba(17, 20, 27, 0.9);
+      background: rgba(17, 20, 28, 0.92);
     }
-    .dock-tabs {
-      display: flex;
-      gap: 6px;
-      height: 100%;
-    }
+    .dock-tabs { display: flex; gap: 4px; height: 100%; }
     .dock-tab {
       background: transparent;
       border: none;
       color: #8b949e;
-      font-size: 0.82rem;
+      font-size: 0.8rem;
       font-weight: 600;
-      padding: 0 16px;
+      padding: 0 14px;
       height: 100%;
       cursor: pointer;
       position: relative;
       transition: color 0.15s ease;
     }
-    .dock-tab:hover {
-      color: var(--text-primary);
-    }
-    .dock-tab.active {
-      color: var(--accent);
-    }
+    .dock-tab:hover { color: var(--text-primary); }
+    .dock-tab.active { color: var(--accent); }
     .dock-tab.active::after {
       content: "";
       position: absolute;
       bottom: 0;
-      left: 12px;
-      right: 12px;
+      left: 10px;
+      right: 10px;
       height: 2px;
       border-radius: 2px;
       background: var(--accent);
@@ -402,7 +439,7 @@
       display: flex;
       align-items: center;
       gap: 12px;
-      font-size: 0.76rem;
+      font-size: 0.75rem;
       color: #8b949e;
     }
     .save-toast {
@@ -411,23 +448,21 @@
       opacity: 0;
       transition: opacity 0.2s ease;
     }
-    .save-toast.show {
-      opacity: 1;
-    }
+    .save-toast.show { opacity: 1; }
 
     .dock-content {
       flex: 1;
-      padding: 22px 28px;
+      padding: 18px 24px;
       overflow-y: auto;
       display: flex;
       justify-content: center;
     }
     .panel {
       width: 100%;
-      max-width: 1120px;
+      max-width: 1180px;
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
-      gap: 20px;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 16px;
       align-items: start;
     }
 
@@ -435,60 +470,34 @@
       background: var(--bg-elevated);
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
-      padding: 18px 20px;
+      padding: 16px 18px;
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 12px;
     }
     .module-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 8px;
     }
-    .module-title {
-      font-size: 0.88rem;
-      font-weight: 700;
-      color: var(--text-primary);
-    }
+    .module-title { font-size: 0.85rem; font-weight: 700; }
     .module-badge {
-      font-size: 0.72rem;
+      font-size: 0.7rem;
       font-family: var(--font-mono);
-      padding: 3px 9px;
+      padding: 3px 8px;
       border-radius: 999px;
       background: var(--accent-soft);
       color: var(--accent);
       font-weight: 600;
     }
-    .module-badge.amber {
-      background: var(--amber-soft);
-      color: var(--amber);
-    }
-    .module-desc {
-      font-size: 0.76rem;
-      color: #8c95a4;
-      line-height: 1.45;
-    }
+    .module-desc { font-size: 0.74rem; color: #8c95a4; line-height: 1.4; }
 
-    /* SLIDERS & PRESETS */
-    .slider-block {
-      display: flex;
-      flex-direction: column;
-      gap: 7px;
-    }
-    .slider-top {
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.79rem;
-    }
-    .slider-top span:first-child {
-      color: #c9d1d9;
-      font-weight: 500;
-    }
-    .slider-top .s-val {
-      font-family: var(--font-mono);
-      font-weight: 700;
-      color: var(--accent);
-    }
+    .slider-block { display: flex; flex-direction: column; gap: 6px; }
+    .slider-top { display: flex; justify-content: space-between; font-size: 0.77rem; }
+    .slider-top span:first-child { color: #c9d1d9; font-weight: 500; }
+    .slider-top .s-val { font-family: var(--font-mono); font-weight: 700; color: var(--accent); }
+
     input[type="range"] {
       -webkit-appearance: none;
       appearance: none;
@@ -502,31 +511,26 @@
     }
     input[type="range"]::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 16px;
-      height: 16px;
+      width: 15px;
+      height: 15px;
       border-radius: 50%;
       background: var(--accent);
       box-shadow: 0 0 10px var(--accent-glow);
       cursor: pointer;
-      transition: transform 0.1s ease;
-    }
-    input[type="range"]::-webkit-slider-thumb:hover {
-      transform: scale(1.15);
     }
 
-    /* WOOTILITY-STYLE SWITCH STEM TRAVEL VISUALIZER */
     .stem-gauge {
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 12px;
       background: #10131a;
       border: 1px solid var(--border);
       border-radius: 10px;
-      padding: 12px 16px;
+      padding: 10px 14px;
     }
     .stem-track {
-      width: 34px;
-      height: 92px;
+      width: 30px;
+      height: 86px;
       background: #090b0f;
       border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 6px;
@@ -541,88 +545,78 @@
       height: 30%;
       background: linear-gradient(180deg, rgba(0, 230, 118, 0.35), rgba(0, 230, 118, 0.75));
       border-bottom: 2px solid var(--accent);
-      transition: height 0.15s ease;
+      transition: height 0.14s ease;
     }
     .stem-scale {
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      height: 92px;
+      height: 86px;
       font-family: var(--font-mono);
-      font-size: 0.66rem;
+      font-size: 0.64rem;
       color: var(--text-muted);
     }
 
-    /* PRESET GRID / EFFECT CARDS */
     .preset-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
-      gap: 8px;
+      grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
+      gap: 7px;
     }
     .preset-btn {
       background: #11141c;
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 9px 10px;
+      padding: 8px 9px;
       color: #c9d1d9;
-      font-size: 0.76rem;
+      font-size: 0.74rem;
       font-weight: 600;
       cursor: pointer;
       text-align: center;
-      transition: all 0.15s ease;
+      transition: all 0.14s ease;
     }
-    .preset-btn:hover {
-      background: var(--bg-hover);
-      border-color: var(--border-strong);
-    }
+    .preset-btn:hover { background: var(--bg-hover); border-color: var(--border-strong); }
     .preset-btn.active {
       background: var(--accent-soft);
       border-color: var(--accent);
       color: var(--accent);
     }
 
-    /* COLOR SWATCHES */
-    .swatch-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
+    .swatch-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .swatch {
-      width: 26px;
-      height: 26px;
+      width: 24px;
+      height: 24px;
       border-radius: 50%;
       border: 2px solid rgba(255, 255, 255, 0.15);
       cursor: pointer;
-      transition: transform 0.12s ease;
     }
-    .swatch:hover { transform: scale(1.12); }
-    .swatch.active {
-      border-color: #fff;
-      box-shadow: 0 0 10px currentColor;
-    }
+    .swatch.active { border-color: #fff; box-shadow: 0 0 10px currentColor; }
     input[type="color"] {
-      width: 30px;
-      height: 28px;
+      width: 28px;
+      height: 26px;
       border: 1px solid var(--border-strong);
       border-radius: 6px;
       background: transparent;
       cursor: pointer;
     }
+    input[type="text"], select {
+      background: #10131a;
+      color: var(--text-primary);
+      border: 1px solid var(--border-strong);
+      border-radius: 7px;
+      padding: 6px 10px;
+      font-size: 0.78rem;
+      font-family: var(--font-sans);
+    }
 
-    /* TOGGLE SWITCH */
     .toggle-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 4px 0;
+      font-size: 0.78rem;
+      color: #c9d1d9;
+      padding: 3px 0;
     }
-    .switch {
-      position: relative;
-      display: inline-block;
-      width: 40px;
-      height: 22px;
-    }
+    .switch { position: relative; display: inline-block; width: 38px; height: 20px; }
     .switch input { opacity: 0; width: 0; height: 0; }
     .switch-slider {
       position: absolute;
@@ -636,8 +630,8 @@
     .switch-slider::before {
       position: absolute;
       content: "";
-      height: 14px;
-      width: 14px;
+      height: 12px;
+      width: 12px;
       left: 3px;
       bottom: 3px;
       background: #8b949e;
@@ -651,54 +645,50 @@
     .switch input:checked + .switch-slider::before {
       transform: translateX(18px);
       background: var(--accent);
-      box-shadow: 0 0 8px var(--accent);
     }
 
-    /* SNAP TAP PAIR VISUAL */
     .snaptap-pair {
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 14px;
-      padding: 10px;
+      gap: 12px;
+      padding: 8px;
       background: #10131a;
       border: 1px solid var(--border);
       border-radius: 10px;
     }
     .snaptap-keybox {
-      width: 48px;
-      height: 48px;
+      width: 44px;
+      height: 44px;
       background: #181c24;
-      border: 1.5px solid var(--amber);
+      border: 1.5px solid var(--amber) !important;
       border-radius: 8px;
       color: var(--text-primary);
-      font-family: var(--font-mono);
-      font-size: 1.05rem;
+      font-family: var(--font-mono) !important;
+      font-size: 1rem !important;
       font-weight: 700;
       text-align: center;
     }
 
-    /* PROTOCOL DRAWER (Hidden by default for clean UX) */
+    /* DRAWER */
     .drawer {
       position: fixed;
-      top: 62px;
+      top: 60px;
       right: 0;
       bottom: 0;
-      width: 460px;
-      background: rgba(15, 18, 25, 0.97);
+      width: 450px;
+      background: rgba(14, 17, 24, 0.97);
       backdrop-filter: blur(20px);
       border-left: 1px solid var(--border-strong);
       z-index: 50;
-      padding: 20px;
+      padding: 18px;
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 12px;
       transform: translateX(100%);
       transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
     }
-    .drawer.open {
-      transform: translateX(0);
-    }
+    .drawer.open { transform: translateX(0); }
     .log-feed {
       flex: 1;
       overflow-y: auto;
@@ -706,14 +696,14 @@
       flex-direction: column;
       gap: 8px;
       font-family: var(--font-mono);
-      font-size: 0.7rem;
+      font-size: 0.69rem;
     }
     .log-card {
       background: #080a0e;
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 9px 11px;
-      line-height: 1.45;
+      padding: 8px 10px;
+      line-height: 1.42;
     }
     .log-card .tx { color: var(--accent); word-break: break-all; }
     .log-card .rx { color: var(--cyan); word-break: break-all; }
@@ -722,75 +712,87 @@
   </style>
 </head>
 <body>
-  <!-- TOP NAVIGATION BAR -->
+  <!-- TOP HEADER WITH DEVICE SWITCHER & ONBOARD PROFILE SLOTS -->
   <header class="topbar">
     <div class="brand">
       <div class="brand-logo">R</div>
-      <div>
-        <span class="brand-title">Razer Web Hub</span>
-        <span class="brand-sub">Local Protocol 25 Driver</span>
-      </div>
+      <span class="brand-title">Razer Web Hub</span>
     </div>
 
-    <!-- Connected Device Switcher -->
     <div class="device-switcher" id="deviceSwitcher"></div>
 
+    <!-- Hardware Onboard Memory Slots Bar -->
+    <div class="slot-bar" id="slotBar"></div>
+
     <div class="top-actions">
-      <div class="status-chip" id="transportChip">
-        <span class="pulse"></span>
-        <span id="transportLabel">Local Native HID</span>
-      </div>
-      <button class="btn-ghost" id="btnWebHid" title="Direct Browser WebHID connection">WebHID</button>
-      <button class="btn-ghost" id="btnToggleDrawer" title="Inspect raw 91-byte Protocol 25 packets">&lt;/&gt; Inspector</button>
+      <button class="btn-primary-pill" id="btnSaveSlot" title="Save current settings to active onboard memory slot">
+        Save to Slot
+      </button>
+      <button class="btn-ghost" id="btnWebHid" title="Connect via Browser WebHID">WebHID</button>
+      <button class="btn-ghost" id="btnToggleDrawer" title="Protocol 25 Packet Inspector">&lt;/&gt;</button>
     </div>
   </header>
 
   <div class="workspace">
-    <!-- INTERACTIVE DEVICE STAGE -->
+    <!-- INTERACTIVE STAGE -->
     <section class="stage">
-      <div class="stage-meta">
-        <span>Device <strong id="metaName">Razer Huntsman V3 Pro Tenkeyless</strong></span>
-        <span>PID <strong id="metaPid">0x02A7</strong></span>
-        <span>Firmware <strong id="metaFw">v1.04.00</strong></span>
-        <span>Mode <strong id="metaMode">Onboard Memory</strong></span>
+      <!-- Keyboard Selection & Layer Toolbar -->
+      <div class="stage-toolbar" id="kbdToolbar">
+        <button class="tool-chip active" data-sel="all">All Keys (Global)</button>
+        <button class="tool-chip" data-sel="wasd">Select WASD</button>
+        <button class="tool-chip" data-sel="fps">Select FPSCluster</button>
+        <button class="tool-chip" data-sel="nums">Select 1–5</button>
+        <button class="tool-chip" data-sel="clear">Clear Selection</button>
+        <span style="color:var(--border-strong);">|</span>
+        <button class="tool-chip" id="btnLayerToggle">Layer: Standard</button>
       </div>
 
-      <!-- KEYBOARD VISUALIZER (Shown when Keyboard is active) -->
+      <!-- KEYBOARD VISUALIZER -->
       <div id="keyboardStage" class="kbd-chassis">
         <div class="kbd-main-block" id="kbdMainRows"></div>
         <div class="kbd-nav-block" id="kbdNavRows"></div>
       </div>
 
-      <!-- MOUSE VISUALIZER (Shown when Mouse is active) -->
+      <!-- MOUSE VISUALIZER (With Interactive Button Hotspots) -->
       <div id="mouseStage" class="mouse-stage hidden">
-        <div class="mouse-Side-pills">
+        <div class="mouse-side-col">
           <div class="mouse-metric-card">
-            <div class="m-label">Active Sensitivity</div>
-            <div class="m-val" id="stageDpiVal">1600 DPI</div>
+            <div class="m-label">Active DPI Stage</div>
+            <div class="m-val" id="stageDpiVal" style="color:var(--accent);">1600 DPI</div>
           </div>
           <div class="mouse-metric-card">
             <div class="m-label">HyperPolling Rate</div>
             <div class="m-val" id="stagePollVal">1000 Hz</div>
           </div>
+          <div class="mouse-metric-card">
+            <div class="m-label">Sensor Angle / LOD</div>
+            <div class="m-val" id="stageAngleVal">0° • Low</div>
+          </div>
         </div>
 
         <div class="mouse-shell" id="mouseVisual">
-          <div class="mouse-buttons">
-            <div class="mouse-btn-l"></div>
-            <div class="mouse-btn-r"></div>
-          </div>
+          <button class="mouse-hotspot active" data-mbtn="M1" style="top:18px; left:-68px;">M1 Left</button>
+          <button class="mouse-hotspot" data-mbtn="M2" style="top:18px; right:-72px;">M2 Right</button>
+          <button class="mouse-hotspot" data-mbtn="M3" style="top:58px; right:-78px;">M3 Scroll</button>
+          <button class="mouse-hotspot" data-mbtn="M5" style="top:96px; left:-74px;">M5 Fwd</button>
+          <button class="mouse-hotspot" data-mbtn="M4" style="top:132px; left:-76px;">M4 Back</button>
+          <button class="mouse-hotspot" data-mbtn="DPI" style="bottom:16px; right:-82px;">DPI Cycle</button>
           <div class="mouse-wheel" id="mouseWheelGlow"></div>
           <div class="mouse-logo" id="mouseLogoGlow"></div>
         </div>
 
-        <div class="mouse-Side-pills">
+        <div class="mouse-side-col">
           <div class="mouse-metric-card">
-            <div class="m-label">Wireless Link</div>
-            <div class="m-val" style="color:var(--accent);">Dongle 0xFF</div>
+            <div class="m-label">Onboard Slot</div>
+            <div class="m-val" id="stageMouseSlot">Slot 1</div>
           </div>
           <div class="mouse-metric-card">
-            <div class="m-label">Firmware</div>
+            <div class="m-label">Wireless Dongle</div>
             <div class="m-val" id="stageMouseFw">v1.11.00</div>
+          </div>
+          <div class="mouse-metric-card">
+            <div class="m-label">Idle Sleep Timer</div>
+            <div class="m-val" id="stageSleepVal">5 min</div>
           </div>
         </div>
       </div>
@@ -801,26 +803,28 @@
       <div class="dock-nav">
         <div class="dock-tabs" id="dockTabs">
           <button class="dock-tab active" data-panel="panel-actuation" data-for="keyboard">Actuation &amp; Rapid Trigger</button>
-          <button class="dock-tab" data-panel="panel-snaptap" data-for="keyboard">Snap Tap (SOCD)</button>
-          <button class="dock-tab" data-panel="panel-dpi" data-for="mouse">DPI &amp; Polling</button>
+          <button class="dock-tab" data-panel="panel-snaptap" data-for="keyboard">Snap Tap &amp; Gaming Mode</button>
+          <button class="dock-tab" data-panel="panel-dpi" data-for="mouse">DPI Stages &amp; Polling</button>
+          <button class="dock-tab" data-panel="panel-sensor" data-for="mouse">Sensor, Calibration &amp; Power</button>
+          <button class="dock-tab" data-panel="panel-remap" data-for="all">Remap &amp; Hypershift</button>
           <button class="dock-tab" data-panel="panel-lighting" data-for="all">Lighting</button>
-          <button class="dock-tab" data-panel="panel-system" data-for="all">Device &amp; Mode</button>
+          <button class="dock-tab" data-panel="panel-slots" data-for="all">Onboard Profiles &amp; Slots</button>
         </div>
         <div class="dock-status">
           <span id="saveToast" class="save-toast">✓ Synced to Hardware</span>
-          <span>Zero Cloud • 127.0.0.1</span>
+          <span id="transportLabel">Native HID.node Active</span>
         </div>
       </div>
 
       <div class="dock-content">
-        <!-- PANEL 1: ACTUATION & RAPID TRIGGER (Wootility Style) -->
+        <!-- PANEL 1: ACTUATION & RAPID TRIGGER (Global + Per-Key) -->
         <div id="panel-actuation" class="panel">
           <div class="module-card">
             <div class="module-header">
-              <span class="module-title">Analog Actuation Point</span>
+              <span class="module-title" id="actTargetTitle">Actuation Point (All Keys)</span>
               <span class="module-badge" id="badgeActuation">1.2 mm</span>
             </div>
-            <div style="display:flex; gap:18px; align-items:center;">
+            <div style="display:flex; gap:16px; align-items:center;">
               <div class="stem-gauge">
                 <div class="stem-track">
                   <div class="stem-fill" id="stemFill"></div>
@@ -831,10 +835,10 @@
                   <span>4.0</span>
                 </div>
               </div>
-              <div style="flex:1; display:flex; flex-direction:column; gap:12px;">
+              <div style="flex:1; display:flex; flex-direction:column; gap:10px;">
                 <div class="slider-block">
                   <div class="slider-top">
-                    <span>Trigger Distance</span>
+                    <span>Actuation Distance (0.1 – 4.0 mm)</span>
                     <span class="s-val" id="valActuation">1.2 mm</span>
                   </div>
                   <input type="range" id="rngActuation" min="0.1" max="4.0" step="0.1" value="1.2" />
@@ -850,73 +854,113 @@
 
           <div class="module-card">
             <div class="module-header">
-              <span class="module-title">Rapid Trigger</span>
+              <span class="module-title">Rapid Trigger &amp; Continuous Reset</span>
               <label class="switch">
                 <input type="checkbox" id="chkRapidTrigger" checked />
                 <span class="switch-slider"></span>
               </label>
             </div>
-            <p class="module-desc">
-              Dynamically resets keys the instant they travel upward, allowing immediate repeat inputs without passing a fixed reset point.
-            </p>
             <div class="slider-block">
               <div class="slider-top">
-                <span>Press Sensitivity (Downstroke)</span>
+                <span>Downstroke Sensitivity</span>
                 <span class="s-val" id="valRtDown">0.3 mm</span>
               </div>
-              <input type="range" id="rngRtDown" min="0.1" max="2.0" step="0.1" value="0.3" />
+              <input type="range" id="rngRtDown" min="0.1" max="2.0" step="0.05" value="0.3" />
             </div>
             <div class="slider-block">
               <div class="slider-top">
-                <span>Reset Sensitivity (Upstroke)</span>
+                <span>Upstroke Reset Sensitivity</span>
                 <span class="s-val" id="valRtUp">0.3 mm</span>
               </div>
-              <input type="range" id="rngRtUp" min="0.1" max="2.0" step="0.1" value="0.3" />
+              <input type="range" id="rngRtUp" min="0.1" max="2.0" step="0.05" value="0.3" />
+            </div>
+            <div class="toggle-row">
+              <span>Continuous Rapid Trigger (Full-Travel Reset)</span>
+              <label class="switch">
+                <input type="checkbox" id="chkContinuousRt" checked />
+                <span class="switch-slider"></span>
+              </label>
             </div>
           </div>
         </div>
 
-        <!-- PANEL 2: SNAP TAP (SOCD) -->
+        <!-- PANEL 2: SNAP TAP, GAMING MODE & KEYBOARD POLLING -->
         <div id="panel-snaptap" class="panel hidden">
           <div class="module-card">
             <div class="module-header">
-              <span class="module-title">Razer Snap Tap (Last Input Priority)</span>
+              <span class="module-title">Razer Snap Tap (SOCD Priority)</span>
               <label class="switch">
                 <input type="checkbox" id="chkSnapTap" checked />
                 <span class="switch-slider"></span>
               </label>
             </div>
             <p class="module-desc">
-              When two opposing movement keys are held simultaneously, the most recent input overrides the previous one for instant counter-strafing.
+              Instant directional change between two opposing keys without releasing the previous key.
             </p>
             <div class="snaptap-pair">
               <input type="text" id="inpSnapA" class="snaptap-keybox" value="A" maxlength="1" />
-              <span style="color:var(--amber); font-weight:700;">⇄ Priority Pair ⇄</span>
+              <span style="color:var(--amber); font-weight:700; font-size:0.8rem;">⇄ Last Input Wins ⇄</span>
               <input type="text" id="inpSnapB" class="snaptap-keybox" value="D" maxlength="1" />
+            </div>
+          </div>
+
+          <div class="module-card">
+            <div class="module-header">
+              <span class="module-title">Gaming Mode &amp; Key Locks</span>
+              <label class="switch">
+                <input type="checkbox" id="chkGamingMode" />
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+            <div class="toggle-row">
+              <span>Disable Windows Key</span>
+              <input type="checkbox" id="chkDisWin" checked />
+            </div>
+            <div class="toggle-row">
+              <span>Disable Alt + Tab</span>
+              <input type="checkbox" id="chkDisAltTab" />
+            </div>
+            <div class="toggle-row">
+              <span>Disable Alt + F4</span>
+              <input type="checkbox" id="chkDisAltF4" />
             </div>
           </div>
         </div>
 
-        <!-- PANEL 3: MOUSE DPI & POLLING (MCHOSE / Corsair Web Hub Style) -->
+        <!-- PANEL 3: MOUSE MULTI-STAGE DPI & POLLING -->
         <div id="panel-dpi" class="panel hidden">
           <div class="module-card">
             <div class="module-header">
-              <span class="module-title">DPI Stage &amp; Fine Sensitivity</span>
-              <span class="module-badge" id="badgeDpi">1600 DPI</span>
+              <span class="module-title">5-Stage Onboard DPI Table</span>
+              <span class="module-badge" id="badgeDpi">Stage 3 • 1600</span>
             </div>
             <div class="preset-grid" id="dpiStageGrid">
-              <button class="preset-btn" data-dpi="400" style="border-left:3px solid #ff5252;">400 DPI</button>
-              <button class="preset-btn" data-dpi="800" style="border-left:3px solid #40c4ff;">800 DPI</button>
-              <button class="preset-btn active" data-dpi="1600" style="border-left:3px solid #00e676;">1600 DPI</button>
-              <button class="preset-btn" data-dpi="3200" style="border-left:3px solid #ffd740;">3200 DPI</button>
-              <button class="preset-btn" data-dpi="6400" style="border-left:3px solid #e040fb;">6400 DPI</button>
+              <button class="preset-btn" data-stage="1" style="border-left:3px solid #ff5252;">S1: <span id="lblS1">400</span></button>
+              <button class="preset-btn" data-stage="2" style="border-left:3px solid #40c4ff;">S2: <span id="lblS2">800</span></button>
+              <button class="preset-btn active" data-stage="3" style="border-left:3px solid #00e676;">S3: <span id="lblS3">1600</span></button>
+              <button class="preset-btn" data-stage="4" style="border-left:3px solid #ffd740;">S4: <span id="lblS4">3200</span></button>
+              <button class="preset-btn" data-stage="5" style="border-left:3px solid #e040fb;">S5: <span id="lblS5">6400</span></button>
+            </div>
+            <div class="toggle-row">
+              <span>Independent X / Y Axis Sensitivity</span>
+              <label class="switch">
+                <input type="checkbox" id="chkIndXY" />
+                <span class="switch-slider"></span>
+              </label>
             </div>
             <div class="slider-block">
               <div class="slider-top">
-                <span>Sensor DPI (50 DPI steps)</span>
-                <span class="s-val" id="valDpiSlider">1600</span>
+                <span>X-Axis DPI (100 – 35,000)</span>
+                <span class="s-val" id="valDpiX">1600</span>
               </div>
-              <input type="range" id="rngDpi" min="100" max="30000" step="50" value="1600" />
+              <input type="range" id="rngDpiX" min="100" max="35000" step="10" value="1600" />
+            </div>
+            <div class="slider-block hidden" id="blockDpiY">
+              <div class="slider-top">
+                <span>Y-Axis DPI (100 – 35,000)</span>
+                <span class="s-val" id="valDpiY">1600</span>
+              </div>
+              <input type="range" id="rngDpiY" min="100" max="35000" step="10" value="1600" />
             </div>
           </div>
 
@@ -925,9 +969,6 @@
               <span class="module-title">HyperPolling Wireless Rate</span>
               <span class="module-badge" id="badgePolling">1000 Hz</span>
             </div>
-            <p class="module-desc">
-              Select USB / HyperPolling report frequency. Higher rates reduce input latency down to 0.125 ms.
-            </p>
             <div class="preset-grid" id="pollingGrid">
               <button class="preset-btn" data-hz="125">125 Hz</button>
               <button class="preset-btn" data-hz="500">500 Hz</button>
@@ -939,11 +980,130 @@
           </div>
         </div>
 
-        <!-- PANEL 4: LIGHTING (Chroma Hardware Controller) -->
+        <!-- PANEL 4: VIPER V3 PRO SENSOR CALIBRATION, ANGLE & POWER -->
+        <div id="panel-sensor" class="panel hidden">
+          <div class="module-card">
+            <div class="module-header">
+              <span class="module-title">Rotation Angle &amp; Dynamic Sensitivity</span>
+              <span class="module-badge" id="badgeAngle">0°</span>
+            </div>
+            <div class="slider-block">
+              <div class="slider-top">
+                <span>Sensor Rotation Angle (-44° to +44°)</span>
+                <span class="s-val" id="valSensorAngle">0°</span>
+              </div>
+              <input type="range" id="rngSensorAngle" min="-44" max="44" step="1" value="0" />
+            </div>
+            <div class="toggle-row">
+              <span>Dynamic Sensitivity Curve</span>
+              <select id="selDynCurve">
+                <option value="0">Off (1:1 Raw Input)</option>
+                <option value="1">Classic Curve</option>
+                <option value="2">Natural Curve</option>
+                <option value="3">Jump Curve</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="module-card">
+            <div class="module-header">
+              <span class="module-title">Smart Tracking &amp; Asymmetric Cut-Off</span>
+              <label class="switch" title="Enable Asymmetric Lift-off & Landing">
+                <input type="checkbox" id="chkAsymmetric" />
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+            <div id="symLodGroup" class="preset-grid">
+              <button class="preset-btn active" data-lod="1">Low (1.0 mm)</button>
+              <button class="preset-btn" data-lod="2">Medium (1.4 mm)</button>
+              <button class="preset-btn" data-lod="3">High (2.0 mm)</button>
+            </div>
+            <div id="asymLodGroup" class="hidden" style="display:flex; flex-direction:column; gap:8px;">
+              <div class="slider-block">
+                <div class="slider-top"><span>Lift-Off Distance (2–26)</span><span class="s-val" id="valLiftOff">14</span></div>
+                <input type="range" id="rngLiftOff" min="2" max="26" value="14" />
+              </div>
+              <div class="slider-block">
+                <div class="slider-top"><span>Landing Distance (1–25)</span><span class="s-val" id="valLanding">10</span></div>
+                <input type="range" id="rngLanding" min="1" max="25" value="10" />
+              </div>
+            </div>
+          </div>
+
+          <div class="module-card">
+            <div class="module-header">
+              <span class="module-title">Wireless Power Saving</span>
+              <span class="module-badge" id="badgePower">5m / 15%</span>
+            </div>
+            <div class="slider-block">
+              <div class="slider-top"><span>Idle Sleep Timer</span><span class="s-val" id="valIdleMin">5 min</span></div>
+              <input type="range" id="rngIdleMin" min="1" max="15" value="5" />
+            </div>
+            <div class="slider-block">
+              <div class="slider-top"><span>Low Power Mode Threshold</span><span class="s-val" id="valLowBatt">15%</span></div>
+              <input type="range" id="rngLowBatt" min="5" max="30" step="5" value="15" />
+            </div>
+          </div>
+        </div>
+
+        <!-- PANEL 5: KEY / BUTTON REMAPPING & HYPERSHIFT -->
+        <div id="panel-remap" class="panel hidden">
+          <div class="module-card">
+            <div class="module-header">
+              <span class="module-title">Selected Control Assignment</span>
+              <span class="module-badge" id="badgeRemapTarget">Key: A (Standard)</span>
+            </div>
+            <p class="module-desc">
+              Click any key on the keyboard or button hotspot on the mouse above, then choose its function for the active layer (Standard or Razer Hypershift).
+            </p>
+            <div class="toggle-row">
+              <span>Assignment Function</span>
+              <select id="selRemapAction" style="min-width:210px;">
+                <optgroup label="Default">
+                  <option value="Default">Default Hardware Key/Button</option>
+                </optgroup>
+                <optgroup label="Mouse Actions">
+                  <option value="Left Click">Left Click</option>
+                  <option value="Right Click">Right Click</option>
+                  <option value="Scroll Click">Middle / Scroll Click</option>
+                  <option value="Mouse Back (Button 4)">Mouse Back (Button 4)</option>
+                  <option value="Mouse Forward (Button 5)">Mouse Forward (Button 5)</option>
+                  <option value="DPI Stage Cycle">DPI Stage Cycle</option>
+                  <option value="On-The-Fly Sensitivity">On-The-Fly Sensitivity</option>
+                </optgroup>
+                <optgroup label="Media &amp; System">
+                  <option value="Media Play/Pause">Media Play / Pause</option>
+                  <option value="Volume Up">Volume Up</option>
+                  <option value="Volume Down">Volume Down</option>
+                  <option value="Mute Audio">Mute Audio</option>
+                  <option value="Next Track">Next Track</option>
+                  <option value="Previous Track">Previous Track</option>
+                </optgroup>
+                <optgroup label="Razer Profile &amp; Layers">
+                  <option value="Razer Hypershift">Razer Hypershift (Hold)</option>
+                  <option value="Onboard Profile Cycle">Cycle Onboard Profile Slot</option>
+                  <option value="Disable">Disable Key / Button</option>
+                </optgroup>
+              </select>
+            </div>
+          </div>
+
+          <div class="module-card">
+            <div class="module-header">
+              <span class="module-title">Razer Hypershift Layer</span>
+              <button class="btn-ghost" id="btnSwitchLayerCard">Toggle Standard / Hypershift</button>
+            </div>
+            <p class="module-desc">
+              Razer Hypershift lets you assign a secondary function to every key or mouse button when the Hypershift key is held down.
+            </p>
+          </div>
+        </div>
+
+        <!-- PANEL 6: LIGHTING -->
         <div id="panel-lighting" class="panel hidden">
           <div class="module-card">
             <div class="module-header">
-              <span class="module-title">Lighting Effect</span>
+              <span class="module-title">Chroma Hardware Effect</span>
               <span class="module-badge" id="badgeEffect">Static</span>
             </div>
             <div class="preset-grid" id="effectGrid">
@@ -969,7 +1129,7 @@
               <div class="swatch" data-color="#ff3d71" style="background:#ff3d71;"></div>
               <div class="swatch" data-color="#a855f7" style="background:#a855f7;"></div>
               <div class="swatch" data-color="#ffffff" style="background:#ffffff;"></div>
-              <input type="color" id="colorPicker" value="#00e676" title="Custom RGB Color" />
+              <input type="color" id="colorPicker" value="#00e676" />
             </div>
             <div class="slider-block">
               <div class="slider-top">
@@ -981,33 +1141,36 @@
           </div>
         </div>
 
-        <!-- PANEL 5: DEVICE & ONBOARD MODE -->
-        <div id="panel-system" class="panel hidden">
+        <!-- PANEL 7: ONBOARD PROFILES & SLOTS MANAGEMENT -->
+        <div id="panel-slots" class="panel hidden">
           <div class="module-card">
             <div class="module-header">
-              <span class="module-title">Hardware Operating Mode</span>
-              <span class="module-badge" id="badgeMode">Onboard (0x00)</span>
+              <span class="module-title">Active Onboard Memory Slot</span>
+              <span class="module-badge" id="badgeSlotId">Slot 1</span>
             </div>
-            <p class="module-desc">
-              Onboard Mode runs entirely from the device's built-in memory with zero background software required.
-            </p>
-            <div class="preset-grid">
-              <button class="preset-btn active" id="btnModeNormal">Onboard Memory (0x00)</button>
-              <button class="preset-btn" id="btnModeDriver">Software Driver (0x03)</button>
+            <div class="toggle-row">
+              <span>Slot Profile Name</span>
+              <input type="text" id="inpSlotName" value="Standard Default" style="width:190px;" />
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:4px;">
+              <button class="btn-primary-pill" id="btnSaveSlotPanel">Save to Onboard Slot</button>
+              <button class="btn-ghost" id="btnResetSlot">Reset Slot to Default</button>
             </div>
           </div>
 
           <div class="module-card">
             <div class="module-header">
-              <span class="module-title">Hardware Diagnostics</span>
-              <button class="btn-ghost" id="btnQueryFw">Refresh Telemetry</button>
+              <span class="module-title">Backup, Export &amp; Hardware Mode</span>
+              <span class="module-badge" id="badgeMode">Onboard (0x00)</span>
             </div>
-            <div class="toggle-row">
-              <span style="font-size:0.8rem; color:#c9d1d9;">Global Input Mapping Hooks (mapping_engine.dll)</span>
-              <label class="switch">
-                <input type="checkbox" id="chkMappingHooks" checked />
-                <span class="switch-slider"></span>
-              </label>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button class="btn-ghost" id="btnExportJson">Export Profile (.json)</button>
+              <button class="btn-ghost" id="btnImportJson">Import Profile (.json)</button>
+              <input type="file" id="fileImportJson" accept=".json" class="hidden" />
+            </div>
+            <div class="preset-grid" style="margin-top:4px;">
+              <button class="preset-btn active" id="btnModeNormal">Onboard Memory (0x00)</button>
+              <button class="preset-btn" id="btnModeDriver">Software Driver (0x03)</button>
             </div>
           </div>
         </div>
@@ -1018,15 +1181,10 @@
   <!-- SLIDE-OVER PROTOCOL 25 PACKET DRAWER -->
   <aside class="drawer" id="protocolDrawer">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <strong style="font-size:0.9rem;">Protocol 25 Frame Inspector (91-Byte HID)</strong>
+      <strong style="font-size:0.88rem;">Protocol 25 Frame Inspector (91-Byte)</strong>
       <button class="btn-ghost" id="btnCloseDrawer">Close</button>
     </div>
-    <p style="font-size:0.74rem; color:#8b949e;">
-      Live 91-byte USB HID Feature Reports transmitted between browser and Razer hardware. Byte 88 is the XOR CRC over bytes 2..87.
-    </p>
-    <div style="display:flex; gap:8px;">
-      <button class="btn-ghost" id="btnClearLogs" style="width:100%;">Clear Packet History</button>
-    </div>
+    <button class="btn-ghost" id="btnClearLogs">Clear Packet History</button>
     <div class="log-feed" id="packetLogList"></div>
   </aside>
 
