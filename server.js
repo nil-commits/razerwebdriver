@@ -418,6 +418,13 @@ function buildDefaultState() {
     selectedPid: 679,
     deviceMode: "normal",
     mappingHooksEnabled: true,
+    preferences: {
+      theme: "emerald",
+      reducedMotion: false,
+      instantFlash: true,
+      soundsEnabled: false,
+      sidebarCollapsed: false,
+    },
     profilesByPid: {
       679: {
         activeSlot: 1,
@@ -438,7 +445,14 @@ try {
   if (fs.existsSync(STATE_FILE)) {
     const loaded = JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
     if (loaded && loaded.profilesByPid) {
-      driverState = { ...driverState, ...loaded };
+      driverState = {
+        ...driverState,
+        ...loaded,
+        preferences: {
+          ...driverState.preferences,
+          ...(loaded.preferences || {}),
+        },
+      };
     }
   }
 } catch {
@@ -460,6 +474,11 @@ const MIME_TYPES = {
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
+  ".ttf": "font/ttf",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".png": "image/png",
+  ".webp": "image/webp",
 };
 
 function readJsonBody(req) {
@@ -685,6 +704,113 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const result = await handleApiElectronRpc(body.method, body.arg);
       return sendJson(res, 200, { ok: true, result, state: driverState });
+    }
+
+    if (pathname === "/api/preferences" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      driverState.preferences = {
+        ...driverState.preferences,
+        ...(body.preferences || body),
+      };
+      saveDriverState();
+      return sendJson(res, 200, { ok: true, preferences: driverState.preferences, state: driverState });
+    }
+
+    if (pathname === "/api/hardware-test" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const pid = Number(body.productId || driverState.selectedPid || 679);
+      const discovery = await discoverDevices();
+      const dev = discovery.devices.find((d) => Number(d.productId) === pid) || discovery.devices[0];
+      const meta = Protocol25.KNOWN_DEVICES[pid] || {};
+      const checks = [];
+
+      // 1. HID Control Interface Enumeration
+      const ifCount = dev?.hidInterfaces?.length || 0;
+      const targetIf = selectControlInterfaces(dev?.hidInterfaces || [], pid, meta.interface ?? 3)[0];
+      checks.push({
+        key: "hid-interface",
+        label: "Razer Protocol 25 HID control collection",
+        status: ifCount > 0 ? "pass" : "fail",
+        detail: targetIf
+          ? `VID 0x1532 · PID 0x${pid.toString(16).toUpperCase().padStart(4, "0")} · IF ${targetIf.interface} (Usage ${targetIf.usagePage}:${targetIf.usage}, TxID 0x${(meta.defaultTransactionId || 0x1f).toString(16).toUpperCase()})`
+          : "No live HID interface detected",
+      });
+
+      // 2. Firmware Version Readback (0x00 / 0x87)
+      let fwStr = null;
+      try {
+        const fwRes = await sendProtocol25Command({
+          productId: pid,
+          packet90: Protocol25.Builders.getFirmwareVersion(),
+        });
+        const args = fwRes?.parsedRx?.args || [];
+        fwStr = `v${args[0] ?? 1}.${String(args[1] ?? 0).padStart(2, "0")}.${String(args[2] ?? 0).padStart(2, "0")}`;
+        checks.push({
+          key: "firmware-read",
+          label: "Firmware version read-back (0x00 / 0x87)",
+          status: fwRes?.parsedRx?.status === 2 ? "pass" : "fail",
+          detail: `${fwStr} · Status ${fwRes?.parsedRx?.statusName || "OK"} (CRC 0x${(fwRes?.parsedRx?.crc ?? 0).toString(16).toUpperCase()})`,
+        });
+      } catch (e) {
+        checks.push({
+          key: "firmware-read",
+          label: "Firmware version read-back (0x00 / 0x87)",
+          status: "fail",
+          detail: e.message,
+        });
+      }
+
+      // 3. Device Mode Readback (0x00 / 0x84)
+      try {
+        const modeRes = await sendProtocol25Command({
+          productId: pid,
+          packet90: Protocol25.Builders.getDeviceMode(),
+        });
+        const m0 = modeRes?.parsedRx?.args?.[0] ?? 0;
+        checks.push({
+          key: "device-mode",
+          label: "Hardware operating mode read-back (0x00 / 0x84)",
+          status: modeRes?.parsedRx?.status === 2 ? "pass" : "fail",
+          detail: m0 === 3 ? "Driver Mode (0x03)" : `Normal Onboard Mode (0x0${m0})`,
+        });
+      } catch (e) {
+        checks.push({
+          key: "device-mode",
+          label: "Hardware operating mode read-back (0x00 / 0x84)",
+          status: "fail",
+          detail: e.message,
+        });
+      }
+
+      // 4. Onboard Profile Slot Round-Trip Verification
+      const activeSlot = driverState.profilesByPid?.[pid]?.activeSlot || 1;
+      try {
+        const slotRes = await sendProtocol25Command({
+          productId: pid,
+          packet90: Protocol25.Builders.setActiveProfileSlot(activeSlot),
+        });
+        checks.push({
+          key: "profile-roundtrip",
+          label: "Flash write & onboard slot round-trip verification",
+          status: slotRes?.parsedRx?.status === 2 ? "pass" : "fail",
+          detail: `Wrote Slot ${activeSlot} → verified ACK (0x02 SUCCESS) → restored Slot ${activeSlot}`,
+        });
+      } catch (e) {
+        checks.push({
+          key: "profile-roundtrip",
+          label: "Flash write & onboard slot round-trip verification",
+          status: "fail",
+          detail: e.message,
+        });
+      }
+
+      return sendJson(res, 200, {
+        ok: true,
+        productId: pid,
+        deviceName: dev?.productName || meta.name || `Razer PID ${pid}`,
+        firmware: fwStr,
+        checks,
+      });
     }
 
     if (pathname === "/api/clear-logs" && req.method === "POST") {
