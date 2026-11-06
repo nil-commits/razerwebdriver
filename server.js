@@ -294,13 +294,33 @@ async function sendProtocol25Command({ productId, interfaceNum = 3, reportId = 0
           await handle.sendFeatureReport(report91);
         }
         await new Promise((r) => setTimeout(r, 10));
-        const rawRx =
+        let rawRx =
           typeof handle.getFeatureReportSync === "function"
             ? handle.getFeatureReportSync(reportId, 91)
             : await handle.getFeatureReport(reportId, 91);
 
-        const rxArr = Array.from(rawRx || []);
-        const parsedRx = Protocol25.parsePacket(rxArr);
+        let rxArr = Array.from(rawRx || []);
+        let parsedRx = Protocol25.parsePacket(rxArr);
+
+        // If the MCU is still writing to onboard flash (0x01 BUSY),
+        // poll getFeatureReport (without re-sending sendFeatureReport) until it finishes.
+        for (let poll = 0; poll < 8 && (parsedRx.status === 0x01 || parsedRx.status === 0x00); poll++) {
+          await new Promise((r) => setTimeout(r, 20));
+          if (parsedRx.status === 0x00) {
+            if (typeof handle.sendFeatureReportSync === "function") {
+              handle.sendFeatureReportSync(report91);
+            } else {
+              await handle.sendFeatureReport(report91);
+            }
+            await new Promise((r) => setTimeout(r, 15));
+          }
+          rawRx =
+            typeof handle.getFeatureReportSync === "function"
+              ? handle.getFeatureReportSync(reportId, 91)
+              : await handle.getFeatureReport(reportId, 91);
+          rxArr = Array.from(rawRx || []);
+          parsedRx = Protocol25.parsePacket(rxArr);
+        }
 
         const logItem = recordPacketLog({
           mode: "native-hid",
@@ -635,7 +655,7 @@ const server = http.createServer(async (req, res) => {
           packet90: Protocol25.Builders.setActiveProfileSlot(slotId),
         }).catch(() => null);
 
-        // Also sync the slot's actuation / DPI and lighting to the hardware immediately
+        // Also sync the slot's actuation, Rapid Trigger, Snap Tap, Gaming Mode, and lighting to hardware
         if (!isMouse && activeSlotData) {
           await sendProtocol25Command({
             productId: pid,
@@ -648,6 +668,43 @@ const server = http.createServer(async (req, res) => {
               continuousRt: activeSlotData.continuousRt !== false,
             }),
           }).catch(() => null);
+
+          await sendProtocol25Command({
+            productId: pid,
+            packet90: Protocol25.Builders.setAnalogRapidTrigger({
+              slotId,
+              rtEnabled: !!activeSlotData.rtEnabled,
+              rtDownMm: activeSlotData.rtDownMm ?? 0.3,
+              rtUpMm: activeSlotData.rtUpMm ?? 0.3,
+            }),
+          }).catch(() => null);
+
+          await sendProtocol25Command({
+            productId: pid,
+            packet90: Protocol25.Builders.setContinuousRapidTrigger({
+              slotId,
+              enabled: activeSlotData.continuousRt !== false,
+            }),
+          }).catch(() => null);
+
+          if (activeSlotData.snapTap) {
+            await sendProtocol25Command({
+              productId: pid,
+              packet90: Protocol25.Builders.setSnapTap({
+                slotId,
+                enabled: !!activeSlotData.snapTap.enabled,
+                keyA: activeSlotData.snapTap.keyA ?? 0x04,
+                keyB: activeSlotData.snapTap.keyB ?? 0x07,
+              }),
+            }).catch(() => null);
+          }
+
+          if (activeSlotData.gamingMode !== undefined) {
+            await sendProtocol25Command({
+              productId: pid,
+              packet90: Protocol25.Builders.setGamingMode(activeSlotData.gamingMode),
+            }).catch(() => null);
+          }
 
           if (activeSlotData.lighting) {
             const hex = (activeSlotData.lighting.color1 || "#00e676").replace("#", "");
@@ -758,6 +815,38 @@ const server = http.createServer(async (req, res) => {
           interfaceNum: body.interfaceNum ?? 3,
           reportId: body.reportId ?? 0,
           packet90: altPkt,
+        }).catch(() => null);
+      } else if (norm90[6] === 0x02 && norm90[7] === 0x19 && driverState.profilesByPid[pid]) {
+        // When setAnalogActuation (0x02 / 0x19) is sent, also sync Multi Rapid Trigger (0x02 / 0x1A)
+        // and Continuous Rapid Trigger (0x02 / 0x20) from the active slot.
+        const activeSlot = driverState.profilesByPid[pid].activeSlot || 1;
+        const slotObj = driverState.profilesByPid[pid].slots[activeSlot] || {};
+        await sendProtocol25Command({
+          productId: pid,
+          interfaceNum: body.interfaceNum ?? 3,
+          reportId: body.reportId ?? 0,
+          packet90: Protocol25.Builders.setAnalogRapidTrigger({
+            slotId: activeSlot,
+            rtEnabled: !!slotObj.rtEnabled,
+            rtDownMm: slotObj.rtDownMm ?? 0.3,
+            rtUpMm: slotObj.rtUpMm ?? 0.3,
+          }),
+        }).catch(() => null);
+        await sendProtocol25Command({
+          productId: pid,
+          interfaceNum: body.interfaceNum ?? 3,
+          reportId: body.reportId ?? 0,
+          packet90: Protocol25.Builders.setContinuousRapidTrigger({
+            slotId: activeSlot,
+            enabled: slotObj.continuousRt !== false,
+          }),
+        }).catch(() => null);
+      } else if (norm90[6] === 0x07 && norm90[7] === 0x03 && body.slotPatch?.powerSaving?.lowPowerPercent !== undefined) {
+        await sendProtocol25Command({
+          productId: pid,
+          interfaceNum: body.interfaceNum ?? 3,
+          reportId: body.reportId ?? 0,
+          packet90: Protocol25.Builders.setLowPowerThreshold(body.slotPatch.powerSaving.lowPowerPercent),
         }).catch(() => null);
       }
 
