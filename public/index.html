@@ -822,7 +822,10 @@
           <div class="module-card">
             <div class="module-header">
               <span class="module-title" id="actTargetTitle">Actuation Point (All Keys)</span>
-              <span class="module-badge" id="badgeActuation">1.2 mm</span>
+              <div style="display:flex; gap:6px; align-items:center;">
+                <button class="btn-ghost hidden" id="btnClearKeyOverride" style="padding:3px 9px; font-size:0.68rem;">Reset to Global</button>
+                <span class="module-badge" id="badgeActuation">1.2 mm</span>
+              </div>
             </div>
             <div style="display:flex; gap:16px; align-items:center;">
               <div class="stem-gauge">

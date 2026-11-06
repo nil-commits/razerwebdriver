@@ -1,5 +1,5 @@
 /**
- * Razer Web Hub v2.0 — Complete Onboard Profile Slots, Per-Key Actuation,
+ * Razer Web Hub v2.1 — Complete Onboard Profile Slots, Per-Key Actuation,
  * Hypershift Remapping, and Viper V3 Pro Sensor Calibration
  */
 (function () {
@@ -204,7 +204,42 @@
     return [(num >> 16) & 0xff, (num >> 8) & 0xff, num & 0xff];
   }
 
-  // Render Header Device Switcher
+  /**
+   * Keeps the 3 actuation preset buttons (0.4mm / 1.2mm / 2.0mm) in sync
+   * with the current actuation distance & Rapid Trigger state.
+   */
+  function updateActuationPresetHighlight(actMm, rtEnabled) {
+    const eps = 0.04;
+    let matched = null;
+    if (Math.abs(actMm - 0.4) < eps && rtEnabled) {
+      matched = "esports";
+    } else if (Math.abs(actMm - 1.2) < eps && rtEnabled) {
+      matched = "balanced";
+    } else if (Math.abs(actMm - 2.0) < eps && !rtEnabled) {
+      matched = "typing";
+    } else if (Math.abs(actMm - 0.4) < eps) {
+      matched = "esports";
+    } else if (Math.abs(actMm - 1.2) < eps) {
+      matched = "balanced";
+    } else if (Math.abs(actMm - 2.0) < eps) {
+      matched = "typing";
+    }
+
+    document.querySelectorAll("[data-act-preset]").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.actPreset === matched);
+    });
+  }
+
+  function syncToolbarSelectionChips(activeMode = null) {
+    document.querySelectorAll("[data-sel]").forEach((b) => {
+      if (activeMode) {
+        b.classList.toggle("active", b.dataset.sel === activeMode);
+      } else {
+        b.classList.toggle("active", selectedKeys.size === 0 && b.dataset.sel === "all");
+      }
+    });
+  }
+
   function renderDeviceSwitcher() {
     const container = document.getElementById("deviceSwitcher");
     container.innerHTML = "";
@@ -215,6 +250,7 @@
       btn.addEventListener("click", () => {
         selectedDevice = dev;
         selectedKeys.clear();
+        syncToolbarSelectionChips("all");
         lastClickedControl = isMouseSelected() ? "M1" : "A";
         renderDeviceSwitcher();
         renderSlotBar();
@@ -225,7 +261,6 @@
     });
   }
 
-  // Render Onboard Memory Profile Slots in Header
   function renderSlotBar() {
     const bar = document.getElementById("slotBar");
     const pid = selectedDevice.productId;
@@ -239,7 +274,7 @@
       const slotData = devProf?.slots?.[i];
       const btn = document.createElement("button");
       btn.className = `slot-pill ${i === activeSlot ? "active" : ""}`;
-      btn.title = slotData?.name || slotInfo.name;
+      btn.title = `Slot ${i}: ${slotData?.name || slotInfo.name}`;
       btn.innerHTML = `<span class="slot-dot" style="background:${slotInfo.color}; box-shadow:0 0 6px ${slotInfo.color};"></span><span>S${i}</span>`;
       btn.addEventListener("click", () => switchProfileSlot(i));
       bar.appendChild(btn);
@@ -259,10 +294,14 @@
     const data = await res.json();
     if (data.ok && data.state) {
       serverState = data.state;
+      // Clear per-key selection when switching onboard slots so global slot settings are shown clearly
+      selectedKeys.clear();
+      syncToolbarSelectionChips("all");
       renderSlotBar();
       syncControlsFromSlot();
       updateVisualStage();
-      showSyncedToast(`✓ Switched to Onboard Slot ${slotId}`);
+      const slot = getActiveSlotObj();
+      showSyncedToast(`✓ Slot ${slotId}: ${slot.name} (${(slot.actuationMm ?? 1.2).toFixed(1)}mm)`);
     }
   }
 
@@ -283,6 +322,7 @@
     if (data.ok && data.state) {
       serverState = data.state;
       renderSlotBar();
+      updateVisualStage();
       showSyncedToast(`✓ Saved "${slot.name}" to Onboard Slot ${slot.slot}`);
     }
   }
@@ -314,7 +354,8 @@
             } else {
               selectedKeys.add(k.label);
             }
-            updateRemapInspector();
+            syncToolbarSelectionChips(null);
+            syncControlsFromSlot();
             updateVisualStage();
           });
           rowEl.appendChild(cap);
@@ -326,23 +367,43 @@
     renderBlock("kbdNavRows", TKL_NAV_ROWS);
   }
 
+  /**
+   * Synchronizes all bottom dock controls, preset buttons, and swatches
+   * from the active slot (or currently selected key override).
+   */
   function syncControlsFromSlot() {
     const slot = getActiveSlotObj();
     document.getElementById("badgeSlotId").textContent = `Slot ${slot.slot}`;
     document.getElementById("inpSlotName").value = slot.name || `Slot ${slot.slot}`;
 
     if (!isMouseSelected()) {
-      const act = slot.actuationMm ?? 1.2;
+      // If 1 or more keys are selected and the first selected key has a per-key override, show its values
+      const firstSelectedKey = selectedKeys.size > 0 ? Array.from(selectedKeys)[0] : null;
+      const keyOverride = firstSelectedKey ? slot.perKeyOverrides?.[firstSelectedKey] : null;
+
+      const act = Number(keyOverride?.act ?? slot.actuationMm ?? 1.2);
+      const rt = keyOverride?.rt !== undefined ? !!keyOverride.rt : !!slot.rtEnabled;
+      const down = Number(keyOverride?.down ?? slot.rtDownMm ?? 0.3);
+      const up = Number(keyOverride?.up ?? slot.rtUpMm ?? 0.3);
+
       document.getElementById("rngActuation").value = act;
       document.getElementById("valActuation").textContent = `${act.toFixed(1)} mm`;
       document.getElementById("badgeActuation").textContent = `${act.toFixed(1)} mm`;
 
-      document.getElementById("chkRapidTrigger").checked = !!slot.rtEnabled;
-      document.getElementById("rngRtDown").value = slot.rtDownMm ?? 0.3;
-      document.getElementById("valRtDown").textContent = `${(slot.rtDownMm ?? 0.3).toFixed(2)} mm`;
-      document.getElementById("rngRtUp").value = slot.rtUpMm ?? 0.3;
-      document.getElementById("valRtUp").textContent = `${(slot.rtUpMm ?? 0.3).toFixed(2)} mm`;
+      document.getElementById("chkRapidTrigger").checked = rt;
+      document.getElementById("rngRtDown").value = down;
+      document.getElementById("valRtDown").textContent = `${down.toFixed(2)} mm`;
+      document.getElementById("rngRtUp").value = up;
+      document.getElementById("valRtUp").textContent = `${up.toFixed(2)} mm`;
       document.getElementById("chkContinuousRt").checked = slot.continuousRt !== false;
+
+      // Update the 3 Actuation Preset buttons (0.4mm / 1.2mm / 2.0mm)
+      updateActuationPresetHighlight(act, rt);
+
+      // Show "Reset to Global" button if any selected key has a custom override
+      const hasOverrideSelected =
+        selectedKeys.size > 0 && Array.from(selectedKeys).some((k) => !!slot.perKeyOverrides?.[k]);
+      document.getElementById("btnClearKeyOverride").classList.toggle("hidden", !hasOverrideSelected);
 
       document.getElementById("chkSnapTap").checked = !!slot.snapTapEnabled;
       document.getElementById("inpSnapA").value = slot.snapKeyA || "A";
@@ -354,10 +415,24 @@
       document.getElementById("chkDisAltF4").checked = !!slot.gamingMode?.disableAltF4;
 
       const light = slot.lighting || { effect: "static", color1: "#00e676", brightness: 100 };
-      document.getElementById("colorPicker").value = light.color1 || "#00e676";
+      const c1 = (light.color1 || "#00e676").toLowerCase();
+      document.getElementById("colorPicker").value = c1;
       document.getElementById("rngBrightness").value = light.brightness ?? 100;
       document.getElementById("valBrightness").textContent = `${light.brightness ?? 100}%`;
       document.getElementById("badgeBright").textContent = `${light.brightness ?? 100}%`;
+
+      // Sync Lighting Effect preset buttons & badge
+      const eff = light.effect || "static";
+      document.querySelectorAll("#effectGrid .preset-btn").forEach((b) => {
+        const match = b.dataset.effect === eff;
+        b.classList.toggle("active", match);
+        if (match) document.getElementById("badgeEffect").textContent = b.textContent;
+      });
+
+      // Sync Color Swatch active state
+      document.querySelectorAll("#swatchRow .swatch").forEach((sw) => {
+        sw.classList.toggle("active", (sw.dataset.color || "").toLowerCase() === c1);
+      });
     } else {
       const stages = slot.dpiStages || [];
       stages.forEach((s, i) => {
@@ -392,6 +467,9 @@
       document.getElementById("chkAsymmetric").checked = !!st.asymmetric;
       document.getElementById("symLodGroup").classList.toggle("hidden", !!st.asymmetric);
       document.getElementById("asymLodGroup").classList.toggle("hidden", !st.asymmetric);
+      document.querySelectorAll("#symLodGroup .preset-btn").forEach((b) => {
+        b.classList.toggle("active", Number(b.dataset.lod) === (st.symmetricLevel || 1));
+      });
       document.getElementById("rngLiftOff").value = st.liftOffLevel || 14;
       document.getElementById("valLiftOff").textContent = st.liftOffLevel || 14;
       document.getElementById("rngLanding").value = st.landingLevel || 10;
@@ -452,8 +530,8 @@
     if (!mouseMode) {
       const targetTxt =
         selectedKeys.size === 0
-          ? "Actuation Point (All Keys)"
-          : `Per-Key Actuation (${selectedKeys.size} Selected)`;
+          ? `Actuation Point • Slot ${slot.slot} (All Keys)`
+          : `Per-Key Actuation (${selectedKeys.size} Key${selectedKeys.size > 1 ? "s" : ""} Selected)`;
       document.getElementById("actTargetTitle").textContent = targetTxt;
 
       const act = Number(document.getElementById("rngActuation").value || slot.actuationMm || 1.2);
@@ -464,6 +542,11 @@
       const color = light.effect === "off" ? "#484f58" : light.color1 || "#00e676";
       const overrides = slot.perKeyOverrides || {};
       const keyMap = slot.keyBindings?.[currentLayer] || {};
+
+      document.getElementById("keyboardStage").style.setProperty(
+        "--kbd-glow",
+        light.effect === "off" ? "transparent" : `${color}22`
+      );
 
       document.querySelectorAll(".keycap").forEach((cap) => {
         const k = cap.dataset.key;
@@ -568,7 +651,6 @@
     }
   }
 
-  // Sync Actuation & Rapid Trigger (Global or Per-Key)
   async function commitActuationChange() {
     const slot = getActiveSlotObj();
     const act = Number(document.getElementById("rngActuation").value);
@@ -576,6 +658,8 @@
     const down = Number(document.getElementById("rngRtDown").value);
     const up = Number(document.getElementById("rngRtUp").value);
     const cont = document.getElementById("chkContinuousRt").checked;
+
+    updateActuationPresetHighlight(act, rt);
 
     const overrides = { ...(slot.perKeyOverrides || {}) };
     if (selectedKeys.size > 0) {
@@ -604,16 +688,17 @@
       pkt90,
       {
         actuationMm: slot.actuationMm,
-        rtEnabled: rt,
-        rtDownMm: down,
-        rtUpMm: up,
-        continuousRt: cont,
+        rtEnabled: slot.rtEnabled,
+        rtDownMm: slot.rtDownMm,
+        rtUpMm: slot.rtUpMm,
+        continuousRt: slot.continuousRt,
         perKeyOverrides: overrides,
       },
       selectedKeys.size > 0
         ? `✓ Updated ${selectedKeys.size} Key(s) to ${act.toFixed(1)}mm`
-        : `✓ Global Actuation ${act.toFixed(1)}mm Synced`
+        : `✓ Slot ${slot.slot} Actuation ${act.toFixed(1)}mm Synced`
     );
+    syncControlsFromSlot();
     updateVisualStage();
   }
 
@@ -628,9 +713,29 @@
       });
     });
 
-    // Save to Slot Buttons
+    // Save to Slot & Slot Name Change
     document.getElementById("btnSaveSlot").addEventListener("click", saveCurrentSlotToHardware);
     document.getElementById("btnSaveSlotPanel").addEventListener("click", saveCurrentSlotToHardware);
+    document.getElementById("inpSlotName").addEventListener("change", saveCurrentSlotToHardware);
+
+    // Clear Per-Key Override button
+    document.getElementById("btnClearKeyOverride").addEventListener("click", async () => {
+      const slot = getActiveSlotObj();
+      const overrides = { ...(slot.perKeyOverrides || {}) };
+      selectedKeys.forEach((k) => delete overrides[k]);
+      slot.perKeyOverrides = overrides;
+      const pkt90 = P25.Builders.setAnalogActuation({
+        slotId: slot.slot,
+        actuationMm: slot.actuationMm ?? 1.2,
+        rtEnabled: !!slot.rtEnabled,
+        rtDownMm: slot.rtDownMm ?? 0.3,
+        rtUpMm: slot.rtUpMm ?? 0.3,
+        continuousRt: slot.continuousRt !== false,
+      });
+      await sendPacket90(pkt90, { perKeyOverrides: overrides }, "✓ Reset Selected Keys to Global Actuation");
+      syncControlsFromSlot();
+      updateVisualStage();
+    });
 
     // Reset Slot
     document.getElementById("btnResetSlot").addEventListener("click", async () => {
@@ -648,6 +753,7 @@
       if (data.ok && data.state) {
         serverState = data.state;
         selectedKeys.clear();
+        syncToolbarSelectionChips("all");
         renderSlotBar();
         syncControlsFromSlot();
         updateVisualStage();
@@ -700,8 +806,6 @@
     // Key Selection Toolbar
     document.querySelectorAll("[data-sel]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        document.querySelectorAll("[data-sel]").forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
         const mode = btn.dataset.sel;
         selectedKeys.clear();
         if (mode === "wasd") {
@@ -713,6 +817,8 @@
         } else if (mode === "nums") {
           ["1", "2", "3", "4", "5"].forEach((k) => selectedKeys.add(k));
         }
+        syncToolbarSelectionChips(mode === "clear" ? "all" : mode);
+        syncControlsFromSlot();
         updateVisualStage();
       });
     });
@@ -765,11 +871,13 @@
     const rngAct = document.getElementById("rngActuation");
     const rngRtDown = document.getElementById("rngRtDown");
     const rngRtUp = document.getElementById("rngRtUp");
+    const chkRt = document.getElementById("chkRapidTrigger");
 
     rngAct.addEventListener("input", (e) => {
       const v = Number(e.target.value);
       document.getElementById("valActuation").textContent = `${v.toFixed(1)} mm`;
       document.getElementById("badgeActuation").textContent = `${v.toFixed(1)} mm`;
+      updateActuationPresetHighlight(v, chkRt.checked);
       updateVisualStage();
     });
     rngAct.addEventListener("change", commitActuationChange);
@@ -784,29 +892,27 @@
     });
     rngRtUp.addEventListener("change", commitActuationChange);
 
-    document.getElementById("chkRapidTrigger").addEventListener("change", commitActuationChange);
+    chkRt.addEventListener("change", commitActuationChange);
     document.getElementById("chkContinuousRt").addEventListener("change", commitActuationChange);
 
     document.querySelectorAll("[data-act-preset]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        document.querySelectorAll("[data-act-preset]").forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
         const p = btn.dataset.actPreset;
         if (p === "esports") {
           rngAct.value = 0.4;
           rngRtDown.value = 0.1;
           rngRtUp.value = 0.1;
-          document.getElementById("chkRapidTrigger").checked = true;
+          chkRt.checked = true;
         } else if (p === "balanced") {
           rngAct.value = 1.2;
           rngRtDown.value = 0.3;
           rngRtUp.value = 0.3;
-          document.getElementById("chkRapidTrigger").checked = true;
+          chkRt.checked = true;
         } else {
           rngAct.value = 2.0;
           rngRtDown.value = 0.5;
           rngRtUp.value = 0.5;
-          document.getElementById("chkRapidTrigger").checked = false;
+          chkRt.checked = false;
         }
         rngAct.dispatchEvent(new Event("input"));
         rngRtDown.dispatchEvent(new Event("input"));
@@ -990,6 +1096,7 @@
       const [r, g, b] = hexToRgb(color1);
       const pkt90 = P25.Builders.setChromaEffect({ effect, r, g, b });
       await sendPacket90(pkt90, { lighting: { effect, color1, brightness } }, `✓ Lighting (${effect}) Synced`);
+      syncControlsFromSlot();
       updateVisualStage();
     };
 
