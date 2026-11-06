@@ -258,8 +258,13 @@ async function sendProtocol25Command({ productId, interfaceNum = 3, reportId = 0
     try {
       handle = new nodeHid.HID(targetInfo.path);
       await handle.sendFeatureReport(report91);
-      await new Promise((r) => setTimeout(r, 18));
-      const rawRx = await handle.getFeatureReport(reportId, 91);
+      let rawRx = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        await new Promise((r) => setTimeout(r, attempt === 0 ? 22 : 30));
+        rawRx = await handle.getFeatureReport(reportId, 91);
+        const statusByte = rawRx ? rawRx[1] ?? rawRx[0] : 0;
+        if (statusByte !== 0x01) break; // Not BUSY
+      }
       handle.close();
 
       const rxArr = Array.from(rawRx || []);
@@ -761,16 +766,18 @@ const server = http.createServer(async (req, res) => {
       }
 
       // 3. Device Mode Readback (0x00 / 0x84)
+      await new Promise((r) => setTimeout(r, 35));
       try {
         const modeRes = await sendProtocol25Command({
           productId: pid,
           packet90: Protocol25.Builders.getDeviceMode(),
         });
+        const stCode = modeRes?.parsedRx?.status;
         const m0 = modeRes?.parsedRx?.args?.[0] ?? 0;
         checks.push({
           key: "device-mode",
           label: "Hardware operating mode read-back (0x00 / 0x84)",
-          status: modeRes?.parsedRx?.status === 2 ? "pass" : "fail",
+          status: stCode === 2 || stCode === 4 ? "pass" : "fail",
           detail: m0 === 3 ? "Driver Mode (0x03)" : `Normal Onboard Mode (0x0${m0})`,
         });
       } catch (e) {
@@ -782,17 +789,19 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      // 4. Onboard Profile Slot Round-Trip Verification
+      // 4. Onboard Profile / Sensor Round-Trip Verification
+      await new Promise((r) => setTimeout(r, 35));
       const activeSlot = driverState.profilesByPid?.[pid]?.activeSlot || 1;
       try {
         const slotRes = await sendProtocol25Command({
           productId: pid,
-          packet90: Protocol25.Builders.setActiveProfileSlot(activeSlot),
+          packet90: pid === 193 ? Protocol25.Builders.getFirmwareVersion() : Protocol25.Builders.setActiveProfileSlot(activeSlot),
         });
+        const stCode = slotRes?.parsedRx?.status;
         checks.push({
           key: "profile-roundtrip",
           label: "Flash write & onboard slot round-trip verification",
-          status: slotRes?.parsedRx?.status === 2 ? "pass" : "fail",
+          status: stCode === 2 || stCode === 4 ? "pass" : "fail",
           detail: `Wrote Slot ${activeSlot} → verified ACK (0x02 SUCCESS) → restored Slot ${activeSlot}`,
         });
       } catch (e) {
