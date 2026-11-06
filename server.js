@@ -562,11 +562,58 @@ const server = http.createServer(async (req, res) => {
       const devProfiles = driverState.profilesByPid[pid];
       const slotId = Number(body.slotId || devProfiles.activeSlot || 1);
 
-      if (body.action === "switch") {
+      if (body.action === "switch" || body.action === "reset") {
+        if (body.action === "reset") {
+          devProfiles.slots[slotId] = isMouse
+            ? createDefaultMouseSlot(slotId)
+            : createDefaultKeyboardSlot(slotId);
+        }
         devProfiles.activeSlot = slotId;
         saveDriverState();
-        const pkt90 = Protocol25.Builders.setActiveProfileSlot(slotId);
-        const hw = await sendProtocol25Command({ productId: pid, packet90: pkt90 }).catch(() => null);
+
+        const activeSlotData = devProfiles.slots[slotId];
+        const hw = await sendProtocol25Command({
+          productId: pid,
+          packet90: Protocol25.Builders.setActiveProfileSlot(slotId),
+        }).catch(() => null);
+
+        // Also sync the slot's actuation / DPI and lighting to the hardware immediately
+        if (!isMouse && activeSlotData) {
+          await sendProtocol25Command({
+            productId: pid,
+            packet90: Protocol25.Builders.setAnalogActuation({
+              slotId,
+              actuationMm: activeSlotData.actuationMm ?? 1.2,
+              rtEnabled: !!activeSlotData.rtEnabled,
+              rtDownMm: activeSlotData.rtDownMm ?? 0.3,
+              rtUpMm: activeSlotData.rtUpMm ?? 0.3,
+              continuousRt: activeSlotData.continuousRt !== false,
+            }),
+          }).catch(() => null);
+
+          if (activeSlotData.lighting) {
+            const hex = (activeSlotData.lighting.color1 || "#00e676").replace("#", "");
+            const num = parseInt(hex, 16) || 0x00e676;
+            await sendProtocol25Command({
+              productId: pid,
+              packet90: Protocol25.Builders.setChromaEffect({
+                effect: activeSlotData.lighting.effect || "static",
+                r: (num >> 16) & 0xff,
+                g: (num >> 8) & 0xff,
+                b: num & 0xff,
+              }),
+            }).catch(() => null);
+          }
+        } else if (isMouse && activeSlotData?.dpiStages) {
+          await sendProtocol25Command({
+            productId: pid,
+            packet90: Protocol25.Builders.setDpiStages(
+              activeSlotData.dpiStages,
+              activeSlotData.activeStageIndex || 3
+            ),
+          }).catch(() => null);
+        }
+
         return sendJson(res, 200, { ok: true, state: driverState, hw });
       }
 
@@ -577,16 +624,6 @@ const server = http.createServer(async (req, res) => {
           ...body.slotData,
           slot: slotId,
         };
-        saveDriverState();
-        const pkt90 = Protocol25.Builders.setActiveProfileSlot(slotId);
-        const hw = await sendProtocol25Command({ productId: pid, packet90: pkt90 }).catch(() => null);
-        return sendJson(res, 200, { ok: true, state: driverState, hw });
-      }
-
-      if (body.action === "reset") {
-        devProfiles.slots[slotId] = isMouse
-          ? createDefaultMouseSlot(slotId)
-          : createDefaultKeyboardSlot(slotId);
         saveDriverState();
         const pkt90 = Protocol25.Builders.setActiveProfileSlot(slotId);
         const hw = await sendProtocol25Command({ productId: pid, packet90: pkt90 }).catch(() => null);
