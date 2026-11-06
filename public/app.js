@@ -1,14 +1,12 @@
 /**
- * Razer Web Hub — Wootility / MCHOSE / Corsair Web Hub Inspired Controller
- * Instant auto-apply, interactive TKL keyboard & Viper V3 Pro visualizers,
- * and zero-bloat local Protocol 25 hardware sync.
+ * Razer Web Hub v2.0 — Complete Onboard Profile Slots, Per-Key Actuation,
+ * Hypershift Remapping, and Viper V3 Pro Sensor Calibration
  */
 (function () {
   "use strict";
 
   const P25 = window.RazerProtocol25;
 
-  // TKL Keyboard Layout Definition for Interactive Stage
   const TKL_MAIN_ROWS = [
     {
       fnRow: true,
@@ -97,7 +95,7 @@
         { label: ",", u: 1 },
         { label: ".", u: 1 },
         { label: "/", u: 1 },
-        { label: "SHIFT", u: 2.75 },
+        { label: "RSHIFT", u: 2.75 },
       ],
     },
     {
@@ -106,10 +104,10 @@
         { label: "WIN", u: 1.25 },
         { label: "ALT", u: 1.25 },
         { label: "SPACE", u: 6.25 },
-        { label: "ALT", u: 1.25 },
+        { label: "RALT", u: 1.25 },
         { label: "FN", u: 1.25 },
         { label: "MENU", u: 1.25 },
-        { label: "CTRL", u: 1.25 },
+        { label: "RCTRL", u: 1.25 },
       ],
     },
   ];
@@ -131,54 +129,73 @@
     productName: "Razer Huntsman V3 Pro Tenkeyless",
     category: "keyboard-analog",
     interface: 3,
-    protocol: "25",
+    maxSlots: 6,
   };
 
-  let uiState = {
-    actuationMm: 1.2,
-    rtEnabled: true,
-    rtDownMm: 0.3,
-    rtUpMm: 0.3,
-    snapTapEnabled: true,
-    snapKeyA: "A",
-    snapKeyB: "D",
-    effect: "static",
-    colorHex: "#00e676",
-    brightness: 100,
-    dpi: 1600,
-    pollingHz: 1000,
-    deviceMode: "normal",
+  let serverState = {
+    profilesByPid: {},
   };
 
+  let selectedKeys = new Set();
+  let lastClickedControl = "A";
+  let currentLayer = "standard"; // "standard" or "hypershift"
   let webHidDevice = null;
   let toastTimer = null;
 
-  // Expose window.apiElectron compatibility bridge
-  window.apiElectron = {
-    doRzDeviceAction: async (arg) => {
-      const res = await fetch("/api/rpc", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ method: "doRzDeviceAction", arg }),
-      });
-      return (await res.json()).result;
-    },
-    doMappingEngineAction: async (arg) => {
-      const res = await fetch("/api/rpc", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ method: "doMappingEngineAction", arg }),
-      });
-      return (await res.json()).result;
-    },
-  };
+  function isMouseSelected() {
+    return (
+      selectedDevice.category === "mouse" ||
+      selectedDevice.productId === 193 ||
+      selectedDevice.productId === 192
+    );
+  }
+
+  function getActiveSlotObj() {
+    const pid = selectedDevice.productId;
+    const devProf = serverState.profilesByPid?.[pid];
+    if (!devProf) {
+      return {
+        slot: 1,
+        name: "Standard Default",
+        ledColor: "#ffffff",
+        actuationMm: 1.2,
+        rtEnabled: true,
+        rtDownMm: 0.3,
+        rtUpMm: 0.3,
+        continuousRt: true,
+        perKeyOverrides: {},
+        snapTapEnabled: true,
+        snapKeyA: "A",
+        snapKeyB: "D",
+        gamingMode: { enabled: false, disableWin: true, disableAltTab: false, disableAltF4: false },
+        pollingHz: 1000,
+        lighting: { effect: "static", color1: "#00e676", brightness: 100 },
+        keyBindings: { standard: {}, hypershift: {} },
+        dpiStages: [
+          { stage: 1, enabled: true, x: 400, y: 400, color: "#ff5252" },
+          { stage: 2, enabled: true, x: 800, y: 800, color: "#40c4ff" },
+          { stage: 3, enabled: true, x: 1600, y: 1600, color: "#00e676" },
+          { stage: 4, enabled: true, x: 3200, y: 3200, color: "#ffd740" },
+          { stage: 5, enabled: true, x: 6400, y: 6400, color: "#e040fb" },
+        ],
+        activeStageIndex: 3,
+        independentXY: false,
+        sensorAngle: 0,
+        dynamicSensitivity: 0,
+        smartTracking: { asymmetric: false, symmetricLevel: 1, liftOffLevel: 14, landingLevel: 10 },
+        powerSaving: { idleMinutes: 5, lowPowerPercent: 15 },
+        buttonBindings: { standard: {}, hypershift: {} },
+      };
+    }
+    return devProf.slots[devProf.activeSlot || 1] || Object.values(devProf.slots)[0];
+  }
 
   function showSyncedToast(msg = "✓ Synced to Hardware") {
     const el = document.getElementById("saveToast");
     el.textContent = msg;
     el.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove("show"), 1600);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 1800);
   }
 
   function hexToRgb(hex) {
@@ -187,7 +204,89 @@
     return [(num >> 16) & 0xff, (num >> 8) & 0xff, num & 0xff];
   }
 
-  // Render interactive TKL keyboard
+  // Render Header Device Switcher
+  function renderDeviceSwitcher() {
+    const container = document.getElementById("deviceSwitcher");
+    container.innerHTML = "";
+    devices.forEach((dev) => {
+      const btn = document.createElement("button");
+      btn.className = `dev-pill ${dev.productId === selectedDevice.productId ? "active" : ""}`;
+      btn.innerHTML = `<span class="dot"></span><span>${dev.productName.replace("Razer ", "")}</span>`;
+      btn.addEventListener("click", () => {
+        selectedDevice = dev;
+        selectedKeys.clear();
+        lastClickedControl = isMouseSelected() ? "M1" : "A";
+        renderDeviceSwitcher();
+        renderSlotBar();
+        syncControlsFromSlot();
+        updateVisualStage();
+      });
+      container.appendChild(btn);
+    });
+  }
+
+  // Render Onboard Memory Profile Slots in Header
+  function renderSlotBar() {
+    const bar = document.getElementById("slotBar");
+    const pid = selectedDevice.productId;
+    const devProf = serverState.profilesByPid?.[pid];
+    const maxSlots = isMouseSelected() ? 5 : 6;
+    const activeSlot = devProf?.activeSlot || 1;
+
+    bar.innerHTML = `<span class="slot-bar-label">Onboard Slot</span>`;
+    for (let i = 1; i <= maxSlots; i++) {
+      const slotInfo = P25.PROFILE_SLOT_COLORS[i - 1];
+      const slotData = devProf?.slots?.[i];
+      const btn = document.createElement("button");
+      btn.className = `slot-pill ${i === activeSlot ? "active" : ""}`;
+      btn.title = slotData?.name || slotInfo.name;
+      btn.innerHTML = `<span class="slot-dot" style="background:${slotInfo.color}; box-shadow:0 0 6px ${slotInfo.color};"></span><span>S${i}</span>`;
+      btn.addEventListener("click", () => switchProfileSlot(i));
+      bar.appendChild(btn);
+    }
+  }
+
+  async function switchProfileSlot(slotId) {
+    const res = await fetch("/api/profile-slot", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "switch",
+        productId: selectedDevice.productId,
+        slotId,
+      }),
+    });
+    const data = await res.json();
+    if (data.ok && data.state) {
+      serverState = data.state;
+      renderSlotBar();
+      syncControlsFromSlot();
+      updateVisualStage();
+      showSyncedToast(`✓ Switched to Onboard Slot ${slotId}`);
+    }
+  }
+
+  async function saveCurrentSlotToHardware() {
+    const slot = getActiveSlotObj();
+    slot.name = document.getElementById("inpSlotName").value || slot.name;
+    const res = await fetch("/api/profile-slot", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "save",
+        productId: selectedDevice.productId,
+        slotId: slot.slot,
+        slotData: slot,
+      }),
+    });
+    const data = await res.json();
+    if (data.ok && data.state) {
+      serverState = data.state;
+      renderSlotBar();
+      showSyncedToast(`✓ Saved "${slot.name}" to Onboard Slot ${slot.slot}`);
+    }
+  }
+
   function buildKeyboardStage() {
     const renderBlock = (containerId, rows) => {
       const container = document.getElementById(containerId);
@@ -207,9 +306,16 @@
           cap.className = "keycap";
           cap.dataset.key = k.label;
           cap.style.setProperty("--u", k.u || 1);
-          cap.innerHTML = `<span>${k.label}</span><span class="k-sub">${uiState.actuationMm.toFixed(1)}</span>`;
+          cap.innerHTML = `<span>${k.label}</span><span class="k-sub">1.2</span>`;
           cap.addEventListener("click", () => {
-            cap.classList.toggle("selected");
+            lastClickedControl = k.label;
+            if (selectedKeys.has(k.label)) {
+              selectedKeys.delete(k.label);
+            } else {
+              selectedKeys.add(k.label);
+            }
+            updateRemapInspector();
+            updateVisualStage();
           });
           rowEl.appendChild(cap);
         });
@@ -218,20 +324,113 @@
     };
     renderBlock("kbdMainRows", TKL_MAIN_ROWS);
     renderBlock("kbdNavRows", TKL_NAV_ROWS);
-    updateVisualStage();
   }
 
-  // Synchronize visual keyboard & mouse stage with current state
-  function updateVisualStage() {
-    const isMouse =
-      selectedDevice.category === "mouse" ||
-      selectedDevice.productId === 193 ||
-      selectedDevice.productId === 192;
+  function syncControlsFromSlot() {
+    const slot = getActiveSlotObj();
+    document.getElementById("badgeSlotId").textContent = `Slot ${slot.slot}`;
+    document.getElementById("inpSlotName").value = slot.name || `Slot ${slot.slot}`;
 
-    document.getElementById("keyboardStage").classList.toggle("hidden", isMouse);
-    document.getElementById("mouseStage").classList.toggle("hidden", !isMouse);
-    document.getElementById("metaName").textContent = selectedDevice.productName;
-    document.getElementById("metaPid").textContent = selectedDevice.hexPid || `0x${selectedDevice.productId.toString(16)}`;
+    if (!isMouseSelected()) {
+      const act = slot.actuationMm ?? 1.2;
+      document.getElementById("rngActuation").value = act;
+      document.getElementById("valActuation").textContent = `${act.toFixed(1)} mm`;
+      document.getElementById("badgeActuation").textContent = `${act.toFixed(1)} mm`;
+
+      document.getElementById("chkRapidTrigger").checked = !!slot.rtEnabled;
+      document.getElementById("rngRtDown").value = slot.rtDownMm ?? 0.3;
+      document.getElementById("valRtDown").textContent = `${(slot.rtDownMm ?? 0.3).toFixed(2)} mm`;
+      document.getElementById("rngRtUp").value = slot.rtUpMm ?? 0.3;
+      document.getElementById("valRtUp").textContent = `${(slot.rtUpMm ?? 0.3).toFixed(2)} mm`;
+      document.getElementById("chkContinuousRt").checked = slot.continuousRt !== false;
+
+      document.getElementById("chkSnapTap").checked = !!slot.snapTapEnabled;
+      document.getElementById("inpSnapA").value = slot.snapKeyA || "A";
+      document.getElementById("inpSnapB").value = slot.snapKeyB || "D";
+
+      document.getElementById("chkGamingMode").checked = !!slot.gamingMode?.enabled;
+      document.getElementById("chkDisWin").checked = slot.gamingMode?.disableWin !== false;
+      document.getElementById("chkDisAltTab").checked = !!slot.gamingMode?.disableAltTab;
+      document.getElementById("chkDisAltF4").checked = !!slot.gamingMode?.disableAltF4;
+
+      const light = slot.lighting || { effect: "static", color1: "#00e676", brightness: 100 };
+      document.getElementById("colorPicker").value = light.color1 || "#00e676";
+      document.getElementById("rngBrightness").value = light.brightness ?? 100;
+      document.getElementById("valBrightness").textContent = `${light.brightness ?? 100}%`;
+      document.getElementById("badgeBright").textContent = `${light.brightness ?? 100}%`;
+    } else {
+      const stages = slot.dpiStages || [];
+      stages.forEach((s, i) => {
+        const lbl = document.getElementById(`lblS${i + 1}`);
+        if (lbl) lbl.textContent = s.x;
+      });
+      const activeIdx = (slot.activeStageIndex || 3) - 1;
+      const activeStage = stages[activeIdx] || { x: 1600, y: 1600 };
+      document.getElementById("rngDpiX").value = activeStage.x;
+      document.getElementById("valDpiX").textContent = activeStage.x;
+      document.getElementById("rngDpiY").value = activeStage.y;
+      document.getElementById("valDpiY").textContent = activeStage.y;
+      document.getElementById("chkIndXY").checked = !!slot.independentXY;
+      document.getElementById("blockDpiY").classList.toggle("hidden", !slot.independentXY);
+      document.getElementById("badgeDpi").textContent = `Stage ${activeIdx + 1} • ${activeStage.x}`;
+
+      document.querySelectorAll("#dpiStageGrid .preset-btn").forEach((b) => {
+        b.classList.toggle("active", Number(b.dataset.stage) === activeIdx + 1);
+      });
+
+      document.querySelectorAll("#pollingGrid .preset-btn").forEach((b) => {
+        b.classList.toggle("active", Number(b.dataset.hz) === (slot.pollingHz || 1000));
+      });
+      document.getElementById("badgePolling").textContent = `${slot.pollingHz || 1000} Hz`;
+
+      document.getElementById("rngSensorAngle").value = slot.sensorAngle || 0;
+      document.getElementById("valSensorAngle").textContent = `${slot.sensorAngle || 0}°`;
+      document.getElementById("badgeAngle").textContent = `${slot.sensorAngle || 0}°`;
+      document.getElementById("selDynCurve").value = String(slot.dynamicSensitivity || 0);
+
+      const st = slot.smartTracking || { asymmetric: false, symmetricLevel: 1, liftOffLevel: 14, landingLevel: 10 };
+      document.getElementById("chkAsymmetric").checked = !!st.asymmetric;
+      document.getElementById("symLodGroup").classList.toggle("hidden", !!st.asymmetric);
+      document.getElementById("asymLodGroup").classList.toggle("hidden", !st.asymmetric);
+      document.getElementById("rngLiftOff").value = st.liftOffLevel || 14;
+      document.getElementById("valLiftOff").textContent = st.liftOffLevel || 14;
+      document.getElementById("rngLanding").value = st.landingLevel || 10;
+      document.getElementById("valLanding").textContent = st.landingLevel || 10;
+
+      const ps = slot.powerSaving || { idleMinutes: 5, lowPowerPercent: 15 };
+      document.getElementById("rngIdleMin").value = ps.idleMinutes || 5;
+      document.getElementById("valIdleMin").textContent = `${ps.idleMinutes || 5} min`;
+      document.getElementById("rngLowBatt").value = ps.lowPowerPercent || 15;
+      document.getElementById("valLowBatt").textContent = `${ps.lowPowerPercent || 15}%`;
+      document.getElementById("badgePower").textContent = `${ps.idleMinutes || 5}m / ${ps.lowPowerPercent || 15}%`;
+    }
+    updateRemapInspector();
+  }
+
+  function updateRemapInspector() {
+    const slot = getActiveSlotObj();
+    const layerLabel = currentLayer === "hypershift" ? "Hypershift" : "Standard";
+    document.getElementById("badgeRemapTarget").textContent = `${lastClickedControl} (${layerLabel})`;
+
+    const mapObj = isMouseSelected()
+      ? slot.buttonBindings?.[currentLayer] || {}
+      : slot.keyBindings?.[currentLayer] || {};
+    const assigned = mapObj[lastClickedControl] || "Default";
+    const sel = document.getElementById("selRemapAction");
+    if (Array.from(sel.options).some((o) => o.value === assigned)) {
+      sel.value = assigned;
+    } else {
+      sel.value = "Default";
+    }
+  }
+
+  function updateVisualStage() {
+    const mouseMode = isMouseSelected();
+    const slot = getActiveSlotObj();
+
+    document.getElementById("keyboardStage").classList.toggle("hidden", mouseMode);
+    document.getElementById("kbdToolbar").classList.toggle("hidden", mouseMode);
+    document.getElementById("mouseStage").classList.toggle("hidden", !mouseMode);
 
     // Filter contextual dock tabs
     const tabs = document.querySelectorAll(".dock-tab");
@@ -240,50 +439,66 @@
       const target = t.dataset.for;
       const show =
         target === "all" ||
-        (target === "keyboard" && !isMouse) ||
-        (target === "mouse" && isMouse);
+        (target === "keyboard" && !mouseMode) ||
+        (target === "mouse" && mouseMode);
       t.classList.toggle("hidden", !show);
       if (show && t.classList.contains("active")) activeVisible = true;
     });
-
     if (!activeVisible) {
       const firstVisible = Array.from(tabs).find((t) => !t.classList.contains("hidden"));
       if (firstVisible) firstVisible.click();
     }
 
-    // Update stem gauge height (0.1mm..4.0mm -> 5%..100%)
-    const pctStem = Math.max(6, Math.min(100, (uiState.actuationMm / 4.0) * 100));
-    document.getElementById("stemFill").style.height = `${pctStem}%`;
+    if (!mouseMode) {
+      const targetTxt =
+        selectedKeys.size === 0
+          ? "Actuation Point (All Keys)"
+          : `Per-Key Actuation (${selectedKeys.size} Selected)`;
+      document.getElementById("actTargetTitle").textContent = targetTxt;
 
-    // Update keycaps lighting, actuation sub-labels, and Snap Tap highlights
-    const alpha = Math.max(0.12, (uiState.brightness / 100) * 0.65);
-    const color = uiState.effect === "off" ? "#484f58" : uiState.colorHex;
-    const kbdStage = document.getElementById("keyboardStage");
-    kbdStage.style.setProperty("--kbd-glow", uiState.effect === "off" ? "transparent" : `${color}22`);
+      const act = Number(document.getElementById("rngActuation").value || slot.actuationMm || 1.2);
+      const pctStem = Math.max(6, Math.min(100, (act / 4.0) * 100));
+      document.getElementById("stemFill").style.height = `${pctStem}%`;
 
-    document.querySelectorAll(".keycap").forEach((cap) => {
-      const k = cap.dataset.key;
-      const sub = cap.querySelector(".k-sub");
-      if (sub) sub.textContent = `${uiState.actuationMm.toFixed(1)}`;
-      cap.style.setProperty("--key-color", uiState.effect === "off" ? "#6e7681" : color);
-      cap.style.setProperty(
-        "--key-glow",
-        uiState.effect === "off" ? "transparent" : `${color}${Math.round(alpha * 90).toString(16).padStart(2, "0")}`
-      );
-      const isSnap =
-        uiState.snapTapEnabled &&
-        (k === uiState.snapKeyA.toUpperCase() || k === uiState.snapKeyB.toUpperCase());
-      cap.classList.toggle("snaptap-key", isSnap);
-    });
+      const light = slot.lighting || { effect: "static", color1: "#00e676", brightness: 100 };
+      const color = light.effect === "off" ? "#484f58" : light.color1 || "#00e676";
+      const overrides = slot.perKeyOverrides || {};
+      const keyMap = slot.keyBindings?.[currentLayer] || {};
 
-    // Update Mouse stage metrics & glow
-    document.getElementById("stageDpiVal").textContent = `${uiState.dpi} DPI`;
-    document.getElementById("stagePollVal").textContent = `${uiState.pollingHz} Hz`;
-    document.getElementById("mouseWheelGlow").style.borderColor = color;
-    document.getElementById("mouseLogoGlow").style.background = color;
+      document.querySelectorAll(".keycap").forEach((cap) => {
+        const k = cap.dataset.key;
+        const ov = overrides[k];
+        const keyAct = ov ? ov.act : slot.actuationMm ?? 1.2;
+        const sub = cap.querySelector(".k-sub");
+        if (sub) sub.textContent = Number(keyAct).toFixed(1);
+
+        cap.classList.toggle("selected", selectedKeys.has(k));
+        cap.classList.toggle("custom-act", !!ov);
+        cap.classList.toggle("remapped", !!keyMap[k] && keyMap[k] !== "Default");
+        cap.style.setProperty("--key-color", color);
+
+        const isSnap =
+          slot.snapTapEnabled &&
+          (k === (slot.snapKeyA || "A").toUpperCase() || k === (slot.snapKeyB || "D").toUpperCase());
+        cap.classList.toggle("snaptap-key", isSnap);
+      });
+    } else {
+      const stages = slot.dpiStages || [];
+      const activeStage = stages[(slot.activeStageIndex || 3) - 1] || { x: 1600, y: 1600 };
+      document.getElementById("stageDpiVal").textContent = slot.independentXY
+        ? `${activeStage.x} × ${activeStage.y}`
+        : `${activeStage.x} DPI`;
+      document.getElementById("stagePollVal").textContent = `${slot.pollingHz || 1000} Hz`;
+      const lodTxt = slot.smartTracking?.asymmetric
+        ? `Asym ${slot.smartTracking.liftOffLevel}/${slot.smartTracking.landingLevel}`
+        : ["Low", "Med", "High"][(slot.smartTracking?.symmetricLevel || 1) - 1];
+      document.getElementById("stageAngleVal").textContent = `${slot.sensorAngle || 0}° • ${lodTxt}`;
+      document.getElementById("stageMouseSlot").textContent = `Slot ${slot.slot} (${slot.name})`;
+      document.getElementById("stageSleepVal").textContent = `${slot.powerSaving?.idleMinutes || 5} min`;
+    }
   }
 
-  async function sendPacket90(packet90, statePatch = null, toastLabel = "✓ Synced to Hardware") {
+  async function sendPacket90(packet90, slotPatch = null, toastLabel = "✓ Synced to Hardware") {
     if (webHidDevice && webHidDevice.opened) {
       try {
         await webHidDevice.sendFeatureReport(0x00, new Uint8Array(packet90));
@@ -300,35 +515,16 @@
         interfaceNum: selectedDevice.interface ?? 3,
         reportId: 0,
         packet90,
-        statePatch,
+        slotPatch,
       }),
     });
     const data = await res.json();
-    showSyncedToast(toastLabel);
-    if (data.logItem) {
-      prependPacketLog(data.logItem);
+    if (data.state) {
+      serverState = data.state;
     }
+    showSyncedToast(toastLabel);
+    if (data.logItem) prependPacketLog(data.logItem);
     return data;
-  }
-
-  function renderDeviceSwitcher() {
-    const container = document.getElementById("deviceSwitcher");
-    container.innerHTML = "";
-    devices.forEach((dev) => {
-      const btn = document.createElement("button");
-      btn.className = `dev-pill ${dev.productId === selectedDevice.productId ? "active" : ""}`;
-      btn.innerHTML = `
-        <span class="dot"></span>
-        <span>${dev.productName.replace("Razer ", "")}</span>
-      `;
-      btn.addEventListener("click", () => {
-        selectedDevice = dev;
-        renderDeviceSwitcher();
-        updateVisualStage();
-        queryDeviceFirmware();
-      });
-      container.appendChild(btn);
-    });
   }
 
   function prependPacketLog(item) {
@@ -348,22 +544,6 @@
     list.prepend(div);
   }
 
-  async function queryDeviceFirmware() {
-    try {
-      const res = await sendPacket90(P25.Builders.getFirmwareVersion(), null, "✓ Device Ready");
-      const args = res.parsedRx?.args || [];
-      if (args.length >= 2 && (args[0] > 0 || args[1] > 0)) {
-        const fw = `v${args[0]}.${String(args[1]).padStart(2, "0")}.00`;
-        document.getElementById("metaFw").textContent = fw;
-        if (selectedDevice.productId === 193) {
-          document.getElementById("stageMouseFw").textContent = fw;
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }
-
   async function refreshStatus() {
     try {
       const res = await fetch("/api/status");
@@ -371,72 +551,74 @@
       if (!data.ok) return;
 
       devices = data.devices || [];
+      if (data.state) serverState = data.state;
       if (devices.length > 0 && !devices.some((d) => d.productId === selectedDevice.productId)) {
         selectedDevice = devices[0];
       }
       renderDeviceSwitcher();
+      renderSlotBar();
+      syncControlsFromSlot();
       updateVisualStage();
-
-      const label = document.getElementById("transportLabel");
-      label.textContent = data.nativeStatus?.hidLoaded ? "Native HID.node Active" : "Local Bridge Ready";
 
       const list = document.getElementById("packetLogList");
       list.innerHTML = "";
       (data.packetHistory || []).slice().reverse().forEach(prependPacketLog);
     } catch (err) {
-      console.warn("Status refresh error:", err);
+      console.warn("Refresh status error:", err);
     }
   }
 
-  // Push Actuation & Rapid Trigger to hardware
-  async function syncActuationHardware() {
-    const actUnits = Math.round(uiState.actuationMm * 10);
-    const downUnits = Math.round(uiState.rtDownMm * 10);
-    const upUnits = Math.round(uiState.rtUpMm * 10);
-    const pkt90 = P25.buildPacket({
-      commandClass: 0x0b,
-      commandId: 0x02,
-      dataSize: 0x06,
-      args: [0x01, actUnits, uiState.rtEnabled ? 0x01 : 0x00, downUnits, upUnits, 0x00],
-    });
-    await sendPacket90(
-      pkt90,
-      {
-        huntsman: {
-          actuationMm: uiState.actuationMm,
-          rapidTriggerEnabled: uiState.rtEnabled,
-          rapidTriggerDownMm: uiState.rtDownMm,
-          rapidTriggerUpMm: uiState.rtUpMm,
-        },
-      },
-      `✓ Actuation ${uiState.actuationMm.toFixed(1)}mm Synced`
-    );
-  }
+  // Sync Actuation & Rapid Trigger (Global or Per-Key)
+  async function commitActuationChange() {
+    const slot = getActiveSlotObj();
+    const act = Number(document.getElementById("rngActuation").value);
+    const rt = document.getElementById("chkRapidTrigger").checked;
+    const down = Number(document.getElementById("rngRtDown").value);
+    const up = Number(document.getElementById("rngRtUp").value);
+    const cont = document.getElementById("chkContinuousRt").checked;
 
-  // Push Chroma Lighting to hardware
-  async function syncLightingHardware() {
-    const [r, g, b] = hexToRgb(uiState.colorHex);
-    const pkt90 = P25.Builders.setChromaEffect({
-      effect: uiState.effect,
-      r,
-      g,
-      b,
+    const overrides = { ...(slot.perKeyOverrides || {}) };
+    if (selectedKeys.size > 0) {
+      selectedKeys.forEach((k) => {
+        overrides[k] = { act, rt, down, up };
+      });
+    } else {
+      slot.actuationMm = act;
+      slot.rtEnabled = rt;
+      slot.rtDownMm = down;
+      slot.rtUpMm = up;
+      slot.continuousRt = cont;
+    }
+
+    const pkt90 = P25.Builders.setAnalogActuation({
+      slotId: slot.slot,
+      actuationMm: act,
+      rtEnabled: rt,
+      rtDownMm: down,
+      rtUpMm: up,
+      continuousRt: cont,
+      keyCount: selectedKeys.size,
     });
+
     await sendPacket90(
       pkt90,
       {
-        lighting: {
-          effect: uiState.effect,
-          color1: uiState.colorHex,
-          brightness: uiState.brightness,
-        },
+        actuationMm: slot.actuationMm,
+        rtEnabled: rt,
+        rtDownMm: down,
+        rtUpMm: up,
+        continuousRt: cont,
+        perKeyOverrides: overrides,
       },
-      `✓ Lighting (${uiState.effect}) Synced`
+      selectedKeys.size > 0
+        ? `✓ Updated ${selectedKeys.size} Key(s) to ${act.toFixed(1)}mm`
+        : `✓ Global Actuation ${act.toFixed(1)}mm Synced`
     );
+    updateVisualStage();
   }
 
   function wireEvents() {
-    // Dock tabs
+    // Dock Navigation
     document.querySelectorAll(".dock-tab").forEach((tab) => {
       tab.addEventListener("click", () => {
         document.querySelectorAll(".dock-tab").forEach((t) => t.classList.remove("active"));
@@ -446,65 +628,164 @@
       });
     });
 
-    // Inspector Drawer
-    const drawer = document.getElementById("protocolDrawer");
-    document.getElementById("btnToggleDrawer").addEventListener("click", () => {
-      drawer.classList.toggle("open");
-    });
-    document.getElementById("btnCloseDrawer").addEventListener("click", () => {
-      drawer.classList.remove("open");
-    });
-    document.getElementById("btnClearLogs").addEventListener("click", async () => {
-      await fetch("/api/clear-logs", { method: "POST" });
-      document.getElementById("packetLogList").innerHTML = "";
-    });
+    // Save to Slot Buttons
+    document.getElementById("btnSaveSlot").addEventListener("click", saveCurrentSlotToHardware);
+    document.getElementById("btnSaveSlotPanel").addEventListener("click", saveCurrentSlotToHardware);
 
-    // Browser WebHID
-    document.getElementById("btnWebHid").addEventListener("click", async () => {
-      if (!navigator.hid) return;
-      try {
-        const list = await navigator.hid.requestDevice({ filters: [{ vendorId: 0x1532 }] });
-        if (list && list[0]) {
-          if (!list[0].opened) await list[0].open();
-          webHidDevice = list[0];
-          document.getElementById("transportLabel").textContent = "Direct WebHID Connected";
-        }
-      } catch {
-        // user cancelled
+    // Reset Slot
+    document.getElementById("btnResetSlot").addEventListener("click", async () => {
+      const slot = getActiveSlotObj();
+      const res = await fetch("/api/profile-slot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "reset",
+          productId: selectedDevice.productId,
+          slotId: slot.slot,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok && data.state) {
+        serverState = data.state;
+        selectedKeys.clear();
+        renderSlotBar();
+        syncControlsFromSlot();
+        updateVisualStage();
+        showSyncedToast(`✓ Slot ${slot.slot} Reset to Factory Default`);
       }
     });
 
-    // Actuation slider & presets
+    // Export / Import Profile JSON
+    document.getElementById("btnExportJson").addEventListener("click", () => {
+      const slot = getActiveSlotObj();
+      const blob = new Blob([JSON.stringify(slot, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `razer-${selectedDevice.productId}-slot-${slot.slot}.json`;
+      a.click();
+    });
+
+    document.getElementById("btnImportJson").addEventListener("click", () => {
+      document.getElementById("fileImportJson").click();
+    });
+    document.getElementById("fileImportJson").addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        const imported = JSON.parse(await file.text());
+        const slot = getActiveSlotObj();
+        const res = await fetch("/api/profile-slot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "save",
+            productId: selectedDevice.productId,
+            slotId: slot.slot,
+            slotData: imported,
+          }),
+        });
+        const data = await res.json();
+        if (data.ok && data.state) {
+          serverState = data.state;
+          renderSlotBar();
+          syncControlsFromSlot();
+          updateVisualStage();
+          showSyncedToast(`✓ Imported Profile into Slot ${slot.slot}`);
+        }
+      } catch {
+        alert("Invalid profile JSON file");
+      }
+    });
+
+    // Key Selection Toolbar
+    document.querySelectorAll("[data-sel]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("[data-sel]").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        const mode = btn.dataset.sel;
+        selectedKeys.clear();
+        if (mode === "wasd") {
+          ["W", "A", "S", "D"].forEach((k) => selectedKeys.add(k));
+        } else if (mode === "fps") {
+          ["W", "A", "S", "D", "Q", "E", "R", "F", "SPACE", "SHIFT", "CTRL"].forEach((k) =>
+            selectedKeys.add(k)
+          );
+        } else if (mode === "nums") {
+          ["1", "2", "3", "4", "5"].forEach((k) => selectedKeys.add(k));
+        }
+        updateVisualStage();
+      });
+    });
+
+    // Layer Toggle (Standard vs Hypershift)
+    const toggleLayer = () => {
+      currentLayer = currentLayer === "standard" ? "hypershift" : "standard";
+      const btn = document.getElementById("btnLayerToggle");
+      btn.textContent = currentLayer === "hypershift" ? "⚡ Layer: Razer Hypershift" : "Layer: Standard";
+      btn.classList.toggle("hypershift-active", currentLayer === "hypershift");
+      updateRemapInspector();
+      updateVisualStage();
+    };
+    document.getElementById("btnLayerToggle").addEventListener("click", toggleLayer);
+    document.getElementById("btnSwitchLayerCard").addEventListener("click", toggleLayer);
+
+    // Mouse Button Hotspots
+    document.querySelectorAll(".mouse-hotspot").forEach((hs) => {
+      hs.addEventListener("click", () => {
+        document.querySelectorAll(".mouse-hotspot").forEach((h) => h.classList.remove("active"));
+        hs.classList.add("active");
+        lastClickedControl = hs.dataset.mbtn;
+        updateRemapInspector();
+      });
+    });
+
+    // Remap Selector
+    document.getElementById("selRemapAction").addEventListener("change", async (e) => {
+      const slot = getActiveSlotObj();
+      const val = e.target.value;
+      const pkt90 = P25.Builders.setKeyBinding({
+        slotId: slot.slot,
+        keyId: lastClickedControl.charCodeAt(0) & 0xff,
+        layer: currentLayer === "hypershift" ? 1 : 0,
+      });
+
+      if (isMouseSelected()) {
+        const buttonBindings = slot.buttonBindings || { standard: {}, hypershift: {} };
+        buttonBindings[currentLayer][lastClickedControl] = val;
+        await sendPacket90(pkt90, { buttonBindings }, `✓ Mapped ${lastClickedControl} → ${val}`);
+      } else {
+        const keyBindings = slot.keyBindings || { standard: {}, hypershift: {} };
+        keyBindings[currentLayer][lastClickedControl] = val;
+        await sendPacket90(pkt90, { keyBindings }, `✓ Mapped ${lastClickedControl} → ${val}`);
+      }
+      updateVisualStage();
+    });
+
+    // Actuation & Rapid Trigger Sliders
     const rngAct = document.getElementById("rngActuation");
     const rngRtDown = document.getElementById("rngRtDown");
     const rngRtUp = document.getElementById("rngRtUp");
-    const chkRt = document.getElementById("chkRapidTrigger");
 
     rngAct.addEventListener("input", (e) => {
-      uiState.actuationMm = Number(e.target.value);
-      const txt = `${uiState.actuationMm.toFixed(1)} mm`;
-      document.getElementById("valActuation").textContent = txt;
-      document.getElementById("badgeActuation").textContent = txt;
+      const v = Number(e.target.value);
+      document.getElementById("valActuation").textContent = `${v.toFixed(1)} mm`;
+      document.getElementById("badgeActuation").textContent = `${v.toFixed(1)} mm`;
       updateVisualStage();
     });
-    rngAct.addEventListener("change", syncActuationHardware);
+    rngAct.addEventListener("change", commitActuationChange);
 
     rngRtDown.addEventListener("input", (e) => {
-      uiState.rtDownMm = Number(e.target.value);
-      document.getElementById("valRtDown").textContent = `${uiState.rtDownMm.toFixed(1)} mm`;
+      document.getElementById("valRtDown").textContent = `${Number(e.target.value).toFixed(2)} mm`;
     });
-    rngRtDown.addEventListener("change", syncActuationHardware);
+    rngRtDown.addEventListener("change", commitActuationChange);
 
     rngRtUp.addEventListener("input", (e) => {
-      uiState.rtUpMm = Number(e.target.value);
-      document.getElementById("valRtUp").textContent = `${uiState.rtUpMm.toFixed(1)} mm`;
+      document.getElementById("valRtUp").textContent = `${Number(e.target.value).toFixed(2)} mm`;
     });
-    rngRtUp.addEventListener("change", syncActuationHardware);
+    rngRtUp.addEventListener("change", commitActuationChange);
 
-    chkRt.addEventListener("change", (e) => {
-      uiState.rtEnabled = e.target.checked;
-      syncActuationHardware();
-    });
+    document.getElementById("chkRapidTrigger").addEventListener("change", commitActuationChange);
+    document.getElementById("chkContinuousRt").addEventListener("change", commitActuationChange);
 
     document.querySelectorAll("[data-act-preset]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -512,101 +793,212 @@
         btn.classList.add("active");
         const p = btn.dataset.actPreset;
         if (p === "esports") {
-          uiState.actuationMm = 0.4;
-          uiState.rtEnabled = true;
-          uiState.rtDownMm = 0.1;
-          uiState.rtUpMm = 0.1;
+          rngAct.value = 0.4;
+          rngRtDown.value = 0.1;
+          rngRtUp.value = 0.1;
+          document.getElementById("chkRapidTrigger").checked = true;
         } else if (p === "balanced") {
-          uiState.actuationMm = 1.2;
-          uiState.rtEnabled = true;
-          uiState.rtDownMm = 0.3;
-          uiState.rtUpMm = 0.3;
+          rngAct.value = 1.2;
+          rngRtDown.value = 0.3;
+          rngRtUp.value = 0.3;
+          document.getElementById("chkRapidTrigger").checked = true;
         } else {
-          uiState.actuationMm = 2.0;
-          uiState.rtEnabled = false;
-          uiState.rtDownMm = 0.5;
-          uiState.rtUpMm = 0.5;
+          rngAct.value = 2.0;
+          rngRtDown.value = 0.5;
+          rngRtUp.value = 0.5;
+          document.getElementById("chkRapidTrigger").checked = false;
         }
-        rngAct.value = uiState.actuationMm;
-        chkRt.checked = uiState.rtEnabled;
-        rngRtDown.value = uiState.rtDownMm;
-        rngRtUp.value = uiState.rtUpMm;
         rngAct.dispatchEvent(new Event("input"));
         rngRtDown.dispatchEvent(new Event("input"));
         rngRtUp.dispatchEvent(new Event("input"));
-        syncActuationHardware();
+        commitActuationChange();
       });
     });
 
-    // Snap Tap
+    // Snap Tap & Gaming Mode
     const syncSnapTap = async () => {
-      uiState.snapTapEnabled = document.getElementById("chkSnapTap").checked;
-      uiState.snapKeyA = (document.getElementById("inpSnapA").value || "A").toUpperCase();
-      uiState.snapKeyB = (document.getElementById("inpSnapB").value || "D").toUpperCase();
-      updateVisualStage();
+      const snapTapEnabled = document.getElementById("chkSnapTap").checked;
+      const snapKeyA = (document.getElementById("inpSnapA").value || "A").toUpperCase();
+      const snapKeyB = (document.getElementById("inpSnapB").value || "D").toUpperCase();
       const pkt90 = P25.buildPacket({
         commandClass: 0x0b,
         commandId: 0x08,
         dataSize: 0x04,
-        args: [
-          0x01,
-          uiState.snapTapEnabled ? 0x01 : 0x00,
-          uiState.snapKeyA.charCodeAt(0) & 0xff,
-          uiState.snapKeyB.charCodeAt(0) & 0xff,
-        ],
+        args: [0x01, snapTapEnabled ? 0x01 : 0x00, snapKeyA.charCodeAt(0) & 0xff, snapKeyB.charCodeAt(0) & 0xff],
       });
-      await sendPacket90(pkt90, null, "✓ Snap Tap Synced");
+      await sendPacket90(pkt90, { snapTapEnabled, snapKeyA, snapKeyB }, "✓ Snap Tap Synced");
+      updateVisualStage();
     };
     document.getElementById("chkSnapTap").addEventListener("change", syncSnapTap);
     document.getElementById("inpSnapA").addEventListener("change", syncSnapTap);
     document.getElementById("inpSnapB").addEventListener("change", syncSnapTap);
 
-    // Mouse DPI & Polling
-    const rngDpi = document.getElementById("rngDpi");
-    rngDpi.addEventListener("input", (e) => {
-      uiState.dpi = Number(e.target.value);
-      document.getElementById("valDpiSlider").textContent = uiState.dpi;
-      document.getElementById("badgeDpi").textContent = `${uiState.dpi} DPI`;
+    const syncGamingMode = async () => {
+      const gamingMode = {
+        enabled: document.getElementById("chkGamingMode").checked,
+        disableWin: document.getElementById("chkDisWin").checked,
+        disableAltTab: document.getElementById("chkDisAltTab").checked,
+        disableAltF4: document.getElementById("chkDisAltF4").checked,
+      };
+      const pkt90 = P25.Builders.setGamingMode(
+        gamingMode.enabled,
+        gamingMode.disableAltTab,
+        gamingMode.disableAltF4
+      );
+      await sendPacket90(pkt90, { gamingMode }, "✓ Gaming Mode Synced");
+    };
+    ["chkGamingMode", "chkDisWin", "chkDisAltTab", "chkDisAltF4"].forEach((id) => {
+      document.getElementById(id).addEventListener("change", syncGamingMode);
+    });
+
+    // Mouse 5-Stage DPI & Independent X/Y
+    const commitMouseDpi = async () => {
+      const slot = getActiveSlotObj();
+      const stages = [...(slot.dpiStages || [])];
+      const activeIdx = (slot.activeStageIndex || 3) - 1;
+      const independentXY = document.getElementById("chkIndXY").checked;
+      const x = Number(document.getElementById("rngDpiX").value);
+      const y = independentXY ? Number(document.getElementById("rngDpiY").value) : x;
+
+      if (stages[activeIdx]) {
+        stages[activeIdx] = { ...stages[activeIdx], x, y };
+      }
+      const pkt90 = P25.Builders.setDpiStages(stages, activeIdx + 1);
+      await sendPacket90(
+        pkt90,
+        { dpiStages: stages, activeStageIndex: activeIdx + 1, independentXY },
+        `✓ Stage ${activeIdx + 1} (${x} DPI) Saved`
+      );
+      syncControlsFromSlot();
       updateVisualStage();
-    });
-    rngDpi.addEventListener("change", async () => {
-      const pkt90 = P25.Builders.setDpiXY(uiState.dpi, uiState.dpi);
-      await sendPacket90(pkt90, { mouse: { dpiX: uiState.dpi, dpiY: uiState.dpi } }, `✓ ${uiState.dpi} DPI Synced`);
-    });
+    };
 
     document.querySelectorAll("#dpiStageGrid .preset-btn").forEach((btn) => {
       btn.addEventListener("click", async () => {
-        document.querySelectorAll("#dpiStageGrid .preset-btn").forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
-        uiState.dpi = Number(btn.dataset.dpi);
-        rngDpi.value = uiState.dpi;
-        rngDpi.dispatchEvent(new Event("input"));
-        const pkt90 = P25.Builders.setDpiXY(uiState.dpi, uiState.dpi);
-        await sendPacket90(pkt90, { mouse: { dpiX: uiState.dpi, dpiY: uiState.dpi } }, `✓ ${uiState.dpi} DPI Synced`);
+        const slot = getActiveSlotObj();
+        slot.activeStageIndex = Number(btn.dataset.stage);
+        syncControlsFromSlot();
+        await commitMouseDpi();
       });
     });
+
+    document.getElementById("chkIndXY").addEventListener("change", (e) => {
+      document.getElementById("blockDpiY").classList.toggle("hidden", !e.target.checked);
+      commitMouseDpi();
+    });
+    document.getElementById("rngDpiX").addEventListener("input", (e) => {
+      document.getElementById("valDpiX").textContent = e.target.value;
+    });
+    document.getElementById("rngDpiX").addEventListener("change", commitMouseDpi);
+    document.getElementById("rngDpiY").addEventListener("input", (e) => {
+      document.getElementById("valDpiY").textContent = e.target.value;
+    });
+    document.getElementById("rngDpiY").addEventListener("change", commitMouseDpi);
 
     document.querySelectorAll("#pollingGrid .preset-btn").forEach((btn) => {
       btn.addEventListener("click", async () => {
-        document.querySelectorAll("#pollingGrid .preset-btn").forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
-        uiState.pollingHz = Number(btn.dataset.hz);
-        document.getElementById("badgePolling").textContent = `${uiState.pollingHz} Hz`;
+        const pollingHz = Number(btn.dataset.hz);
+        const pkt90 = P25.Builders.setPollingRate(pollingHz);
+        await sendPacket90(pkt90, { pollingHz }, `✓ ${pollingHz} Hz Polling Set`);
+        syncControlsFromSlot();
         updateVisualStage();
-        const pkt90 = P25.Builders.setPollingRate(uiState.pollingHz);
-        await sendPacket90(pkt90, { mouse: { pollingHz: uiState.pollingHz } }, `✓ ${uiState.pollingHz} Hz Synced`);
       });
     });
 
-    // Lighting Effects, Swatches & Brightness
+    // Sensor Angle & Dynamic Curve
+    const commitSensorAngle = async () => {
+      const sensorAngle = Number(document.getElementById("rngSensorAngle").value);
+      const dynamicSensitivity = Number(document.getElementById("selDynCurve").value);
+      const pkt90 = P25.Builders.setSensorAngleAndCurve({
+        angleDeg: sensorAngle,
+        dynamicCurve: dynamicSensitivity,
+      });
+      await sendPacket90(pkt90, { sensorAngle, dynamicSensitivity }, `✓ Sensor Angle ${sensorAngle}° Synced`);
+      syncControlsFromSlot();
+      updateVisualStage();
+    };
+    document.getElementById("rngSensorAngle").addEventListener("input", (e) => {
+      document.getElementById("valSensorAngle").textContent = `${e.target.value}°`;
+    });
+    document.getElementById("rngSensorAngle").addEventListener("change", commitSensorAngle);
+    document.getElementById("selDynCurve").addEventListener("change", commitSensorAngle);
+
+    // Smart Tracking / Asymmetric Cut-Off
+    const commitSmartTracking = async () => {
+      const slot = getActiveSlotObj();
+      const asymmetric = document.getElementById("chkAsymmetric").checked;
+      const liftOffLevel = Number(document.getElementById("rngLiftOff").value);
+      const landingLevel = Number(document.getElementById("rngLanding").value);
+      const symmetricLevel = slot.smartTracking?.symmetricLevel || 1;
+      const smartTracking = { asymmetric, symmetricLevel, liftOffLevel, landingLevel };
+      const pkt90 = P25.Builders.setSmartTracking(smartTracking);
+      await sendPacket90(pkt90, { smartTracking }, "✓ Smart Tracking Synced");
+      syncControlsFromSlot();
+      updateVisualStage();
+    };
+    document.getElementById("chkAsymmetric").addEventListener("change", commitSmartTracking);
+    document.getElementById("rngLiftOff").addEventListener("input", (e) => {
+      document.getElementById("valLiftOff").textContent = e.target.value;
+    });
+    document.getElementById("rngLiftOff").addEventListener("change", commitSmartTracking);
+    document.getElementById("rngLanding").addEventListener("input", (e) => {
+      document.getElementById("valLanding").textContent = e.target.value;
+    });
+    document.getElementById("rngLanding").addEventListener("change", commitSmartTracking);
+
+    document.querySelectorAll("#symLodGroup .preset-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        document.querySelectorAll("#symLodGroup .preset-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        const slot = getActiveSlotObj();
+        slot.smartTracking = {
+          ...(slot.smartTracking || {}),
+          asymmetric: false,
+          symmetricLevel: Number(btn.dataset.lod),
+        };
+        await commitSmartTracking();
+      });
+    });
+
+    // Wireless Power Saving
+    const commitPowerSaving = async () => {
+      const idleMinutes = Number(document.getElementById("rngIdleMin").value);
+      const lowPowerPercent = Number(document.getElementById("rngLowBatt").value);
+      const pkt90 = P25.Builders.setPowerSaving({ idleMinutes, lowPowerPercent });
+      await sendPacket90(pkt90, { powerSaving: { idleMinutes, lowPowerPercent } }, "✓ Power Saving Synced");
+      syncControlsFromSlot();
+      updateVisualStage();
+    };
+    document.getElementById("rngIdleMin").addEventListener("input", (e) => {
+      document.getElementById("valIdleMin").textContent = `${e.target.value} min`;
+    });
+    document.getElementById("rngIdleMin").addEventListener("change", commitPowerSaving);
+    document.getElementById("rngLowBatt").addEventListener("input", (e) => {
+      document.getElementById("valLowBatt").textContent = `${e.target.value}%`;
+    });
+    document.getElementById("rngLowBatt").addEventListener("change", commitPowerSaving);
+
+    // Lighting
+    const commitLighting = async () => {
+      const slot = getActiveSlotObj();
+      const color1 = document.getElementById("colorPicker").value;
+      const brightness = Number(document.getElementById("rngBrightness").value);
+      const effect =
+        document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect ||
+        slot.lighting?.effect ||
+        "static";
+      const [r, g, b] = hexToRgb(color1);
+      const pkt90 = P25.Builders.setChromaEffect({ effect, r, g, b });
+      await sendPacket90(pkt90, { lighting: { effect, color1, brightness } }, `✓ Lighting (${effect}) Synced`);
+      updateVisualStage();
+    };
+
     document.querySelectorAll("#effectGrid .preset-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         document.querySelectorAll("#effectGrid .preset-btn").forEach((b) => b.classList.remove("active"));
         btn.classList.add("active");
-        uiState.effect = btn.dataset.effect;
         document.getElementById("badgeEffect").textContent = btn.textContent;
-        updateVisualStage();
-        syncLightingHardware();
+        commitLighting();
       });
     });
 
@@ -614,59 +1006,56 @@
       sw.addEventListener("click", () => {
         document.querySelectorAll("#swatchRow .swatch").forEach((s) => s.classList.remove("active"));
         sw.classList.add("active");
-        uiState.colorHex = sw.dataset.color;
-        document.getElementById("colorPicker").value = uiState.colorHex;
-        updateVisualStage();
-        syncLightingHardware();
+        document.getElementById("colorPicker").value = sw.dataset.color;
+        commitLighting();
       });
     });
 
-    document.getElementById("colorPicker").addEventListener("input", (e) => {
-      uiState.colorHex = e.target.value;
-      updateVisualStage();
+    document.getElementById("colorPicker").addEventListener("change", commitLighting);
+    document.getElementById("rngBrightness").addEventListener("input", (e) => {
+      document.getElementById("valBrightness").textContent = `${e.target.value}%`;
+      document.getElementById("badgeBright").textContent = `${e.target.value}%`;
     });
-    document.getElementById("colorPicker").addEventListener("change", syncLightingHardware);
-
-    const rngBright = document.getElementById("rngBrightness");
-    rngBright.addEventListener("input", (e) => {
-      uiState.brightness = Number(e.target.value);
-      const txt = `${uiState.brightness}%`;
-      document.getElementById("valBrightness").textContent = txt;
-      document.getElementById("badgeBright").textContent = txt;
-      updateVisualStage();
-    });
-    rngBright.addEventListener("change", async () => {
-      const raw255 = Math.round((uiState.brightness / 100) * 255);
-      await sendPacket90(
-        P25.Builders.setBrightness(raw255),
-        { lighting: { brightness: uiState.brightness } },
-        `✓ Brightness ${uiState.brightness}% Synced`
-      );
+    document.getElementById("rngBrightness").addEventListener("change", async (e) => {
+      const pct = Number(e.target.value);
+      await sendPacket90(P25.Builders.setBrightness(Math.round((pct / 100) * 255)));
+      await commitLighting();
     });
 
-    // Device Mode
+    // Hardware Mode
     document.getElementById("btnModeNormal").addEventListener("click", async () => {
       document.getElementById("btnModeNormal").classList.add("active");
       document.getElementById("btnModeDriver").classList.remove("active");
-      document.getElementById("metaMode").textContent = "Onboard Memory";
       document.getElementById("badgeMode").textContent = "Onboard (0x00)";
-      await sendPacket90(P25.Builders.setDeviceMode(0x00, 0x00, 0x00), { deviceMode: "normal" }, "✓ Onboard Mode Set");
+      await sendPacket90(P25.Builders.setDeviceMode(0x00, 0x00, 0x00), null, "✓ Onboard Memory Mode Set");
     });
-
     document.getElementById("btnModeDriver").addEventListener("click", async () => {
       document.getElementById("btnModeDriver").classList.add("active");
       document.getElementById("btnModeNormal").classList.remove("active");
-      document.getElementById("metaMode").textContent = "Software Driver";
       document.getElementById("badgeMode").textContent = "Driver (0x03)";
-      await sendPacket90(P25.Builders.setDeviceMode(0x03, 0x00, 0x1f), { deviceMode: "driver" }, "✓ Driver Mode Set");
+      await sendPacket90(P25.Builders.setDeviceMode(0x03, 0x00, 0x1f), null, "✓ Software Driver Mode Set");
     });
 
-    document.getElementById("btnQueryFw").addEventListener("click", queryDeviceFirmware);
-
-    document.getElementById("chkMappingHooks").addEventListener("change", async (e) => {
-      const action = e.target.checked ? "enableAllDevicesHooks" : "disableAllDevicesHooks";
-      await window.apiElectron.doMappingEngineAction({ action });
-      showSyncedToast(e.target.checked ? "✓ Mapping Hooks Enabled" : "✓ Mapping Hooks Disabled");
+    // Inspector Drawer & WebHID
+    const drawer = document.getElementById("protocolDrawer");
+    document.getElementById("btnToggleDrawer").addEventListener("click", () => drawer.classList.toggle("open"));
+    document.getElementById("btnCloseDrawer").addEventListener("click", () => drawer.classList.remove("open"));
+    document.getElementById("btnClearLogs").addEventListener("click", async () => {
+      await fetch("/api/clear-logs", { method: "POST" });
+      document.getElementById("packetLogList").innerHTML = "";
+    });
+    document.getElementById("btnWebHid").addEventListener("click", async () => {
+      if (!navigator.hid) return;
+      try {
+        const list = await navigator.hid.requestDevice({ filters: [{ vendorId: 0x1532 }] });
+        if (list?.[0]) {
+          if (!list[0].opened) await list[0].open();
+          webHidDevice = list[0];
+          document.getElementById("transportLabel").textContent = "Direct WebHID Connected";
+        }
+      } catch {
+        // ignore
+      }
     });
   }
 

@@ -12,8 +12,8 @@
  *   [2..3]   remainingPackets   (uint16 BE, default 0x0000)
  *   [4]      protocolType       (0x00)
  *   [5]      dataSize           (number of valid payload bytes in arguments[0..dataSize-1])
- *   [6]      commandClass       (e.g., 0x00=Device, 0x03=Standard LED, 0x04=DPI, 0x07=Power, 0x0F=Extended Matrix)
- *   [7]      commandId          (e.g., 0x04=SetDeviceMode, 0x84=GetDeviceMode, 0x81=GetFirmwareVersion)
+ *   [6]      commandClass       (0x00=Device, 0x02=Key/Button, 0x03=LED, 0x04=Sensor/DPI, 0x05=Profile, 0x07=Power, 0x0B=Analog/SnapTap, 0x0F=Chroma Matrix)
+ *   [7]      commandId
  *   [8..87]  args               (80 bytes of command arguments)
  *   [88]     crc                (XOR checksum of bytes [2..87] inclusive)
  *   [89]     reserved           (0x00)
@@ -49,41 +49,15 @@
     0xe1: "CUSTOM_COMMAND_MISMATCH",
   };
 
-  const COMMANDS = {
-    GET_FIRMWARE_VERSION: { classId: 0x00, cmdId: 0x81, dataSize: 0x02 },
-    GET_SERIAL: { classId: 0x00, cmdId: 0x82, dataSize: 0x16 },
-    SET_DEVICE_MODE: { classId: 0x00, cmdId: 0x04, dataSize: 0x02 },
-    GET_DEVICE_MODE: { classId: 0x00, cmdId: 0x84, dataSize: 0x02 },
-    SET_POLLING_RATE: { classId: 0x00, cmdId: 0x05, dataSize: 0x01 },
-    GET_POLLING_RATE: { classId: 0x00, cmdId: 0x85, dataSize: 0x01 },
-    SET_POLLING_RATE_HYPER: { classId: 0x00, cmdId: 0x40, dataSize: 0x02 },
-    GET_POLLING_RATE_HYPER: { classId: 0x00, cmdId: 0xc0, dataSize: 0x02 },
-    GET_EDITION: { classId: 0x00, cmdId: 0x86, dataSize: 0x02 },
-
-    // Standard LED / Matrix (Class 0x03)
-    SET_LED_STATE: { classId: 0x03, cmdId: 0x00, dataSize: 0x03 },
-    SET_LED_BRIGHTNESS: { classId: 0x03, cmdId: 0x04, dataSize: 0x03 },
-    GET_LED_BRIGHTNESS: { classId: 0x03, cmdId: 0x84, dataSize: 0x03 },
-    SET_LED_MATRIX_EFFECT: { classId: 0x03, cmdId: 0x0a, dataSize: 0x08 },
-
-    // Extended Chroma Matrix (Class 0x0F)
-    SET_CHROMA_EFFECT: { classId: 0x0f, cmdId: 0x02, dataSize: 0x0c },
-    GET_CHROMA_EFFECT: { classId: 0x0f, cmdId: 0x82, dataSize: 0x0c },
-    SET_CHROMA_BRIGHTNESS: { classId: 0x0f, cmdId: 0x04, dataSize: 0x03 },
-    GET_CHROMA_BRIGHTNESS: { classId: 0x0f, cmdId: 0x84, dataSize: 0x03 },
-
-    // Sensor / DPI (Class 0x04)
-    SET_DPI_XY: { classId: 0x04, cmdId: 0x05, dataSize: 0x07 },
-    GET_DPI_XY: { classId: 0x04, cmdId: 0x85, dataSize: 0x07 },
-    SET_DPI_STAGES: { classId: 0x04, cmdId: 0x06, dataSize: 0x26 },
-    GET_DPI_STAGES: { classId: 0x04, cmdId: 0x86, dataSize: 0x26 },
-
-    // Power / Battery (Class 0x07)
-    GET_BATTERY_LEVEL: { classId: 0x07, cmdId: 0x80, dataSize: 0x02 },
-    GET_CHARGING_STATUS: { classId: 0x07, cmdId: 0x84, dataSize: 0x02 },
-    SET_IDLE_TIME: { classId: 0x07, cmdId: 0x03, dataSize: 0x02 },
-    GET_IDLE_TIME: { classId: 0x07, cmdId: 0x83, dataSize: 0x02 },
-  };
+  // Official Razer Onboard Profile Slot LED Colors (Slots 1..6)
+  const PROFILE_SLOT_COLORS = [
+    { slot: 1, name: "Slot 1 (White)", color: "#ffffff", rgb: [255, 255, 255] },
+    { slot: 2, name: "Slot 2 (Red)", color: "#ff3b30", rgb: [255, 59, 48] },
+    { slot: 3, name: "Slot 3 (Green)", color: "#00e676", rgb: [0, 230, 118] },
+    { slot: 4, name: "Slot 4 (Blue)", color: "#007aff", rgb: [0, 122, 255] },
+    { slot: 5, name: "Slot 5 (Cyan)", color: "#00d2ff", rgb: [0, 210, 255] },
+    { slot: 6, name: "Slot 6 (Magenta)", color: "#d946ef", rgb: [217, 70, 239] },
+  ];
 
   const KNOWN_DEVICES = {
     679: {
@@ -97,7 +71,19 @@
       usage: 1,
       defaultTransactionId: 0x1f,
       reportId: 0,
-      features: ["chroma", "analog-actuation", "rapid-trigger", "snaptap", "polling-8k", "device-mode", "macros"],
+      maxSlots: 6,
+      features: [
+        "onboard-slots",
+        "per-key-actuation",
+        "rapid-trigger",
+        "snaptap",
+        "key-remapping",
+        "hypershift",
+        "gaming-mode",
+        "chroma",
+        "polling-8k",
+        "device-mode",
+      ],
     },
     193: {
       productId: 193,
@@ -110,7 +96,20 @@
       usage: 2,
       defaultTransactionId: 0xff,
       reportId: 0,
-      features: ["dpi", "polling-8k", "battery", "sensor-angle", "device-mode"],
+      maxSlots: 5,
+      features: [
+        "onboard-slots",
+        "dpi-stages",
+        "independent-xy",
+        "polling-8k",
+        "sensor-angle",
+        "smart-tracking",
+        "dynamic-sensitivity",
+        "button-remapping",
+        "hypershift",
+        "power-saving",
+        "battery",
+      ],
     },
     678: {
       productId: 678,
@@ -123,7 +122,8 @@
       usage: 1,
       defaultTransactionId: 0x1f,
       reportId: 0,
-      features: ["chroma", "analog-actuation", "rapid-trigger", "snaptap", "polling-8k", "device-mode", "macros"],
+      maxSlots: 6,
+      features: ["onboard-slots", "per-key-actuation", "rapid-trigger", "snaptap", "key-remapping", "chroma"],
     },
     680: {
       productId: 680,
@@ -136,7 +136,8 @@
       usage: 1,
       defaultTransactionId: 0x1f,
       reportId: 0,
-      features: ["chroma", "analog-actuation", "rapid-trigger", "snaptap", "polling-8k", "device-mode", "macros"],
+      maxSlots: 6,
+      features: ["onboard-slots", "per-key-actuation", "rapid-trigger", "snaptap", "key-remapping", "chroma"],
     },
     192: {
       productId: 192,
@@ -149,35 +150,11 @@
       usage: 2,
       defaultTransactionId: 0x1f,
       reportId: 0,
-      features: ["dpi", "polling-8k", "battery", "sensor-angle", "device-mode"],
-    },
-    165: {
-      productId: 165,
-      hexPid: "0x00A5",
-      name: "Razer DeathAdder / Mouse",
-      category: "mouse",
-      protocol: "25",
-      interface: 0,
-      defaultTransactionId: 0x1f,
-      reportId: 0,
-      features: ["dpi", "polling", "battery", "chroma", "device-mode"],
-    },
-    1365: {
-      productId: 1365,
-      hexPid: "0x0555",
-      name: "Razer BlackShark / Audio Headset",
-      category: "audio",
-      protocol: "25",
-      interface: 0,
-      defaultTransactionId: 0x1f,
-      reportId: 0,
-      features: ["audio", "sidetone", "battery"],
+      maxSlots: 5,
+      features: ["onboard-slots", "dpi-stages", "independent-xy", "polling-8k", "sensor-angle", "smart-tracking"],
     },
   };
 
-  /**
-   * Computes the Razer Protocol 25 XOR CRC over bytes [2..87] of a 90-byte packet.
-   */
   function computeCrc(packet90) {
     let crc = 0;
     for (let i = 2; i < 88; i++) {
@@ -186,9 +163,6 @@
     return crc & 0xff;
   }
 
-  /**
-   * Builds a 90-byte Protocol 25 packet (and optional 91-byte report with reportId prefix).
-   */
   function buildPacket({
     commandClass,
     commandId,
@@ -224,9 +198,6 @@
     return pkt;
   }
 
-  /**
-   * Parses a 90-byte or 91-byte Protocol 25 response buffer/array.
-   */
   function parsePacket(rawBytes) {
     if (!rawBytes || !rawBytes.length) {
       return { valid: false, error: "Empty packet" };
@@ -305,6 +276,113 @@
       });
     },
 
+    /**
+     * Onboard Memory Profile Slot Selection & Persistence (Class 0x05, Cmd 0x02 / 0x82)
+     * slotId: 1..6
+     */
+    setActiveProfileSlot(slotId = 1, transactionId = 0x1f) {
+      return buildPacket({
+        commandClass: 0x05,
+        commandId: 0x02,
+        dataSize: 0x02,
+        args: [0x01, Math.max(1, Math.min(6, slotId)) & 0xff],
+        transactionId,
+      });
+    },
+
+    getActiveProfileSlot(transactionId = 0x1f) {
+      return buildPacket({
+        commandClass: 0x05,
+        commandId: 0x82,
+        dataSize: 0x02,
+        args: [0x01, 0x00],
+        transactionId,
+      });
+    },
+
+    /**
+     * Gaming Mode / Win-Key Lock (Class 0x03, Cmd 0x00, LED ID 0x02 = Game Mode Indicator)
+     */
+    setGamingMode(enabled = false, disableAltTab = false, disableAltF4 = false, transactionId = 0x1f) {
+      return buildPacket({
+        commandClass: 0x03,
+        commandId: 0x00,
+        dataSize: 0x05,
+        args: [
+          0x01,
+          0x02,
+          enabled ? 0x01 : 0x00,
+          disableAltTab ? 0x01 : 0x00,
+          disableAltF4 ? 0x01 : 0x00,
+        ],
+        transactionId,
+      });
+    },
+
+    /**
+     * Key / Mouse Button Remapping (Class 0x02, Cmd 0x0C)
+     * layer: 0x00 = Standard, 0x01 = Hypershift
+     */
+    setKeyBinding({
+      slotId = 1,
+      keyId = 0x04,
+      layer = 0x00,
+      fnType = 0x01,
+      fnCode = 0x04,
+      modifier = 0x00,
+      transactionId = 0x1f,
+    } = {}) {
+      return buildPacket({
+        commandClass: 0x02,
+        commandId: 0x0c,
+        dataSize: 0x07,
+        args: [
+          slotId & 0xff,
+          keyId & 0xff,
+          layer & 0xff,
+          fnType & 0xff,
+          0x02,
+          modifier & 0xff,
+          fnCode & 0xff,
+        ],
+        transactionId,
+      });
+    },
+
+    /**
+     * Per-Key or Global Analog Actuation & Rapid Trigger (Class 0x0B, Cmd 0x02 / 0x04)
+     */
+    setAnalogActuation({
+      slotId = 1,
+      actuationMm = 1.2,
+      rtEnabled = true,
+      rtDownMm = 0.3,
+      rtUpMm = 0.3,
+      continuousRt = true,
+      keyCount = 0,
+      transactionId = 0x1f,
+    } = {}) {
+      const actUnits = Math.round(actuationMm * 10) & 0xff;
+      const downUnits = Math.round(rtDownMm * 10) & 0xff;
+      const upUnits = Math.round(rtUpMm * 10) & 0xff;
+      return buildPacket({
+        commandClass: 0x0b,
+        commandId: 0x02,
+        dataSize: 0x08,
+        args: [
+          slotId & 0xff,
+          actUnits,
+          rtEnabled ? 0x01 : 0x00,
+          downUnits,
+          upUnits,
+          continuousRt ? 0x01 : 0x00,
+          keyCount & 0xff,
+          0x00,
+        ],
+        transactionId,
+      });
+    },
+
     setBrightness(brightness = 255, ledId = 0x05, varStore = 0x01, transactionId = 0x1f) {
       return buildPacket({
         commandClass: 0x0f,
@@ -315,23 +393,13 @@
       });
     },
 
-    getBrightness(ledId = 0x05, varStore = 0x01, transactionId = 0x1f) {
-      return buildPacket({
-        commandClass: 0x0f,
-        commandId: 0x84,
-        dataSize: 0x03,
-        args: [varStore & 0xff, ledId & 0xff, 0x00],
-        transactionId,
-      });
-    },
-
     setChromaEffect({
       effect = "static",
       r = 0,
-      g = 255,
-      b = 0,
+      g = 230,
+      b = 118,
       r2 = 0,
-      g2 = 0,
+      g2 = 180,
       b2 = 255,
       direction = 1,
       speed = 2,
@@ -390,6 +458,9 @@
       });
     },
 
+    /**
+     * Single DPI X/Y (Class 0x04, Cmd 0x05)
+     */
     setDpiXY(dpiX = 1600, dpiY = 1600, varStore = 0x01, transactionId = 0x1f) {
       const args = [
         varStore & 0xff,
@@ -409,12 +480,87 @@
       });
     },
 
-    getDpiXY(varStore = 0x01, transactionId = 0x1f) {
+    /**
+     * Multi-Stage DPI Table (Class 0x04, Cmd 0x06)
+     * Encodes up to 5 stages [{x, y}] + active stage index (1..5) into onboard memory
+     */
+    setDpiStages(stages = [], activeStageIndex = 1, varStore = 0x01, transactionId = 0x1f) {
+      const validStages = stages.slice(0, 5);
+      const count = Math.max(1, validStages.length);
+      const active = Math.max(1, Math.min(count, activeStageIndex));
+      const args = [varStore & 0xff, active & 0xff, count & 0xff];
+      validStages.forEach((st, idx) => {
+        const x = Number(st.x || st.dpi || 1600);
+        const y = Number(st.y || st.dpi || x);
+        args.push(
+          idx & 0xff,
+          (x >> 8) & 0xff,
+          x & 0xff,
+          (y >> 8) & 0xff,
+          y & 0xff,
+          0x00,
+          0x00
+        );
+      });
       return buildPacket({
         commandClass: 0x04,
-        commandId: 0x85,
-        dataSize: 0x07,
-        args: [varStore & 0xff, 0, 0, 0, 0, 0, 0],
+        commandId: 0x06,
+        dataSize: 0x26,
+        args,
+        transactionId,
+      });
+    },
+
+    /**
+     * Smart Tracking / Asymmetric Cut-Off (Class 0x04, Cmd 0x0B)
+     * asymmetric: false = Symmetric (Low 1 / Med 2 / High 3), true = Asymmetric (liftOff 2..26, landing 1..25)
+     */
+    setSmartTracking({
+      asymmetric = false,
+      symmetricLevel = 1,
+      liftOffLevel = 14,
+      landingLevel = 10,
+      transactionId = 0x1f,
+    } = {}) {
+      return buildPacket({
+        commandClass: 0x04,
+        commandId: 0x0b,
+        dataSize: 0x04,
+        args: [
+          0x01,
+          asymmetric ? 0x01 : 0x00,
+          (asymmetric ? liftOffLevel : symmetricLevel) & 0xff,
+          (asymmetric ? landingLevel : 0x00) & 0xff,
+        ],
+        transactionId,
+      });
+    },
+
+    /**
+     * Sensor Angle Rotation (-44..+44 degrees) & Dynamic Sensitivity (Class 0x04, Cmd 0x0E)
+     */
+    setSensorAngleAndCurve({ angleDeg = 0, dynamicCurve = 0, transactionId = 0x1f } = {}) {
+      const signedByte = angleDeg < 0 ? (256 + angleDeg) & 0xff : angleDeg & 0xff;
+      return buildPacket({
+        commandClass: 0x04,
+        commandId: 0x0e,
+        dataSize: 0x04,
+        args: [0x01, signedByte, dynamicCurve & 0xff, 0x00],
+        transactionId,
+      });
+    },
+
+    /**
+     * Wireless Idle Sleep Timeout & Low Power Threshold (Class 0x07, Cmd 0x03 & 0x01)
+     */
+    setPowerSaving({ idleMinutes = 5, lowPowerPercent = 15, transactionId = 0x1f } = {}) {
+      const seconds = Math.max(60, Math.min(900, idleMinutes * 60));
+      const rawThreshold = Math.round((lowPowerPercent / 100) * 255) & 0xff;
+      return buildPacket({
+        commandClass: 0x07,
+        commandId: 0x03,
+        dataSize: 0x03,
+        args: [(seconds >> 8) & 0xff, seconds & 0xff, rawThreshold],
         transactionId,
       });
     },
@@ -457,7 +603,7 @@
     RAZER_VENDOR_ID,
     STATUS,
     STATUS_NAMES,
-    COMMANDS,
+    PROFILE_SLOT_COLORS,
     KNOWN_DEVICES,
     computeCrc,
     buildPacket,

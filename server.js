@@ -6,7 +6,6 @@
  *
  * Directly loads Razer's N-API native addon (`HID.node`) from
  * `C:\Program Files\Razer\RazerAppEngine\app-4.0.827\resources\app.asar.unpacked\node_modules\node-rz-hid\build\Release\HID.node`
- * which is ABI-stable across standard Node.js (including v24) and Electron!
  */
 
 "use strict";
@@ -20,7 +19,6 @@ const Protocol25 = require("./protocol25");
 const HOST = process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || 5426); // 5426 = 0x1532 (Razer Vendor ID)
 
-// Locate installed RazerAppEngine & User Data paths
 const PROGRAM_FILES = process.env.ProgramFiles || "C:\\Program Files";
 const LOCAL_APPDATA = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
 const RAZER_BASE_DIR = path.join(PROGRAM_FILES, "Razer", "RazerAppEngine");
@@ -53,7 +51,6 @@ const nativeLoadStatus = {
   errors: [],
 };
 
-// Load HID.node directly from app.asar.unpacked (N-API binary works directly in Node v24 without Electron!)
 const hidNodeBinaryPath = path.join(UNPACKED_NM, "node-rz-hid", "build", "Release", "HID.node");
 try {
   if (fs.existsSync(hidNodeBinaryPath)) {
@@ -105,9 +102,6 @@ function recordPacketLog(entry) {
   return item;
 }
 
-/**
- * Enumerates all live Razer HID devices via HID.node + cached Restore profiles
- */
 async function discoverDevices() {
   const restoreProfiles = loadRestoreProfiles();
   let hidDevices = [];
@@ -136,6 +130,7 @@ async function discoverDevices() {
       usagePage: meta.usagePage ?? null,
       usage: meta.usage ?? null,
       defaultTransactionId: meta.defaultTransactionId ?? 0x1f,
+      maxSlots: meta.maxSlots ?? 5,
       transportLayer: prof.transportLayer || "USB",
       category: meta.category || "peripheral",
       features: meta.features || ["chroma", "device-mode"],
@@ -161,6 +156,7 @@ async function discoverDevices() {
         usagePage: meta.usagePage ?? null,
         usage: meta.usage ?? null,
         defaultTransactionId: meta.defaultTransactionId ?? 0x1f,
+        maxSlots: meta.maxSlots ?? 5,
         transportLayer: "USB",
         category: meta.category || "peripheral",
         features: meta.features || ["chroma", "dpi", "polling", "device-mode"],
@@ -193,17 +189,11 @@ async function discoverDevices() {
   };
 }
 
-/**
- * Selects the exact Protocol 25 feature-report control interface for a given Razer PID.
- * Verified against live hardware:
- *   - PID 679 (Huntsman V3 Pro TKL): interface 3, usagePage 12, usage 1 (TID 0x1F -> FW v1.04)
- *   - PID 193 (Viper V3 Pro Wireless): interface 0, usagePage 1, usage 2 (TID 0xFF -> FW v1.11)
- */
 function selectControlInterfaces(allHidForPid, productId, preferredInterface) {
   const meta = Protocol25.KNOWN_DEVICES[Number(productId)] || {};
   const targetIf = meta.interface !== undefined ? meta.interface : Number(preferredInterface);
 
-  const ranked = [...allHidForPid].sort((a, b) => {
+  return [...allHidForPid].sort((a, b) => {
     const score = (d) => {
       let s = 0;
       if (meta.usagePage && d.usagePage === meta.usagePage && d.usage === meta.usage) s += 100;
@@ -215,19 +205,12 @@ function selectControlInterfaces(allHidForPid, productId, preferredInterface) {
     };
     return score(b) - score(a);
   });
-
-  return ranked;
 }
 
-/**
- * Sends a 90-byte Protocol 25 packet to a Razer device via native HID.node
- * and reads back the 91-byte Feature Report response.
- */
 async function sendProtocol25Command({ productId, interfaceNum = 3, reportId = 0, packet90 }) {
   const meta = Protocol25.KNOWN_DEVICES[Number(productId)] || {};
   const body90 = packet90.length === 91 ? [...packet90.slice(1)] : [...packet90];
 
-  // Use device-specific default transactionId (e.g. 0xFF for Viper V3 Pro wireless dongle) if default 0x1F was passed
   if (meta.defaultTransactionId && body90[1] === 0x1f && meta.defaultTransactionId !== 0x1f) {
     body90[1] = meta.defaultTransactionId;
     body90[88] = Protocol25.computeCrc(body90);
@@ -323,47 +306,140 @@ function toHex(arr) {
     .join(" ");
 }
 
-const STATE_FILE = path.join(__dirname, "local-driver-state.json");
-let driverState = {
-  selectedPid: 679,
-  deviceMode: "normal",
-  lighting: {
-    brightness: 100,
-    effect: "static",
-    color1: "#00FF66",
-    color2: "#00AAFF",
-    waveDirection: 1,
-    speed: 2,
-  },
-  huntsman: {
-    actuationMm: 1.2,
-    rapidTriggerEnabled: true,
-    rapidTriggerDownMm: 0.3,
-    rapidTriggerUpMm: 0.3,
-    continuousRapidTrigger: true,
-    snapTapEnabled: true,
-    snapTapKeyA: "A",
-    snapTapKeyB: "D",
-  },
-  mouse: {
-    dpiX: 1600,
-    dpiY: 1600,
+// Factory default slot builders for Keyboard (6 slots) & Mouse (5 slots)
+function createDefaultKeyboardSlot(slotNum) {
+  const presets = {
+    1: { name: "Standard Default", color: "#ffffff", act: 1.2, rt: true, down: 0.3, up: 0.3, snap: true },
+    2: { name: "FPS Rapid Trigger", color: "#ff3b30", act: 0.4, rt: true, down: 0.1, up: 0.1, snap: true },
+    3: { name: "Tactical Shooter", color: "#00e676", act: 0.8, rt: true, down: 0.15, up: 0.15, snap: true },
+    4: { name: "MOBA / Action", color: "#007aff", act: 1.5, rt: true, down: 0.4, up: 0.4, snap: false },
+    5: { name: "Typing & Coding", color: "#00d2ff", act: 2.0, rt: false, down: 0.5, up: 0.5, snap: false },
+    6: { name: "Custom Slot 6", color: "#d946ef", act: 1.2, rt: true, down: 0.3, up: 0.3, snap: false },
+  };
+  const p = presets[slotNum] || presets[1];
+  return {
+    slot: slotNum,
+    name: p.name,
+    ledColor: p.color,
+    actuationMm: p.act,
+    rtEnabled: p.rt,
+    rtDownMm: p.down,
+    rtUpMm: p.up,
+    continuousRt: true,
+    perKeyOverrides: {}, // e.g., { "W": { act: 0.4, rt: true, down: 0.1, up: 0.1 } }
+    snapTapEnabled: p.snap,
+    snapKeyA: "A",
+    snapKeyB: "D",
+    gamingMode: {
+      enabled: slotNum === 2 || slotNum === 3,
+      disableWin: true,
+      disableAltTab: false,
+      disableAltF4: false,
+    },
     pollingHz: 1000,
+    lighting: {
+      effect: "static",
+      color1: p.color === "#ffffff" ? "#00e676" : p.color,
+      color2: "#00d2ff",
+      brightness: 100,
+      speed: 2,
+      waveDirection: 1,
+    },
+    keyBindings: {
+      standard: {},
+      hypershift: {},
+    },
+  };
+}
+
+function createDefaultMouseSlot(slotNum) {
+  const presets = {
+    1: { name: "All-Rounder 1600", color: "#ffffff", activeStage: 3, hz: 1000 },
+    2: { name: "Esports 4000Hz", color: "#ff3b30", activeStage: 2, hz: 4000 },
+    3: { name: "HyperPolling 8000Hz", color: "#00e676", activeStage: 3, hz: 8000 },
+    4: { name: "Low Sens 800", color: "#007aff", activeStage: 2, hz: 2000 },
+    5: { name: "Battery Saver", color: "#00d2ff", activeStage: 3, hz: 1000 },
+  };
+  const p = presets[slotNum] || presets[1];
+  return {
+    slot: slotNum,
+    name: p.name,
+    ledColor: p.color,
+    independentXY: false,
+    activeStageIndex: p.activeStage,
+    dpiStages: [
+      { stage: 1, enabled: true, x: 400, y: 400, color: "#ff5252" },
+      { stage: 2, enabled: true, x: 800, y: 800, color: "#40c4ff" },
+      { stage: 3, enabled: true, x: 1600, y: 1600, color: "#00e676" },
+      { stage: 4, enabled: true, x: 3200, y: 3200, color: "#ffd740" },
+      { stage: 5, enabled: true, x: 6400, y: 6400, color: "#e040fb" },
+    ],
+    pollingHz: p.hz,
     sensorAngle: 0,
-    stages: [400, 800, 1600, 3200, 6400],
-  },
-  audio: {
-    speakerVolume: 80,
-    micVolume: 75,
-    sidetoneVolume: 35,
-    sidetoneEnabled: false,
-  },
-  mappingHooksEnabled: true,
-};
+    dynamicSensitivity: 0, // 0=Off, 1=Classic, 2=Natural, 3=Jump
+    smartTracking: {
+      asymmetric: false,
+      symmetricLevel: 1, // 1=Low, 2=Medium, 3=High
+      liftOffLevel: 14,
+      landingLevel: 10,
+    },
+    powerSaving: {
+      idleMinutes: 5,
+      lowPowerPercent: 15,
+    },
+    buttonBindings: {
+      standard: {
+        M1: "Left Click",
+        M2: "Right Click",
+        M3: "Scroll Click",
+        M4: "Mouse Back (Button 4)",
+        M5: "Mouse Forward (Button 5)",
+        DPI: "DPI Stage Cycle",
+      },
+      hypershift: {
+        M1: "Left Click",
+        M2: "Right Click",
+        M3: "Media Play/Pause",
+        M4: "Volume Up",
+        M5: "Volume Down",
+        DPI: "Onboard Profile Cycle",
+      },
+    },
+  };
+}
+
+function buildDefaultState() {
+  const kbdSlots = {};
+  for (let i = 1; i <= 6; i++) kbdSlots[i] = createDefaultKeyboardSlot(i);
+  const mouseSlots = {};
+  for (let i = 1; i <= 5; i++) mouseSlots[i] = createDefaultMouseSlot(i);
+
+  return {
+    selectedPid: 679,
+    deviceMode: "normal",
+    mappingHooksEnabled: true,
+    profilesByPid: {
+      679: {
+        activeSlot: 1,
+        slots: kbdSlots,
+      },
+      193: {
+        activeSlot: 1,
+        slots: mouseSlots,
+      },
+    },
+  };
+}
+
+const STATE_FILE = path.join(__dirname, "local-driver-state.json");
+let driverState = buildDefaultState();
 
 try {
   if (fs.existsSync(STATE_FILE)) {
-    driverState = { ...driverState, ...JSON.parse(fs.readFileSync(STATE_FILE, "utf8")) };
+    const loaded = JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
+    if (loaded && loaded.profilesByPid) {
+      driverState = { ...driverState, ...loaded };
+    }
   }
 } catch {
   // use default state
@@ -460,7 +536,7 @@ const server = http.createServer(async (req, res) => {
       const discovery = await discoverDevices();
       return sendJson(res, 200, {
         ok: true,
-        serverVersion: "1.0.0-local",
+        serverVersion: "2.0.0-local",
         zeroInternet: true,
         telemetryStripped: ["Sentry", "RazerID Cloud", "apps.razer.com Remote Loader", "GMS3 WMI Scanner"],
         ...discovery,
@@ -469,8 +545,60 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (pathname === "/api/profile-slot" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const pid = Number(body.productId || driverState.selectedPid || 679);
+      const isMouse = pid === 193 || pid === 192;
+
+      if (!driverState.profilesByPid[pid]) {
+        const slots = {};
+        const max = isMouse ? 5 : 6;
+        for (let i = 1; i <= max; i++) {
+          slots[i] = isMouse ? createDefaultMouseSlot(i) : createDefaultKeyboardSlot(i);
+        }
+        driverState.profilesByPid[pid] = { activeSlot: 1, slots };
+      }
+
+      const devProfiles = driverState.profilesByPid[pid];
+      const slotId = Number(body.slotId || devProfiles.activeSlot || 1);
+
+      if (body.action === "switch") {
+        devProfiles.activeSlot = slotId;
+        saveDriverState();
+        const pkt90 = Protocol25.Builders.setActiveProfileSlot(slotId);
+        const hw = await sendProtocol25Command({ productId: pid, packet90: pkt90 }).catch(() => null);
+        return sendJson(res, 200, { ok: true, state: driverState, hw });
+      }
+
+      if (body.action === "save" && body.slotData) {
+        devProfiles.activeSlot = slotId;
+        devProfiles.slots[slotId] = {
+          ...devProfiles.slots[slotId],
+          ...body.slotData,
+          slot: slotId,
+        };
+        saveDriverState();
+        const pkt90 = Protocol25.Builders.setActiveProfileSlot(slotId);
+        const hw = await sendProtocol25Command({ productId: pid, packet90: pkt90 }).catch(() => null);
+        return sendJson(res, 200, { ok: true, state: driverState, hw });
+      }
+
+      if (body.action === "reset") {
+        devProfiles.slots[slotId] = isMouse
+          ? createDefaultMouseSlot(slotId)
+          : createDefaultKeyboardSlot(slotId);
+        saveDriverState();
+        const pkt90 = Protocol25.Builders.setActiveProfileSlot(slotId);
+        const hw = await sendProtocol25Command({ productId: pid, packet90: pkt90 }).catch(() => null);
+        return sendJson(res, 200, { ok: true, state: driverState, hw });
+      }
+
+      return sendJson(res, 400, { ok: false, error: "Invalid profile-slot action" });
+    }
+
     if (pathname === "/api/send-packet" && req.method === "POST") {
       const body = await readJsonBody(req);
+      const pid = Number(body.productId || driverState.selectedPid || 679);
       let packet90 = body.packet90;
 
       if (!packet90 && body.commandClass !== undefined && body.commandId !== undefined) {
@@ -487,20 +615,24 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { ok: false, error: "packet90 must be a 90 or 91 byte array" });
       }
 
-      if (body.statePatch && typeof body.statePatch === "object") {
-        driverState = {
-          ...driverState,
-          ...body.statePatch,
-          lighting: { ...driverState.lighting, ...(body.statePatch.lighting || {}) },
-          huntsman: { ...driverState.huntsman, ...(body.statePatch.huntsman || {}) },
-          mouse: { ...driverState.mouse, ...(body.statePatch.mouse || {}) },
-          audio: { ...driverState.audio, ...(body.statePatch.audio || {}) },
+      // Persist slot updates if slotPatch is provided
+      if (body.slotPatch && driverState.profilesByPid[pid]) {
+        const activeSlot = driverState.profilesByPid[pid].activeSlot || 1;
+        const curr = driverState.profilesByPid[pid].slots[activeSlot] || {};
+        driverState.profilesByPid[pid].slots[activeSlot] = {
+          ...curr,
+          ...body.slotPatch,
         };
         saveDriverState();
       }
 
+      if (body.statePatch && typeof body.statePatch === "object") {
+        driverState = { ...driverState, ...body.statePatch };
+        saveDriverState();
+      }
+
       const result = await sendProtocol25Command({
-        productId: body.productId || driverState.selectedPid,
+        productId: pid,
         interfaceNum: body.interfaceNum ?? 3,
         reportId: body.reportId ?? 0,
         packet90,
@@ -550,7 +682,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log("================================================================");
-  console.log("  Razer Local Web Driver (Zero-Internet / Zero-Bloat Edition)");
+  console.log("  Razer Local Web Driver v2.0 (Onboard Slots + Per-Key Edition)");
   console.log(`  Local URL   : http://${HOST}:${PORT}`);
   console.log(`  Runtime     : ${nativeLoadStatus.runtime} (ABI ${nativeLoadStatus.modulesVersion})`);
   console.log(`  Native HID  : ${nativeLoadStatus.hidLoaded ? "ACTIVE (HID.node)" : "WebHID / Restore Profile Mode"}`);
