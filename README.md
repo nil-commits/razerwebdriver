@@ -25,7 +25,17 @@ node c:\Users\Nick\Downloads\rea-main\razer-web-driver\server.js
 ```
 Open **`http://127.0.0.1:5426`** and click **"Connect Browser WebHID (0x1532)"** in the top bar to grant direct USB HID access from your browser.
 
+## Verified Hardware Features (Protocol 25)
+- **Onboard Profile Slots (`0x05 / 0x04` & `0x05 / 0x84`)**: Switch and persist up to 6 onboard hardware slots with per-slot settings.
+- **Huntsman V3 Pro TKL Analog Actuation & Rapid Trigger (`0x02 / 0x19`, `0x02 / 0x1A`, `0x02 / 0x20`)**: Per-key or all-key actuation (`0.1 mm – 4.0 mm` at `16380 units/mm`), Rapid Trigger up/down sensitivity (`0.1 mm – 2.0 mm`), and Continuous Rapid Trigger.
+- **Snap Tap / SOCD (`0x02 / 0x21`)**: Hardware Kill Switch priority for opposing movement keys (`A + D`).
+- **Key & Mouse Button Remapping (`0x02 / 0x0D` & `0x02 / 0x0C`)**: Standard and Hypershift layer assignments.
+- **Gaming Mode (`0x03 / 0x00`, LED `0x08`)**: Hardware Gaming Mode toggle.
+- **Chroma Lighting & Brightness (`0x0F / 0x02` & `0x0F / 0x04`)**: Instant Static, Breathing, Spectrum Cycling, Wave, Reactive, Starlight, and Off effects with hardware brightness control.
+- **HyperPolling Rate (`0x00 / 0x40`)**: `125 Hz` up to `8000 Hz` USB high-speed polling period.
+- **Mouse Sensor & Wireless Power (`0x04 / 0x05`, `0x04 / 0x06`, `0x0B / 0x0B`, `0x0B / 0x11`, `0x0B / 0x14`, `0x07 / 0x03`, `0x07 / 0x80`)**: 5-stage DPI table, Smart Tracking (symmetric/asymmetric lift-off & landing), angle snapping/rotation, dynamic sensitivity, idle sleep timeout, and live battery telemetry.
+
 ## Files
 - [`protocol25.js`](./protocol25.js): Isomorphic Razer Protocol 25 packet encoder/decoder, XOR CRC calculator (`bytes[2..87]`), and command builders.
-- [`server.js`](./server.js): Zero-dependency local HTTP + RPC hardware server (`127.0.0.1:5426`) bridging `node-rz-hid`, `rz-usb-detect`, `mapping_engine.dll`, `simple_service.dll`, and `window.apiElectron`.
-- [`public/index.html`](./public/index.html) & [`public/app.js`](./public/app.js): Clean, fast local browser UI with Chroma Lighting, Huntsman V3 Pro TKL Analog/Rapid Trigger/Snap Tap controls, Mouse DPI/Polling/Battery, Mapping Engine hooks, and a live 91-byte Protocol 25 Packet Studio.
+- [`server.js`](./server.js): Zero-dependency local HTTP + RPC hardware server (`127.0.0.1:5426`) with persistent per-PID HID handle caching and onboard slot persistence.
+- [`public/index.html`](./public/index.html), [`public/styles.css`](./public/styles.css), & [`public/app.js`](./public/app.js): Local browser UI that works in any browser (Firefox, Safari, Chrome, Edge) with 0 ms instant UI feedback.
