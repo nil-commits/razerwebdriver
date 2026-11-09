@@ -40,7 +40,7 @@
       </div>
 
       <nav class="om-nav" aria-label="Main navigation">
-        <button type="button" class="om-nav-item is-active" data-main-view="workspace">
+        <button type="button" class="om-nav-item" data-main-view="workspace" disabled>
           <svg class="om-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
             <path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/>
           </svg>
@@ -51,9 +51,9 @@
             <rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>
           </svg>
           <span class="om-nav-label">Devices shelf</span>
-          <span class="om-nav-badge" id="navDeviceCount">2</span>
+          <span class="om-nav-badge" id="navDeviceCount">0</span>
         </button>
-        <button type="button" class="om-nav-item" data-main-view="hwtest">
+        <button type="button" class="om-nav-item" data-main-view="hwtest" disabled>
           <svg class="om-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
             <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
           </svg>
@@ -75,7 +75,7 @@
       <div class="om-sidebar-foot">
         <button id="btnQueryFw" type="button" class="om-bridge-line" title="Query live firmware over WebHID Protocol 25">
           <span class="om-dot" id="connDot"></span>
-          <span class="om-bridge-line-text" id="connText">WebHID Ready</span>
+          <span class="om-bridge-line-text" id="connText">WebHID · No device</span>
           <span class="om-bridge-line-flag" id="fwBadge">Click to Pair</span>
         </button>
         <button id="btnToggleDrawer" type="button" class="om-nav-item">
@@ -112,7 +112,7 @@
           <button id="btnExportProfiles" type="button" class="om-btn is-sm" title="Export all onboard slots to JSON">
             ⬇ Export
           </button>
-          <label class="om-btn is-sm" title="Import onboard slots from JSON">
+          <label id="lblImportProfiles" class="om-btn is-sm" title="Import onboard slots from JSON">
             ⬆ Import
             <input type="file" id="inpImportProfiles" accept=".json" hidden />
           </label>
@@ -124,23 +124,35 @@
         <div style="display:flex;align-items:center;gap:10px;font-size:13px;">
           <span class="om-dot" id="bannerDot"></span>
           <span id="bannerStatusText">
-            <strong>Demo Preview Mode</strong> — Click <b>⚡ Connect Razer Device</b> to pair your Razer keyboard or mouse directly in the browser via WebHID (zero software install).
+            <strong>Checking WebHID compatibility…</strong> — This configurator requires a Chromium-based browser with WebHID and a compatible Razer device.
           </span>
         </div>
         <button id="btnBannerPair" type="button" class="om-btn is-primary is-sm">Connect USB (0x1532)</button>
       </div>
 
       <main class="om-content">
+        <!-- Compatibility / device requirement notice. No demo data is shown. -->
+        <section id="compatNotice" class="om-panel" role="status" aria-live="polite" style="margin:14px 22px;padding:18px 20px;border-color:rgba(255,171,64,0.5);">
+          <h2 id="compatTitle" style="margin:0 0 6px;font-size:18px;">Checking browser compatibility…</h2>
+          <p id="compatText" class="om-meta" style="line-height:1.55;margin:0 0 12px;">
+            This configurator requires a Chromium-based browser with WebHID and a compatible Razer device connected via USB.
+          </p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button id="btnCompatPair" type="button" class="om-btn is-primary is-sm">⚡ Connect Razer Device</button>
+            <button id="btnCompatCatalog" type="button" class="om-btn is-sm">Check supported devices</button>
+          </div>
+        </section>
+
         <!-- ================================================================
              VIEW 1: DEVICE WORKSPACE
              ================================================================ -->
-        <section id="viewWorkspace" class="om-page">
+        <section id="viewWorkspace" class="om-page" hidden>
           <!-- OpenMouse Overview Figures + Sparkline Row -->
           <div class="om-overview-top">
             <section class="om-panel is-lit">
               <header class="om-panel-head">
-                <h2 id="overviewDeviceTitle">Razer Huntsman V3 Pro Tenkeyless</h2>
-                <span class="om-meta" id="overviewDeviceMeta">Connected · Native HID.node · Zero cloud</span>
+                <h2 id="overviewDeviceTitle">No device connected</h2>
+                <span class="om-meta" id="overviewDeviceMeta">WebHID · No device</span>
                 <div class="om-end">
                   <div class="segmented" id="deviceModeGroup" role="group" aria-label="Operating mode">
                     <button type="button" class="mode-seg selected" data-mode="normal">Onboard (0x00)</button>
@@ -239,7 +251,7 @@
               <div style="display:grid;gap:12px;">
                 <div class="setting-heading">
                   <div>
-                    <h2 id="mouseStageTitle">Razer Viper V3 Pro · HyperPolling Wireless</h2>
+                    <h2 id="mouseStageTitle">Mouse controls</h2>
                     <p id="mouseStageSubtitle">Focus Pro 35K Optical Gen-2 · 8000 Hz Wireless Dongle · Protocol 25</p>
                   </div>
                   <output id="mouseActiveStageBadge">1600 DPI (Stage 3)</output>
@@ -1193,6 +1205,7 @@
                (Impressum · Datenschutz · Razer-Disclaimer · Lizenzhinweis)
                ================================================================ -->
           <div id="legalSection" class="settings-grid" style="margin-top:16px;">
+            <p class="om-meta" style="grid-column:1/-1;margin:0 0 4px;">Stand: 10. November 2026</p>
             <article id="cardDisclaimer" class="setting-card">
               <div class="setting-heading">
                 <div>
@@ -1271,8 +1284,9 @@
                   eines konkreten Sicherheitsvorfalls länger benötigt werden. Eine Weitergabe zu Werbe- oder Analysezwecken findet nicht statt.
                 </p>
                 <p>
-                  <strong>4. Hosting:</strong> Die statische Website wird auf einem virtuellen Server in der Europäischen Union
-                  bereitgestellt. Dabei fallen die unter Punkt 3 genannten Verbindungsdaten an.
+                  <strong>4. Hosting:</strong> Die statische Website wird auf einem virtuellen Server von Google Cloud in der
+                  Europäischen Union bereitgestellt. Mit Google Cloud besteht ein Auftragsverarbeitungsvertrag (AVV) nach
+                  Art. 28 DSGVO. Dabei fallen die unter Punkt 3 genannten Verbindungsdaten an.
                 </p>
                 <p>
                   <strong>5. Externe Links:</strong> Links zu GitHub oder anderen Seiten führen erst nach einem Klick zu einer

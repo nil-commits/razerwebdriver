@@ -600,26 +600,7 @@
     return { activeSlot, slots };
   }
 
-  let devices = [
-    {
-      vendorId: 0x1532,
-      productId: 679,
-      hexPid: "0x02A7",
-      productName: "Razer Huntsman V3 Pro Tenkeyless",
-      category: "keyboard-analog",
-      maxSlots: 6,
-      connectedLive: false,
-    },
-    {
-      vendorId: 0x1532,
-      productId: 193,
-      hexPid: "0x00C1",
-      productName: "Razer Viper V3 Pro (HyperPolling Wireless)",
-      category: "mouse",
-      maxSlots: 5,
-      connectedLive: false,
-    },
-  ];
+  let devices = [];
   let selectedPid = 679;
   let driverState = {
     selectedPid: 679,
@@ -633,6 +614,85 @@
   // WebHID Runtime State
   const webHidHandlesByPid = new Map(); // pid -> HIDDevice[] (sorted by control interface score)
   const webHidMutexByPid = new Map(); // pid -> Promise
+
+  function hasAnyRazerDevice() {
+    return webHidHandlesByPid.size > 0;
+  }
+
+  function hasCompatibleDevice() {
+    if (!window.isSecureContext || !navigator.hid) return false;
+    for (const pid of webHidHandlesByPid.keys()) {
+      if (Protocol25.KNOWN_DEVICES[pid]) return true;
+    }
+    return false;
+  }
+
+  function updateCompatibilityUI() {
+    const notice = document.getElementById("compatNotice");
+    const title = document.getElementById("compatTitle");
+    const text = document.getElementById("compatText");
+    const workspace = document.getElementById("viewWorkspace");
+    const hwtest = document.getElementById("viewHardwareTest");
+    const navWorkspace = document.querySelector('[data-main-view="workspace"]');
+    const navHwtest = document.querySelector('[data-main-view="hwtest"]');
+    const pairBtn = document.getElementById("btnWebHidPair");
+    const bannerPairBtn = document.getElementById("btnBannerPair");
+    const compatPair = document.getElementById("btnCompatPair");
+    const compatCatalog = document.getElementById("btnCompatCatalog");
+    const slotStrip = document.querySelector(".om-slot-strip");
+    const save = document.getElementById("btnSaveSlot");
+    const reset = document.getElementById("btnResetSlot");
+    const exportBtn = document.getElementById("btnExportProfiles");
+    const importLabel = document.getElementById("lblImportProfiles");
+
+    const connected = hasCompatibleDevice();
+    const anyRazer = hasAnyRazerDevice();
+    const secure = window.isSecureContext;
+    const hid = !!navigator.hid;
+
+    if (notice) notice.hidden = connected;
+    if (navWorkspace) navWorkspace.disabled = !connected;
+    if (navHwtest) navHwtest.disabled = !connected;
+    if (slotStrip) slotStrip.style.display = connected ? "" : "none";
+    for (const el of [save, reset, exportBtn, importLabel]) {
+      if (el) el.style.display = connected ? "" : "none";
+    }
+
+    if (!connected) {
+      if (workspace) workspace.hidden = true;
+      if (hwtest) hwtest.hidden = true;
+    } else {
+      const visible = document.querySelector(".om-page:not([hidden])");
+      if (!visible || visible.id === "viewWorkspace" || visible.id === "viewHardwareTest") {
+        if (workspace) workspace.hidden = false;
+        if (hwtest) hwtest.hidden = true;
+      }
+    }
+
+    if (pairBtn) pairBtn.hidden = !hid || !secure;
+    if (bannerPairBtn) bannerPairBtn.hidden = !hid || !secure;
+    if (compatPair) compatPair.hidden = !hid || !secure;
+    if (compatCatalog) compatCatalog.hidden = false;
+
+    if (!title || !text) return;
+    if (!secure) {
+      title.textContent = "HTTPS is required";
+      text.textContent =
+        "WebHID is only available in a secure context. Open https://websynap.se/ (or localhost for local testing) in a Chromium-based browser.";
+    } else if (!hid) {
+      title.textContent = "Chromium-based browser required";
+      text.textContent =
+        "This site uses the WebHID API. Open it in Chrome, Edge, Brave, Opera, or Vivaldi. Firefox and Safari do not support WebHID.";
+    } else if (!anyRazer) {
+      title.textContent = "No compatible Razer device detected";
+      text.textContent =
+        "Connect a Razer keyboard or mouse with a data-capable USB cable, close Razer Synapse, then click “Connect Razer Device” and grant WebHID access. Use “Check supported devices” to verify your model.";
+    } else if (!connected) {
+      title.textContent = "Connected Razer device is not supported";
+      text.textContent =
+        "A Razer device was detected, but it is not in the supported Protocol 25 catalog. Check the supported-devices list or try a different Razer model.";
+    }
+  }
 
   let selectedKeys = new Set();
   let focusedRemapKey = "W";
@@ -758,7 +818,7 @@
     }
 
     const liveCount = webHidHandlesByPid.size;
-    if (liveCount > 0) {
+    if (liveCount > 0 && hasCompatibleDevice()) {
       if (connDot) connDot.className = "om-dot is-ok";
       if (connText) connText.textContent = `WebHID Live (${liveCount} USB)`;
       if (fwBadge && fwBadge.textContent === "Click to Pair") fwBadge.textContent = "0x02 READY";
@@ -771,16 +831,26 @@
         bannerText.innerHTML = `<strong>WebHID Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Live 90-byte Protocol 25 USB communication active with <b>${safeNames}</b>.`;
       }
       if (bannerPairBtn) bannerPairBtn.textContent = "+ Add Another Device";
-    } else {
-      if (connDot) connDot.className = "om-dot";
-      if (connText) connText.textContent = "Demo Preview Mode";
-      if (fwBadge) fwBadge.textContent = "Click to Pair";
-      if (bannerDot) bannerDot.className = "om-dot";
+    } else if (liveCount > 0) {
+      if (connDot) connDot.className = "om-dot is-warn";
+      if (connText) connText.textContent = "Razer device not supported";
+      if (fwBadge) fwBadge.textContent = "Unsupported PID";
+      if (bannerDot) bannerDot.className = "om-dot is-warn";
       if (bannerText) {
         bannerText.innerHTML =
-          "<strong>Demo Preview Mode</strong> — Click <b>⚡ Connect Razer Device</b> to pair your Razer keyboard, mouse, headset, controller, or mat directly in the browser via WebHID (zero software install).";
+          "<strong>Connected Razer device is not supported</strong> — It is not in the Protocol 25 catalog. Check the supported-devices list or try another model.";
       }
-      if (bannerPairBtn) bannerPairBtn.textContent = "Connect USB (0x1532)";
+      if (bannerPairBtn) bannerPairBtn.textContent = "+ Add Another Device";
+    } else {
+      if (connDot) connDot.className = "om-dot is-warn";
+      if (connText) connText.textContent = "No device connected";
+      if (fwBadge) fwBadge.textContent = "WebHID";
+      if (bannerDot) bannerDot.className = "om-dot is-warn";
+      if (bannerText) {
+        bannerText.innerHTML =
+          "<strong>No compatible Razer device detected</strong> — Connect a Razer keyboard or mouse via USB, close Razer Synapse, then click <b>⚡ Connect Razer Device</b> and grant WebHID access.";
+      }
+      if (bannerPairBtn) bannerPairBtn.textContent = "Connect Razer Device";
     }
   }
 
@@ -832,6 +902,8 @@
       for (const d of devices) {
         d.connectedLive = webHidHandlesByPid.has(Number(d.productId));
       }
+      // Only live devices belong in the active workspace; no demo entries.
+      devices = devices.filter((d) => webHidHandlesByPid.has(Number(d.productId)));
 
       if (!webHidHandlesByPid.has(Number(selectedPid)) && webHidHandlesByPid.size > 0) {
         selectedPid = Number(webHidHandlesByPid.keys().next().value);
@@ -839,10 +911,16 @@
       }
 
       updateWebHidStatusUI();
+      updateCompatibilityUI();
       renderDeviceTabs();
-      renderProfileSlotBar();
-      syncControlsFromSlot();
-      renderOverviewPanels();
+      if (hasCompatibleDevice()) {
+        renderProfileSlotBar();
+        syncControlsFromSlot();
+        renderOverviewPanels();
+      } else {
+        const bar = document.getElementById("profileSlotBar");
+        if (bar) bar.innerHTML = "";
+      }
     } catch (err) {
       console.warn("WebHID device enumeration warning:", err);
     }
@@ -917,28 +995,7 @@
 
       const candidates = webHidHandlesByPid.get(pidKey) || [];
       if (candidates.length === 0) {
-        // Simulated preview response when in Demo Preview Mode (no WebHID device paired yet)
-        const simResp = [...body90];
-        simResp[0] = Protocol25.STATUS.SUCCESS;
-        if (body90[6] === 0x00 && body90[7] === 0x81) {
-          simResp[8] = 1;
-          simResp[9] = 4;
-        }
-        simResp[88] = Protocol25.computeCrc(simResp);
-        const rx91 = [0x00, ...simResp];
-        const parsedRx = Protocol25.parsePacket(rx91);
-        const logItem = {
-          productId: pidKey,
-          txHex: toHex(report91),
-          rxHex: toHex(rx91),
-          parsedTx: {
-            ...parsedTx,
-            commandClassHex: `0x${parsedTx.commandClass.toString(16).padStart(2, "0").toUpperCase()}`,
-            commandIdHex: `0x${parsedTx.commandId.toString(16).padStart(2, "0").toUpperCase()}`,
-          },
-          parsedRx,
-        };
-        return { ok: true, mode: "demo-preview", tx: report91, rx: rx91, parsedRx, logItem };
+        throw new Error("No compatible Razer device connected");
       }
 
       let lastErr = null;
@@ -1051,6 +1108,10 @@
   }
 
   async function sendPacket90(packet90, label = "Command", slotPatch = null, statePatch = null, forceImmediate = false) {
+    if (!hasCompatibleDevice()) {
+      showToast("No compatible Razer device connected. Click Connect Razer Device first.", false);
+      return { ok: false, error: "No compatible Razer device connected" };
+    }
     if (slotPatch) Object.assign(getActiveSlotData(), slotPatch);
     if (statePatch) Object.assign(driverState, statePatch);
     persistDriverState();
@@ -1115,7 +1176,7 @@
       }
 
       const status = data.parsedRx?.statusName || "OK";
-      showToast(`${label} → ${status}${data.mode === "demo-preview" ? " (Demo)" : ""}`);
+      showToast(`${label} → ${status}`);
       void playChime("success");
       updateProfileKeyBox();
       return data;
@@ -1605,6 +1666,11 @@
 
   function loadCatalogDeviceIntoWorkspace(pid) {
     const numPid = Number(pid);
+    if (!webHidHandlesByPid.has(numPid)) {
+      showToast("This device is supported. Connect it via USB and click Connect Razer Device.", false);
+      void pairWebHidDevices();
+      return;
+    }
     const meta = getDeviceMeta(numPid);
     let existing = devices.find((d) => Number(d.productId) === numPid);
     if (!existing) {
@@ -1684,7 +1750,7 @@
             </div>
           </div>
           <button type="button" class="om-btn ${inWorkspace ? "is-ghost" : "is-primary"}" data-catalog-open-pid="${Number(item.productId)}" style="width:100%;padding:7px 10px;font-size:12px;">
-            ${inWorkspace ? "✓ Open in Workspace" : "+ Load Device Workspace"}
+            ${inWorkspace ? "✓ Open in Workspace" : "Connect via USB"}
           </button>
         </article>
       `;
@@ -1701,6 +1767,11 @@
   function renderDevicesShelf() {
     const grid = document.getElementById("devicesShelfGrid");
     if (!grid) return;
+    if (devices.length === 0) {
+      grid.innerHTML =
+        '<p class="om-meta" style="grid-column:1/-1;">No Razer device connected. Use the catalog below to check supported models, then connect your device via USB.</p>';
+      return;
+    }
     grid.innerHTML = devices
       .map((dev) => {
         const meta = getDeviceMeta(dev.productId);
@@ -1781,6 +1852,11 @@
   }
 
   function switchMainView(viewName) {
+    if ((viewName === "workspace" || viewName === "hwtest") && !hasCompatibleDevice()) {
+      showToast("Connect a compatible Razer device first.", false);
+      updateCompatibilityUI();
+      return;
+    }
     document.querySelectorAll("[data-main-view]").forEach((b) => {
       b.classList.toggle("is-active", b.dataset.mainView === viewName);
     });
@@ -3526,6 +3602,8 @@
     // WebHID Pair Buttons
     document.getElementById("btnWebHidPair")?.addEventListener("click", pairWebHidDevices);
     document.getElementById("btnBannerPair")?.addEventListener("click", pairWebHidDevices);
+    document.getElementById("btnCompatPair")?.addEventListener("click", pairWebHidDevices);
+    document.getElementById("btnCompatCatalog")?.addEventListener("click", () => switchMainView("shelf"));
 
     // Save / Reset / Export / Import Onboard Slots
     document.getElementById("btnSaveSlot")?.addEventListener("click", async () => {
@@ -4090,12 +4168,16 @@
     renderThemeGallery();
     applyThemeAndPrefs(false);
 
+    updateCompatibilityUI();
     await refreshAuthorizedWebHidDevices();
     renderDeviceTabs();
-    renderProfileSlotBar();
-    syncControlsFromSlot();
-    renderOverviewPanels();
-    updateProfileKeyBox();
+    updateCompatibilityUI();
+    if (hasCompatibleDevice()) {
+      renderProfileSlotBar();
+      syncControlsFromSlot();
+      renderOverviewPanels();
+      updateProfileKeyBox();
+    }
   }
 
   document.addEventListener("DOMContentLoaded", init);
