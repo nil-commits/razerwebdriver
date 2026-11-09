@@ -2988,6 +2988,22 @@
       btn.addEventListener("click", () => switchMainView(btn.dataset.mainView));
     });
 
+    // Footer Legal / Privacy / Disclaimer / License Quick-Jump Buttons
+    document.querySelectorAll("[data-open-legal]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const targetId = btn.dataset.openLegal;
+        switchMainView("settings");
+        const card = document.getElementById(targetId) || document.getElementById("legalSection");
+        if (card) {
+          card.scrollIntoView({ behavior: "smooth", block: "center" });
+          card.style.outline = "2px solid var(--accent)";
+          setTimeout(() => {
+            card.style.outline = "";
+          }, 1800);
+        }
+      });
+    });
+
     // Stepper Buttons (- / +) on all StepperSliders
     document.querySelectorAll(".stepper-btn").forEach((btn) => {
       btn.addEventListener("click", () => {

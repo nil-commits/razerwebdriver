@@ -1187,7 +1187,128 @@
               </div>
             </article>
           </div>
+
+          <!-- ================================================================
+               Legal, Privacy, Trademark Disclaimer & License Notice
+               (Impressum · Datenschutz · Razer-Disclaimer · Lizenzhinweis)
+               ================================================================ -->
+          <div id="legalSection" class="settings-grid" style="margin-top:16px;">
+            <article id="cardDisclaimer" class="setting-card">
+              <div class="setting-heading">
+                <div>
+                  <h2>Razer-Disclaimer · Non-Affiliation Notice</h2>
+                  <p>Unabhängiges Open-Source-Projekt · Not affiliated with Razer Inc.</p>
+                </div>
+                <span class="om-badge">Trademark Notice</span>
+              </div>
+              <p class="om-meta" style="line-height:1.55;color:var(--text-2);">
+                <strong>websynap.se</strong> is an independent, community-developed open-source hardware configurator and is
+                <strong>not affiliated with, endorsed by, sponsored by, or associated with Razer Inc.</strong> or any of its subsidiaries.
+              </p>
+              <p class="om-meta" style="line-height:1.55;">
+                "Razer", "Razer Synapse", "Razer Chroma", "Hypershift", "HyperPolling", "Snap Tap", "Huntsman", "Viper", "DeathAdder",
+                "Basilisk", "BlackWidow", "BlackShark", "Kraken", "Wolverine", "Kitsune", "Firefly", and all other product names mentioned
+                are trademarks or registered trademarks of <strong>Razer Inc.</strong> They are used exclusively for descriptive hardware
+                compatibility identification (nominative fair use / § 23 MarkenG). Use of this software with your USB hardware is at your own risk.
+              </p>
+            </article>
+
+            <article id="cardLicense" class="setting-card">
+              <div class="setting-heading">
+                <div>
+                  <h2>Lizenzhinweis · Open-Source &amp; Font Licenses</h2>
+                  <p>MIT License (Application) &amp; SIL Open Font License 1.1 (DM Sans)</p>
+                </div>
+                <span class="om-badge is-ok">MIT + OFL-1.1</span>
+              </div>
+              <p class="om-meta" style="line-height:1.55;color:var(--text-2);">
+                <strong>Application Code (MIT License):</strong> Copyright &copy; 2026 websynap.se Contributors. Permission is hereby granted,
+                free of charge, to deal in the Software without restriction under the terms of the MIT License.
+              </p>
+              <p class="om-meta" style="line-height:1.55;">
+                <strong>Bundled Variable Font (SIL Open Font License 1.1):</strong> The self-hosted <code>DM Sans</code> variable font
+                (<code>./fonts/DMSans-Variable.ttf</code>) is Copyright &copy; 2014 The DM Sans Project Authors and licensed under the
+                SIL Open Font License, Version 1.1.
+              </p>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">
+                <a href="./LICENSE" target="_blank" rel="noopener noreferrer" class="om-btn is-sm" style="text-decoration:none;">📄 View MIT LICENSE</a>
+                <a href="./fonts/DM-Sans-OFL.txt" target="_blank" rel="noopener noreferrer" class="om-btn is-sm" style="text-decoration:none;">🔤 View DM Sans OFL-1.1</a>
+              </div>
+            </article>
+
+            <article id="cardPrivacy" class="setting-card">
+              <div class="setting-heading">
+                <div>
+                  <h2>Datenschutzerklärung · Privacy Policy (DSGVO / GDPR)</h2>
+                  <p>100% Client-Side Execution · Zero Telemetry · Zero Cookies · Local WebHID</p>
+                </div>
+                <span class="om-badge is-ok">Zero Cloud</span>
+              </div>
+              <div class="om-meta" style="line-height:1.55;display:grid;gap:8px;">
+                <p>
+                  <strong>1. Keine Datenübertragung an Server (Zero-Exfiltration CSP):</strong> Alle Konfigurationsfunktionen und USB-Gerätezugriffe
+                  erfolgen ausschließlich lokal in Ihrem Webbrowser über die WebHID-Schnittstelle (<code>navigator.hid</code>). Durch die technische
+                  Content-Security-Policy (<code>connect-src 'none'</code>) ist jegliche Netzwerkübertragung Ihrer Gerätedaten, Seriennummern oder
+                  Profile an unsere oder fremde Server technisch ausgeschlossen.
+                </p>
+                <p>
+                  <strong>2. Lokale Speicherung (localStorage):</strong> Ihre gewählten Einstellungen (Theme, Onboard-Slot-Vorschau) werden
+                  ausschließlich lokal auf Ihrem Endgerät im Browser-Speicher (<code>localStorage</code> unter den Schlüsseln
+                  <code>websynapse_state_v1</code> und <code>websynapse_prefs_v1</code>) abgelegt und niemals über das Internet übertragen.
+                  Es werden keine Tracking-Cookies, Analyse-Skripte oder externe Schriftarten-CDNs (Schriftart <code>DM Sans</code> ist lokal
+                  gehostet) eingesetzt.
+                </p>
+                <p>
+                  <strong>3. Server-Logfiles (Art. 6 Abs. 1 lit. f DSGVO):</strong> Beim bloßen Abruf dieser statischen Webseite verarbeitet der
+                  Webserver technisch notwendige Verbindungsdaten (IP-Adresse, Zeitpunkt des Abrufs, angeforderte Datei, User-Agent) zur
+                  Auslieferung der Seite und zur Abwehr von Angriffen (Rate-Limiting).
+                </p>
+                <p>
+                  <strong>4. Ihre Rechte (Art. 15–21 DSGVO):</strong> Sie haben das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der
+                  Verarbeitung sowie Beschwerde bei einer Datenschutz-Aufsichtsbehörde. Ihren lokalen Browser-Speicher können Sie jederzeit in den
+                  Browser-Einstellungen löschen.
+                </p>
+              </div>
+            </article>
+
+            <article id="cardImpressum" class="setting-card">
+              <div class="setting-heading">
+                <div>
+                  <h2>Impressum · Legal Disclosure</h2>
+                  <p>Angaben gemäß § 5 Digitale-Dienste-Gesetz (DDG)</p>
+                </div>
+                <span class="om-badge">§ 5 DDG</span>
+              </div>
+              <div class="om-meta" style="line-height:1.6;display:grid;gap:6px;">
+                <p>
+                  <strong>Betreiber dieses Online-Dienstes (Service Operator):</strong><br />
+                  Nick (nil-commits) · Projekt: <strong>websynap.se</strong><br />
+                  Quellcode &amp; Kontakt über GitHub Issues:
+                  <a href="https://github.com/nil-commits/razerwebdriver" target="_blank" rel="noopener noreferrer" style="color:var(--accent);">github.com/nil-commits/razerwebdriver</a>
+                </p>
+                <p>
+                  <strong>Hinweis für den Produktivbetrieb auf eigenem Server:</strong> Bitte ergänzen Sie vor der öffentlichen Freischaltung
+                  an dieser Stelle Ihren vollständigen bürgerlichen Namen, Ihre ladungsfähige Postanschrift sowie Ihre direkte E-Mail-Adresse
+                  gemäß § 5 Abs. 1 DDG.
+                </p>
+              </div>
+            </article>
+          </div>
         </section>
+
+        <!-- Persistent Legal, Privacy & Non-Affiliation Footer -->
+        <footer class="om-panel" style="margin-top:18px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+          <div class="om-meta" style="font-size:11.5px;">
+            <strong>websynap.se</strong> — Independent Open-Source Configurator (MIT License · Font: DM Sans under SIL OFL-1.1).
+            <strong>Not affiliated with, endorsed by, or sponsored by Razer Inc.</strong>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button type="button" class="om-btn is-ghost is-sm" data-open-legal="cardImpressum">Impressum</button>
+            <button type="button" class="om-btn is-ghost is-sm" data-open-legal="cardPrivacy">Datenschutz</button>
+            <button type="button" class="om-btn is-ghost is-sm" data-open-legal="cardDisclaimer">Razer-Disclaimer</button>
+            <button type="button" class="om-btn is-ghost is-sm" data-open-legal="cardLicense">Lizenz (MIT &amp; OFL-1.1)</button>
+          </div>
+        </footer>
       </main>
 
       <!-- OpenMouse Floating Staged Apply Bar (shown when Instant Flash is off & changes are queued) -->

@@ -1,6 +1,17 @@
 # ============================================================================
 # Hardened Production Nginx Configuration for websynap.se
 # Zero-Backend Static WebHID Deployment (HTTPS Required for WebHID API)
+#
+# IMPORTANT FOR DEPLOYMENT:
+# Only copy the public web assets to /var/www/websynap.se:
+#   - index.html
+#   - styles.css
+#   - app.js
+#   - protocol25.js
+#   - LICENSE
+#   - fonts/DMSans-Variable.ttf
+#   - fonts/DM-Sans-OFL.txt
+# Do NOT deploy serve-local.js, README.md, SECURITY.md, _headers, or *.example.
 # ============================================================================
 
 limit_req_zone $binary_remote_addr zone=websynapse_ratelimit:10m rate=25r/s;
@@ -37,12 +48,14 @@ server {
         return 405;
     }
 
-    # Block dotfiles (.git, .env, .htaccess, etc.) and example configs
+    # Block dotfiles (.git, .env, .htaccess, etc.)
     location ~ /\.(?!well-known) {
         deny all;
         return 404;
     }
-    location ~* \.(example|md)$ {
+
+    # Explicitly block non-public repo files (serve-local.js, README.md, SECURITY.md, *.example, _headers)
+    location ~* (^/serve-local\.js$|^/_headers$|\.(example|md)$) {
         deny all;
         return 404;
     }
@@ -61,7 +74,7 @@ server {
         try_files $uri $uri/ =404;
     }
 
-    location ~* \.(js|css)$ {
+    location ~* \.(js|css|ttf)$ {
         expires 7d;
         add_header Cache-Control "public, max-age=604800, immutable" always;
         add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;

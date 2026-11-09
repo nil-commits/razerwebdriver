@@ -1,6 +1,8 @@
 # ============================================================================
 # Hardened Production Caddyfile for websynap.se
 # Automatic HTTPS + Strict WebHID Permissions-Policy & Zero-Network CSP
+#
+# IMPORTANT: Do NOT deploy serve-local.js, README.md, SECURITY.md, _headers, or *.example.
 # ============================================================================
 
 websynap.se {
@@ -11,8 +13,8 @@ websynap.se {
     @disallowed_methods not method GET HEAD
     respond @disallowed_methods 405
 
-    # Block dotfiles and internal docs/examples
-    @blocked_files path .* *.example *.md
+    # Explicitly block dotfiles and non-public repo files (serve-local.js, README.md, SECURITY.md, *.example, _headers)
+    @blocked_files path .* /serve-local.js /_headers *.example *.md
     respond @blocked_files 404
 
     header {
