@@ -9,6 +9,17 @@ websynap.se {
     root * /var/www/websynap.se
     encode zstd gzip
 
+    # Access logs: rotate and keep for at most 7 days (matches the privacy policy).
+    # Ensure /var/log/caddy exists and is writable by the Caddy user.
+    log {
+        output file /var/log/caddy/websynap-access.log {
+            roll_size 10MiB
+            roll_keep 5
+            roll_keep_for 168h
+        }
+        format json
+    }
+
     # Reject all HTTP methods except GET and HEAD
     @disallowed_methods not method GET HEAD
     respond @disallowed_methods 405

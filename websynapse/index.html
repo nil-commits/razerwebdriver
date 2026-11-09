@@ -1246,27 +1246,42 @@
               </div>
               <div class="om-meta" style="line-height:1.55;display:grid;gap:8px;">
                 <p>
+                  <strong>Verantwortlicher:</strong> Nick Leppelmeier, Betreiber von websynap.se.
+                  Kontakt für Datenschutz- und sonstige Anliegen:
+                  <span style="color:var(--accent);">contact(at)evfy.pro</span>.
+                </p>
+                <p>
                   <strong>1. Keine Datenübertragung an Server (Zero-Exfiltration CSP):</strong> Alle Konfigurationsfunktionen und USB-Gerätezugriffe
                   erfolgen ausschließlich lokal in Ihrem Webbrowser über die WebHID-Schnittstelle (<code>navigator.hid</code>). Durch die technische
                   Content-Security-Policy (<code>connect-src 'none'</code>) ist jegliche Netzwerkübertragung Ihrer Gerätedaten, Seriennummern oder
-                  Profile an unsere oder fremde Server technisch ausgeschlossen.
+                  Profile an unsere oder fremde Server technisch ausgeschlossen. Die WebHID-Freigabe erteilen Sie ausdrücklich im Browser.
                 </p>
                 <p>
                   <strong>2. Lokale Speicherung (localStorage):</strong> Ihre gewählten Einstellungen (Theme, Onboard-Slot-Vorschau) werden
                   ausschließlich lokal auf Ihrem Endgerät im Browser-Speicher (<code>localStorage</code> unter den Schlüsseln
                   <code>websynapse_state_v1</code> und <code>websynapse_prefs_v1</code>) abgelegt und niemals über das Internet übertragen.
-                  Es werden keine Tracking-Cookies, Analyse-Skripte oder externe Schriftarten-CDNs (Schriftart <code>DM Sans</code> ist lokal
-                  gehostet) eingesetzt.
+                  Es werden keine Cookies, Tracking-Cookies, Analyse-Skripte oder externe Schriftarten-CDNs (Schriftart <code>DM Sans</code> ist lokal
+                  gehostet) eingesetzt. Den lokalen Speicher können Sie jederzeit in den Browser-Einstellungen löschen.
                 </p>
                 <p>
-                  <strong>3. Server-Logfiles (Art. 6 Abs. 1 lit. f DSGVO):</strong> Beim bloßen Abruf dieser statischen Webseite verarbeitet der
-                  Webserver technisch notwendige Verbindungsdaten (IP-Adresse, Zeitpunkt des Abrufs, angeforderte Datei, User-Agent) zur
-                  Auslieferung der Seite und zur Abwehr von Angriffen (Rate-Limiting).
+                  <strong>3. Server-Logfiles (Art. 6 Abs. 1 lit. f DSGVO):</strong> Beim Abruf dieser statischen Webseite verarbeitet der
+                  Webserver technisch notwendige Verbindungsdaten (IP-Adresse, Zeitpunkt des Abrufs, angeforderte Datei, User-Agent,
+                  HTTP-Status) zur Auslieferung der Seite und zur Abwehr von Angriffen. Rechtsgrundlage ist das berechtigte Interesse
+                  am sicheren und stabilen Betrieb. Die Logs werden nach spätestens 7 Tagen gelöscht, sofern sie nicht zur Aufklärung
+                  eines konkreten Sicherheitsvorfalls länger benötigt werden. Eine Weitergabe zu Werbe- oder Analysezwecken findet nicht statt.
                 </p>
                 <p>
-                  <strong>4. Ihre Rechte (Art. 15–21 DSGVO):</strong> Sie haben das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der
-                  Verarbeitung sowie Beschwerde bei einer Datenschutz-Aufsichtsbehörde. Ihren lokalen Browser-Speicher können Sie jederzeit in den
-                  Browser-Einstellungen löschen.
+                  <strong>4. Hosting:</strong> Die statische Website wird auf einem virtuellen Server in der Europäischen Union
+                  bereitgestellt. Dabei fallen die unter Punkt 3 genannten Verbindungsdaten an.
+                </p>
+                <p>
+                  <strong>5. Externe Links:</strong> Links zu GitHub oder anderen Seiten führen erst nach einem Klick zu einer
+                  Datenübermittlung an den jeweiligen Anbieter. Dort gelten die jeweiligen Datenschutzerklärungen.
+                </p>
+                <p>
+                  <strong>6. Ihre Rechte (Art. 15–21 DSGVO):</strong> Sie haben das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der
+                  Verarbeitung, Datenübertragbarkeit und Widerspruch sowie Beschwerde bei einer Datenschutz-Aufsichtsbehörde.
+                  Zur Ausübung genügt eine Nachricht an <span style="color:var(--accent);">contact(at)evfy.pro</span>.
                 </p>
               </div>
             </article>
@@ -1275,21 +1290,40 @@
               <div class="setting-heading">
                 <div>
                   <h2>Impressum · Legal Disclosure</h2>
-                  <p>Angaben gemäß § 5 Digitale-Dienste-Gesetz (DDG)</p>
+                  <p>Freiwillige Angaben · Einordnung nach § 5 DDG</p>
                 </div>
-                <span class="om-badge">§ 5 DDG</span>
+                <span class="om-badge">Freiwillig</span>
               </div>
               <div class="om-meta" style="line-height:1.6;display:grid;gap:6px;">
                 <p>
-                  <strong>Betreiber dieses Online-Dienstes (Service Operator):</strong><br />
-                  Nick (nil-commits) · Projekt: <strong>websynap.se</strong><br />
-                  Quellcode &amp; Kontakt über GitHub Issues:
+                  <strong>Betreiber (Service Operator):</strong><br />
+                  Nick Leppelmeier · Projekt: <strong>websynap.se</strong><br />
+                  Kontakt: <span style="color:var(--accent);">contact(at)evfy.pro</span><br />
+                  Quellcode:
                   <a href="https://github.com/nil-commits/razerwebdriver" target="_blank" rel="noopener noreferrer" style="color:var(--accent);">github.com/nil-commits/razerwebdriver</a>
                 </p>
                 <p>
-                  <strong>Hinweis für den Produktivbetrieb auf eigenem Server:</strong> Bitte ergänzen Sie vor der öffentlichen Freischaltung
-                  an dieser Stelle Ihren vollständigen bürgerlichen Namen, Ihre ladungsfähige Postanschrift sowie Ihre direkte E-Mail-Adresse
-                  gemäß § 5 Abs. 1 DDG.
+                  websynap.se ist ein privates, nicht kommerzielles Open-Source-Projekt. Die Seite dient ausschließlich der
+                  Konfiguration eigener Razer-Hardware und wird ehrenamtlich, ohne Gewinnerzielungsabsicht und ohne berufliche
+                  oder geschäftliche Selbstdarstellung betrieben.
+                </p>
+                <p>
+                  Es werden keine Waren oder Dienstleistungen gegen Entgelt angeboten, keine Werbung geschaltet, keine
+                  Affiliate-, Sponsoring- oder sonstigen kommerziellen Links verwendet und keine Monetarisierung betrieben.
+                  Die Nutzung ist kostenlos.
+                </p>
+                <p>
+                  Der Betreiber stellt klar: websynap.se ist kein geschäftsmäßiges, in der Regel gegen Entgelt angebotenes
+                  digitales Angebot. Die Voraussetzungen der Impressumspflicht nach § 5 DDG sind daher nicht erfüllt.
+                </p>
+                <p>
+                  Unabhängig von einer gesetzlichen Verpflichtung werden die folgenden Angaben freiwillig und aus Gründen der
+                  Transparenz bereitgestellt. Eine postalische Anschrift wird nicht veröffentlicht, da die Seite keine
+                  geschäftsmäßige Leistung anbietet und die Privatsphäre des Betreibers geschützt werden soll.
+                </p>
+                <p>
+                  websynap.se steht in keinem offiziellen Zusammenhang mit Razer Inc.; die Markenrechte liegen bei Razer Inc.
+                  Siehe auch den Razer-Disclaimer oben.
                 </p>
               </div>
             </article>
