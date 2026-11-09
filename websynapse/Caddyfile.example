@@ -1,0 +1,31 @@
+# ============================================================================
+# Hardened Production Caddyfile for websynap.se
+# Automatic HTTPS + Strict WebHID Permissions-Policy & Zero-Network CSP
+# ============================================================================
+
+websynap.se {
+    root * /var/www/websynap.se
+    encode zstd gzip
+
+    # Reject all HTTP methods except GET and HEAD
+    @disallowed_methods not method GET HEAD
+    respond @disallowed_methods 405
+
+    # Block dotfiles and internal docs/examples
+    @blocked_files path .* *.example *.md
+    respond @blocked_files 404
+
+    header {
+        -Server
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; font-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; frame-src 'none'; frame-ancestors 'none'; worker-src 'none'; base-uri 'none'; form-action 'none';"
+        Permissions-Policy "hid=(self), usb=(), serial=(), bluetooth=(), camera=(), microphone=(), geolocation=(), payment=(), accelerometer=(), gyroscope=(), magnetometer=()"
+        Cross-Origin-Opener-Policy "same-origin"
+        Cross-Origin-Resource-Policy "same-origin"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "no-referrer"
+    }
+
+    file_server
+}

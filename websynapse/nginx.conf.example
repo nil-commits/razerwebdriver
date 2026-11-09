@@ -1,0 +1,73 @@
+# ============================================================================
+# Hardened Production Nginx Configuration for websynap.se
+# Zero-Backend Static WebHID Deployment (HTTPS Required for WebHID API)
+# ============================================================================
+
+limit_req_zone $binary_remote_addr zone=websynapse_ratelimit:10m rate=25r/s;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name websynap.se www.websynap.se;
+    return 301 https://websynap.se$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name websynap.se;
+
+    # TLS 1.3 / 1.2 only
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    # ssl_certificate     /etc/letsencrypt/live/websynap.se/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/websynap.se/privkey.pem;
+
+    root /var/www/websynap.se;
+    index index.html;
+
+    # Hide Nginx version
+    server_tokens off;
+
+    # Rate limit requests per IP
+    limit_req zone=websynapse_ratelimit burst=40 nodelay;
+
+    # Strictly allow only GET and HEAD (100% static client-side app)
+    if ($request_method !~ ^(GET|HEAD)$) {
+        return 405;
+    }
+
+    # Block dotfiles (.git, .env, .htaccess, etc.) and example configs
+    location ~ /\.(?!well-known) {
+        deny all;
+        return 404;
+    }
+    location ~* \.(example|md)$ {
+        deny all;
+        return 404;
+    }
+
+    # Strict Security Headers
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+    add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; font-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; frame-src 'none'; frame-ancestors 'none'; worker-src 'none'; base-uri 'none'; form-action 'none';" always;
+    add_header Permissions-Policy "hid=(self), usb=(), serial=(), bluetooth=(), camera=(), microphone=(), geolocation=(), payment=(), accelerometer=(), gyroscope=(), magnetometer=()" always;
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+    add_header Cross-Origin-Resource-Policy "same-origin" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    location ~* \.(js|css)$ {
+        expires 7d;
+        add_header Cache-Control "public, max-age=604800, immutable" always;
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+        add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; font-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; frame-src 'none'; frame-ancestors 'none'; worker-src 'none'; base-uri 'none'; form-action 'none';" always;
+        add_header Permissions-Policy "hid=(self), usb=(), serial=(), bluetooth=(), camera=(), microphone=(), geolocation=(), payment=()" always;
+        add_header Cross-Origin-Resource-Policy "same-origin" always;
+        add_header X-Content-Type-Options "nosniff" always;
+    }
+}

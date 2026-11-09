@@ -1,0 +1,1225 @@
+<!DOCTYPE html>
+<html lang="en" data-interface-theme="emerald">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; font-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; frame-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none';" />
+  <meta name="referrer" content="no-referrer" />
+  <meta name="color-scheme" content="dark" />
+  <title>websynap.se · Zero-Install Razer WebHID Configurator</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="omShell" class="om-shell" data-interface-theme="emerald">
+    <!-- OpenMouse Top-Right ASCII Glow Field -->
+    <div class="om-ascii" aria-hidden="true">
+      <div id="asciiField" class="om-ascii-field is-sweeping"></div>
+    </div>
+
+    <!-- ====================================================================
+         Collapsible OpenMouse Instrument Sidebar
+         ==================================================================== -->
+    <aside id="omSidebar" class="om-sidebar">
+      <div class="om-sidebar-head">
+        <div class="om-brand">
+          <span class="om-brand-mark" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+            </svg>
+          </span>
+          <div class="om-brand-text">
+            <span class="om-brand-name">websynap.se</span>
+            <span class="om-brand-build" id="sidebarBuildLabel">v3.0 · WebHID · Zero Install</span>
+          </div>
+        </div>
+        <button id="btnCollapseSidebar" type="button" class="om-icon-btn" title="Toggle sidebar">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+            <rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 3v18"/>
+          </svg>
+        </button>
+      </div>
+
+      <nav class="om-nav" aria-label="Main navigation">
+        <button type="button" class="om-nav-item is-active" data-main-view="workspace">
+          <svg class="om-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+            <path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/>
+          </svg>
+          <span class="om-nav-label">Device workspace</span>
+        </button>
+        <button type="button" class="om-nav-item" data-main-view="shelf">
+          <svg class="om-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+            <rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>
+          </svg>
+          <span class="om-nav-label">Devices shelf</span>
+          <span class="om-nav-badge" id="navDeviceCount">2</span>
+        </button>
+        <button type="button" class="om-nav-item" data-main-view="hwtest">
+          <svg class="om-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+          </svg>
+          <span class="om-nav-label">Hardware test</span>
+        </button>
+        <button type="button" class="om-nav-item" data-main-view="settings">
+          <svg class="om-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+            <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          <span class="om-nav-label">Themes &amp; settings</span>
+        </button>
+      </nav>
+
+      <div class="om-side-devices">
+        <span class="om-side-heading">Your devices</span>
+        <div id="deviceTabs" class="om-side-device-list"></div>
+      </div>
+
+      <div class="om-sidebar-foot">
+        <button id="btnQueryFw" type="button" class="om-bridge-line" title="Query live firmware over WebHID Protocol 25">
+          <span class="om-dot" id="connDot"></span>
+          <span class="om-bridge-line-text" id="connText">WebHID Ready</span>
+          <span class="om-bridge-line-flag" id="fwBadge">Click to Pair</span>
+        </button>
+        <button id="btnToggleDrawer" type="button" class="om-nav-item">
+          <svg class="om-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+            <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+          </svg>
+          <span class="om-nav-label">Protocol 25 inspector</span>
+          <span class="om-nav-badge" id="packetCountBadge">0</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ====================================================================
+         Main Column
+         ==================================================================== -->
+    <div class="om-main">
+      <!-- Top Onboard Profile Slot Bar -->
+      <header class="om-topbar">
+        <div class="om-slot-strip">
+          <span class="om-slot-strip-label">Onboard memory</span>
+          <div id="profileSlotBar" class="om-slot-pills"></div>
+          <span id="activeProfileNameTag" class="slot-name-tag">Default Profile</span>
+        </div>
+        <div class="om-topbar-actions">
+          <button id="btnWebHidPair" type="button" class="om-btn is-primary is-sm" title="Pair your Razer USB Keyboard or Mouse directly in Chromium via WebHID">
+            ⚡ Connect Razer Device
+          </button>
+          <button id="btnSaveSlot" type="button" class="om-btn is-sm" title="Flash current slot to device onboard memory">
+            💾 Flash to slot
+          </button>
+          <button id="btnResetSlot" type="button" class="om-btn is-sm" title="Reset current slot to factory defaults">
+            ↺ Reset
+          </button>
+          <button id="btnExportProfiles" type="button" class="om-btn is-sm" title="Export all onboard slots to JSON">
+            ⬇ Export
+          </button>
+          <label class="om-btn is-sm" title="Import onboard slots from JSON">
+            ⬆ Import
+            <input type="file" id="inpImportProfiles" accept=".json" hidden />
+          </label>
+        </div>
+      </header>
+
+      <!-- WebHID Status / Browser Compatibility Banner -->
+      <div id="webHidStatusBanner" class="om-panel" style="margin:14px 22px 0;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-color:rgba(93,222,137,0.35);">
+        <div style="display:flex;align-items:center;gap:10px;font-size:13px;">
+          <span class="om-dot" id="bannerDot"></span>
+          <span id="bannerStatusText">
+            <strong>Demo Preview Mode</strong> — Click <b>⚡ Connect Razer Device</b> to pair your Razer keyboard or mouse directly in the browser via WebHID (zero software install).
+          </span>
+        </div>
+        <button id="btnBannerPair" type="button" class="om-btn is-primary is-sm">Connect USB (0x1532)</button>
+      </div>
+
+      <main class="om-content">
+        <!-- ================================================================
+             VIEW 1: DEVICE WORKSPACE
+             ================================================================ -->
+        <section id="viewWorkspace" class="om-page">
+          <!-- OpenMouse Overview Figures + Sparkline Row -->
+          <div class="om-overview-top">
+            <section class="om-panel is-lit">
+              <header class="om-panel-head">
+                <h2 id="overviewDeviceTitle">Razer Huntsman V3 Pro Tenkeyless</h2>
+                <span class="om-meta" id="overviewDeviceMeta">Connected · Native HID.node · Zero cloud</span>
+                <div class="om-end">
+                  <div class="segmented" id="deviceModeGroup" role="group" aria-label="Operating mode">
+                    <button type="button" class="mode-seg selected" data-mode="normal">Onboard (0x00)</button>
+                    <button type="button" class="mode-seg" data-mode="driver">Driver (0x03)</button>
+                  </div>
+                </div>
+              </header>
+              <div class="om-setup-figures">
+                <div class="om-setup-figure">
+                  <span class="om-label" id="figLabel1">Actuation point</span>
+                  <span class="om-fig"><span id="figVal1">1.2</span><span class="om-unit" id="figUnit1">mm</span></span>
+                  <span class="om-meta" id="figSub1">Analog Gen-2 optical</span>
+                </div>
+                <div class="om-setup-figure">
+                  <span class="om-label" id="figLabel2">Polling rate</span>
+                  <span class="om-fig"><span id="figVal2">1,000</span><span class="om-unit">Hz</span></span>
+                  <span class="om-meta" id="figSub2">1.0 ms report interval</span>
+                </div>
+                <div class="om-setup-figure">
+                  <span class="om-label" id="figLabel3">Firmware</span>
+                  <span class="om-fig is-sm" id="figVal3">v1.04.00</span>
+                  <span class="om-meta" id="figSub3">Protocol 25 verified</span>
+                </div>
+                <div class="om-setup-figure">
+                  <span class="om-label">Onboard slot</span>
+                  <span class="om-fig" id="figVal4">S1</span>
+                  <span class="om-meta" id="figSub4">Default 1.2mm</span>
+                </div>
+              </div>
+              <div class="om-setup-stages">
+                <span class="om-label" id="setupChipsLabel">Active telemetry</span>
+                <div class="om-setup-stage-list" id="setupChipsList"></div>
+              </div>
+            </section>
+
+            <!-- Battery History / Analog Travel Telemetry Sparkline -->
+            <section class="om-panel om-battery">
+              <header class="om-panel-head">
+                <h2 id="sparkPanelTitle">Live switch &amp; link telemetry</h2>
+                <span class="om-meta" id="sparkPanelMeta">Real-time hardware response curve</span>
+                <span class="om-end">
+                  <span class="om-badge is-ok" id="sparkPanelBadge">0x02 SUCCESS</span>
+                </span>
+              </header>
+              <figure class="om-battery-chart">
+                <svg id="telemetrySparkSvg" viewBox="0 0 600 86" preserveAspectRatio="none" role="img" aria-label="Telemetry chart">
+                  <line class="om-chart-guide" x1="0" x2="600" y1="43" y2="43" />
+                  <line class="om-chart-guide" x1="0" x2="600" y1="69" y2="69" />
+                  <path id="telemetrySparkArea" class="om-chart-area" d="M0,43 L600,43 L600,86 L0,86 Z" />
+                  <path id="telemetrySparkLine" class="om-chart-line" d="M0,43 L600,43" vector-effect="non-scaling-stroke" />
+                </svg>
+                <figcaption class="om-battery-axis">
+                  <span id="sparkAxisStart">0.1 mm top</span>
+                  <span id="sparkAxisEnd">4.0 mm bottom-out</span>
+                </figcaption>
+              </figure>
+            </section>
+          </div>
+
+          <!-- Interactive Hardware Visual Stage (Keyboard TKL or Mouse SVG) -->
+          <section class="om-panel device-stage-card" id="keyboardStageWrap">
+            <div class="stage-toolbar">
+              <div class="stage-toolbar-left">
+                <span class="om-label">Key selection</span>
+                <div class="segmented">
+                  <button type="button" class="toolbar-chip active" data-select-keys="all">All keys (Global)</button>
+                  <button type="button" class="toolbar-chip" data-select-keys="wasd">WASD</button>
+                  <button type="button" class="toolbar-chip" data-select-keys="movement">WASD + Arrows</button>
+                  <button type="button" class="toolbar-chip" data-select-keys="numbers">1–6 Row</button>
+                  <button type="button" class="toolbar-chip" data-select-keys="clear">Clear</button>
+                </div>
+              </div>
+              <div class="stage-toolbar-right">
+                <span id="selectionScopeBadge" class="om-badge is-accent">Scope: All 87 keys (Global)</span>
+              </div>
+            </div>
+            <div class="keyboard-chassis">
+              <div id="keyboardMatrix" class="kbd-rows"></div>
+            </div>
+          </section>
+
+          <section class="om-panel device-stage-card" id="mouseStageWrap" hidden>
+            <div class="mouse-hero-layout">
+              <div class="mouse-svg-stage">
+                <svg viewBox="0 0 220 340" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="35" y="16" width="150" height="304" rx="72" fill="#141618" stroke="rgba(255,255,255,0.16)" stroke-width="2.5"/>
+                  <path class="mouse-hotspot selected" data-mouse-btn="M1" d="M40 90 C40 42, 75 20, 107 20 L107 135 L40 135 Z" fill="rgba(93,222,137,0.16)" stroke="rgba(93,222,137,0.6)" stroke-width="2"/>
+                  <path class="mouse-hotspot" data-mouse-btn="M2" d="M180 90 C180 42, 145 20, 113 20 L113 135 L180 135 Z" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.18)" stroke-width="2"/>
+                  <rect class="mouse-hotspot" data-mouse-btn="M3" x="98" y="48" width="24" height="58" rx="12" fill="#0c0d0f" stroke="rgba(255,255,255,0.35)" stroke-width="2"/>
+                  <rect class="mouse-hotspot" data-mouse-btn="DPI" x="101" y="116" width="18" height="20" rx="6" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.28)" stroke-width="1.5"/>
+                  <rect class="mouse-hotspot" data-mouse-btn="M5" x="26" y="122" width="12" height="42" rx="5" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.28)" stroke-width="1.5"/>
+                  <rect class="mouse-hotspot" data-mouse-btn="M4" x="26" y="172" width="12" height="42" rx="5" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.28)" stroke-width="1.5"/>
+                  <circle cx="110" cy="242" r="16" stroke="rgba(93,222,137,0.35)" stroke-width="2" fill="rgba(93,222,137,0.06)"/>
+                </svg>
+              </div>
+              <div style="display:grid;gap:12px;">
+                <div class="setting-heading">
+                  <div>
+                    <h2 id="mouseStageTitle">Razer Viper V3 Pro · HyperPolling Wireless</h2>
+                    <p id="mouseStageSubtitle">Focus Pro 35K Optical Gen-2 · 8000 Hz Wireless Dongle · Protocol 25</p>
+                  </div>
+                  <output id="mouseActiveStageBadge">1600 DPI (Stage 3)</output>
+                </div>
+                <p class="setting-note">
+                  Click any button on the Viper V3 Pro diagram to inspect or remap its Standard and Razer Hypershift assignment, or tune all 5 X/Y DPI stages below.
+                </p>
+                <div class="om-setup-stage-list" id="mouseQuickStageButtons"></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Workspace Sub-Tab Navigation -->
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+            <nav id="kbdTabNav" class="om-tabs" role="tablist" aria-label="Keyboard sections">
+              <button type="button" class="om-tab nav-pill is-active active" data-kbd-tab="actuation">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                <span>Actuation &amp; Rapid Trigger</span>
+              </button>
+              <button type="button" class="om-tab nav-pill" data-kbd-tab="snaptap">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M8 3L4 7l4 4"/><path d="M4 7h16"/><path d="M16 21l4-4-4-4"/><path d="M20 17H4"/></svg>
+                <span>Snap Tap &amp; Gaming Mode</span>
+              </button>
+              <button type="button" class="om-tab nav-pill" data-kbd-tab="remap">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>
+                <span>Remap &amp; Hypershift</span>
+              </button>
+              <button type="button" class="om-tab nav-pill" data-kbd-tab="lighting">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>
+                <span>Chroma &amp; Polling</span>
+              </button>
+            </nav>
+
+            <nav id="mouseTabNav" class="om-tabs" role="tablist" aria-label="Mouse sections" hidden>
+              <button type="button" class="om-tab nav-pill is-active active" data-mouse-tab="dpi">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+                <span>Sensitivity &amp; Polling</span>
+              </button>
+              <button type="button" class="om-tab nav-pill" data-mouse-tab="calibration">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M2 12h20"/><path d="M12 2v20"/></svg>
+                <span>Calibration &amp; Power</span>
+              </button>
+              <button type="button" class="om-tab nav-pill" data-mouse-tab="buttons">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="6" y="2" width="12" height="20" rx="6"/><path d="M12 6v4"/></svg>
+                <span>Buttons &amp; Hypershift</span>
+              </button>
+            </nav>
+          </div>
+
+          <!-- ==============================================================
+               KEYBOARD PANELS
+               ============================================================== -->
+          <div id="kbdPanelsWrap">
+            <!-- Panel 1: Actuation & Rapid Trigger -->
+            <div class="kbd-tab-panel settings-grid" data-panel="actuation">
+              <article class="setting-card">
+                <div class="setting-heading">
+                  <div>
+                    <h2>Analog actuation point</h2>
+                    <p>Adjust travel distance (0.1 mm – 4.0 mm) globally or for selected keys</p>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:6px;">
+                    <button id="btnClearKeyOverride" type="button" class="om-btn is-sm" hidden>Reset to global</button>
+                    <output id="badgeActuation" class="val-pill">1.2 mm</output>
+                  </div>
+                </div>
+
+                <div class="actuation-visualizer">
+                  <div class="stem-track">
+                    <div id="stemFill" class="stem-fill"></div>
+                    <div id="stemActuationLine" class="stem-marker"></div>
+                    <div class="stem-scale">
+                      <span>0.1</span>
+                      <span>1.2</span>
+                      <span>2.5</span>
+                      <span>4.0</span>
+                    </div>
+                  </div>
+                  <div class="stepper-slider">
+                    <div class="stepper-slider-head">
+                      <span class="stepper-slider-title">Trigger distance</span>
+                      <output id="valActuation">1.2 mm</output>
+                    </div>
+                    <div class="stepper-slider-inputs">
+                      <button type="button" class="stepper-btn" data-step-target="rngActuation" data-step-delta="-0.1">−</button>
+                      <input type="range" id="rngActuation" min="0.1" max="4.0" step="0.1" value="1.2" />
+                      <button type="button" class="stepper-btn" data-step-target="rngActuation" data-step-delta="0.1">+</button>
+                    </div>
+                    <div class="stepper-slider-scale">
+                      <span>0.1 mm (Hair trigger)</span>
+                      <span>2.0 mm</span>
+                      <span>4.0 mm</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="preset-group">
+                  <button type="button" class="preset-btn active" data-act-preset="balanced">🎯 1.2 mm Default</button>
+                  <button type="button" class="preset-btn" data-act-preset="esports">⚡ 0.4 mm Fast</button>
+                  <button type="button" class="preset-btn" data-act-preset="typing">⌨️ 2.0 mm Typing</button>
+                </div>
+              </article>
+
+              <article class="setting-card">
+                <div class="setting-heading">
+                  <div>
+                    <h2>Rapid Trigger</h2>
+                    <p>Dynamically reset and re-actuate keys the instant they travel upward</p>
+                  </div>
+                  <output id="valRtDown" class="val-pill">0.3 mm</output>
+                </div>
+
+                <div class="switch-tiles-grid">
+                  <label class="switch-tile" id="tileRtEnable" data-state="on">
+                    <span class="switch-tile-icon">⚡</span>
+                    <input type="checkbox" id="chkRapidTrigger" checked />
+                    <span class="switch-button"><span class="switch-thumb"></span></span>
+                    <span class="switch-tile-label">
+                      <strong>Enable Rapid Trigger</strong>
+                      <small>Dynamic reset point</small>
+                    </span>
+                  </label>
+                  <label class="switch-tile" id="tileRtContinuous" data-state="on">
+                    <span class="switch-tile-icon">🔄</span>
+                    <input type="checkbox" id="chkContinuousRt" checked />
+                    <span class="switch-button"><span class="switch-thumb"></span></span>
+                    <span class="switch-tile-label">
+                      <strong>Continuous Rapid Trigger</strong>
+                      <small>Reset without full release</small>
+                    </span>
+                  </label>
+                </div>
+
+                <div id="rtControlsWrap" style="display:grid;gap:12px;">
+                  <div class="stepper-slider">
+                    <div class="stepper-slider-head">
+                      <span class="stepper-slider-title">Press sensitivity (Downstroke)</span>
+                      <output id="valRtDownText">0.3 mm</output>
+                    </div>
+                    <div class="stepper-slider-inputs">
+                      <button type="button" class="stepper-btn" data-step-target="rngRtDown" data-step-delta="-0.05">−</button>
+                      <input type="range" id="rngRtDown" min="0.1" max="2.0" step="0.05" value="0.3" />
+                      <button type="button" class="stepper-btn" data-step-target="rngRtDown" data-step-delta="0.05">+</button>
+                    </div>
+                  </div>
+
+                  <div class="stepper-slider">
+                    <div class="stepper-slider-head">
+                      <span class="stepper-slider-title">Release sensitivity (Upstroke)</span>
+                      <output id="valRtUp">0.3 mm</output>
+                    </div>
+                    <div class="stepper-slider-inputs">
+                      <button type="button" class="stepper-btn" data-step-target="rngRtUp" data-step-delta="-0.05">−</button>
+                      <input type="range" id="rngRtUp" min="0.1" max="2.0" step="0.05" value="0.3" />
+                      <button type="button" class="stepper-btn" data-step-target="rngRtUp" data-step-delta="0.05">+</button>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            </div>
+
+            <!-- Panel 2: Snap Tap & Gaming Mode -->
+            <div class="kbd-tab-panel settings-grid" data-panel="snaptap" hidden>
+              <article class="setting-card">
+                <div class="setting-heading">
+                  <div>
+                    <h2>Razer Snap Tap (SOCD)</h2>
+                    <p>Prioritize the latest directional input between two opposing keys without releasing the first</p>
+                  </div>
+                  <span class="om-badge is-accent">0x0F / 0x0D</span>
+                </div>
+
+                <div class="switch-tiles-grid">
+                  <label class="switch-tile" id="tileSnapTap" data-state="on">
+                    <span class="switch-tile-icon">⇄</span>
+                    <input type="checkbox" id="chkSnapTap" checked />
+                    <span class="switch-button"><span class="switch-thumb"></span></span>
+                    <span class="switch-tile-label">
+                      <strong>Snap Tap last-input priority</strong>
+                      <small>Instant counter-strafing</small>
+                    </span>
+                  </label>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;">
+                  <label style="display:grid;gap:4px;">
+                    <span class="om-label">Primary key</span>
+                    <select id="selSnapKeyA">
+                      <option value="A" selected>A (Left strafe)</option>
+                      <option value="W">W (Forward)</option>
+                      <option value="Q">Q (Lean left)</option>
+                      <option value="←">Left Arrow</option>
+                    </select>
+                  </label>
+                  <span style="padding-top:18px;color:var(--accent);font-weight:700;">⇄</span>
+                  <label style="display:grid;gap:4px;">
+                    <span class="om-label">Opposing key</span>
+                    <select id="selSnapKeyB">
+                      <option value="D" selected>D (Right strafe)</option>
+                      <option value="S">S (Backward)</option>
+                      <option value="E">E (Lean right)</option>
+                      <option value="→">Right Arrow</option>
+                    </select>
+                  </label>
+                </div>
+              </article>
+
+              <article class="setting-card">
+                <div class="setting-heading">
+                  <div>
+                    <h2>Gaming Mode</h2>
+                    <p>Prevent accidental OS interruptions while gaming</p>
+                  </div>
+                  <span class="om-badge">0x03 / 0x00</span>
+                </div>
+
+                <div class="switch-tiles-grid">
+                  <label class="switch-tile" id="tileGamingMode" data-state="off">
+                    <span class="switch-tile-icon">🎮</span>
+                    <input type="checkbox" id="chkGamingMode" />
+                    <span class="switch-button"><span class="switch-thumb"></span></span>
+                    <span class="switch-tile-label">
+                      <strong>Gaming Mode LED &amp; Lock</strong>
+                      <small>Hardware Windows key lock</small>
+                    </span>
+                  </label>
+                  <label class="switch-tile" id="tileDisableWin" data-state="on">
+                    <span class="switch-tile-icon">⊞</span>
+                    <input type="checkbox" id="chkDisableWin" checked />
+                    <span class="switch-button"><span class="switch-thumb"></span></span>
+                    <span class="switch-tile-label">
+                      <strong>Disable Windows key</strong>
+                      <small>Block Start menu popups</small>
+                    </span>
+                  </label>
+                  <label class="switch-tile" id="tileDisableAltTab" data-state="off">
+                    <span class="switch-tile-icon">⇥</span>
+                    <input type="checkbox" id="chkDisableAltTab" />
+                    <span class="switch-button"><span class="switch-thumb"></span></span>
+                    <span class="switch-tile-label">
+                      <strong>Disable Alt + Tab</strong>
+                      <small>Prevent window switching</small>
+                    </span>
+                  </label>
+                  <label class="switch-tile" id="tileDisableAltF4" data-state="off">
+                    <span class="switch-tile-icon">✕</span>
+                    <input type="checkbox" id="chkDisableAltF4" />
+                    <span class="switch-button"><span class="switch-thumb"></span></span>
+                    <span class="switch-tile-label">
+                      <strong>Disable Alt + F4</strong>
+                      <small>Prevent accidental exit</small>
+                    </span>
+                  </label>
+                </div>
+              </article>
+            </div>
+
+            <!-- Panel 3: Key Remapping & Hypershift -->
+            <div class="kbd-tab-panel settings-grid" data-panel="remap" hidden>
+              <article class="setting-card">
+                <div class="setting-heading">
+                  <div>
+                    <h2>Key assignment &amp; Razer Hypershift</h2>
+                    <p>Click a key on the keyboard above, choose a layer, and bind its function</p>
+                  </div>
+                  <div class="segmented" id="kbdLayerToggle">
+                    <button type="button" class="layer-btn selected active" data-layer="standard">Standard</button>
+                    <button type="button" class="layer-btn" data-layer="hypershift">⚡ Hypershift</button>
+                  </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                  <label style="display:grid;gap:4px;">
+                    <span class="om-label">Selected key</span>
+                    <input type="text" id="txtRemapTargetKey" value="W" readonly />
+                  </label>
+                  <label style="display:grid;gap:4px;">
+                    <span class="om-label">Assigned action</span>
+                    <select id="selKeyFunction">
+                      <option value="Default">Default (Native Key)</option>
+                      <option value="Razer Hypershift">⚡ Razer Hypershift (Hold)</option>
+                      <option value="Media Play/Pause">⏯ Media Play / Pause</option>
+                      <option value="Volume Up">🔊 Volume Up</option>
+                      <option value="Volume Down">🔉 Volume Down</option>
+                      <option value="Mute Audio">🔇 Mute Audio</option>
+                      <option value="Next Track">⏭ Next Track</option>
+                      <option value="Previous Track">⏮ Previous Track</option>
+                      <option value="Onboard Profile Cycle">🔄 Onboard Profile Cycle</option>
+                      <option value="Macro: Counter-Strafe Burst">⚡ Macro: Counter-Strafe Burst</option>
+                      <option value="Disabled">🚫 Disable Key</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div style="display:flex;gap:8px;">
+                  <button id="btnBindKey" type="button" class="om-btn is-primary">Save key assignment</button>
+                  <button id="btnResetKeyBind" type="button" class="om-btn">Reset to default</button>
+                </div>
+              </article>
+
+              <article class="setting-card">
+                <div class="setting-heading">
+                  <div>
+                    <h2>Custom Protocol 25 command</h2>
+                    <p>Transmit raw 90-byte Razer feature reports directly to the device</p>
+                  </div>
+                  <span class="om-badge">HID.node Direct</span>
+                </div>
+                <div style="display:grid;grid-template-columns:80px 80px 1fr;gap:8px;">
+                  <label style="display:grid;gap:4px;">
+                    <span class="om-label">Class</span>
+                    <input type="text" id="inpCustomClass" value="0x0F" />
+                  </label>
+                  <label style="display:grid;gap:4px;">
+                    <span class="om-label">Cmd ID</span>
+                    <input type="text" id="inpCustomId" value="0x82" />
+                  </label>
+                  <label style="display:grid;gap:4px;">
+                    <span class="om-label">Args (hex bytes)</span>
+                    <input type="text" id="inpCustomArgs" value="01 00 00" />
+                  </label>
+                </div>
+                <button id="btnSendCustomPacket" type="button" class="om-btn">Transmit feature report</button>
+              </article>
+            </div>
+
+            <!-- Panel 4: Chroma Lighting & Keyboard Polling -->
+            <div class="kbd-tab-panel settings-grid" data-panel="lighting" hidden>
+              <article class="setting-card">
+                <div class="setting-heading">
+                  <div>
+                    <h2>Onboard Chroma lighting</h2>
+                    <p>Hardware matrix effects without Razer Chroma background services</p>
+                  </div>
+                  <output id="valBrightness" class="val-pill">100%</output>
+                </div>
+
+                <div class="preset-group" id="effectGrid">
+                  <button type="button" class="preset-btn active" data-effect="static">Static</button>
+                  <button type="button" class="preset-btn" data-effect="spectrum">Spectrum</button>
+                  <button type="button" class="preset-btn" data-effect="wave">Wave</button>
+                  <button type="button" class="preset-btn" data-effect="breathing">Breathing</button>
+                  <button type="button" class="preset-btn" data-effect="reactive">Reactive</button>
+                  <button type="button" class="preset-btn" data-effect="starlight">Starlight</button>
+                  <button type="button" class="preset-btn" data-effect="off">Off</button>
+                </div>
+
+                <div class="swatch-row" id="swatchRow">
+                  <button type="button" class="swatch active" data-color="#00e676" style="--sw:#00e676"></button>
+                  <button type="button" class="swatch" data-color="#00d2ff" style="--sw:#00d2ff"></button>
+                  <button type="button" class="swatch" data-color="#a78bfa" style="--sw:#a78bfa"></button>
+                  <button type="button" class="swatch" data-color="#ff3b30" style="--sw:#ff3b30"></button>
+                  <button type="button" class="swatch" data-color="#ffcc00" style="--sw:#ffcc00"></button>
+                  <button type="button" class="swatch" data-color="#ffffff" style="--sw:#ffffff"></button>
+                  <input type="color" id="inpChromaColor" value="#00e676" style="width:28px;height:28px;cursor:pointer;" />
+                </div>
+
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Matrix brightness</span>
+                    <output id="valBrightnessOut">100%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <button type="button" class="stepper-btn" data-step-target="rngBrightness" data-step-delta="-5">−</button>
+                    <input type="range" id="rngBrightness" min="0" max="100" step="1" value="100" />
+                    <button type="button" class="stepper-btn" data-step-target="rngBrightness" data-step-delta="5">+</button>
+                  </div>
+                </div>
+              </article>
+
+              <article class="setting-card">
+                <div class="setting-heading">
+                  <div>
+                    <h2>Keyboard report frequency</h2>
+                    <p>Select USB polling rate (0x00 / 0x05)</p>
+                  </div>
+                  <output id="kbdPollingFigure">1000 Hz</output>
+                </div>
+                <div class="rate-slider-buttons" id="kbdPollingGroup">
+                  <button type="button" class="preset-btn" data-kbd-hz="125">125 Hz</button>
+                  <button type="button" class="preset-btn" data-kbd-hz="250">250 Hz</button>
+                  <button type="button" class="preset-btn" data-kbd-hz="500">500 Hz</button>
+                  <button type="button" class="preset-btn is-on active" data-kbd-hz="1000">1000 Hz</button>
+                </div>
+              </article>
+            </div>
+          </div>
+
+          <!-- ==============================================================
+               MOUSE PANELS (Viper V3 Pro)
+               ============================================================== -->
+          <div id="mousePanelsWrap" hidden>
+            <!-- Mouse Panel 1: 5-Stage X/Y DPI Table + Bar-Graph HyperPolling -->
+            <div class="mouse-tab-panel settings-grid" data-panel="dpi">
+              <article class="setting-card">
+                <div class="setting-heading">
+                  <div>
+                    <h2>5-Stage sensitivity (DPI)</h2>
+                    <p>Click a stage number to make it active, or unlink X/Y axes per stage</p>
+                  </div>
+                  <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2);cursor:pointer;">
+                    <input type="checkbox" id="chkIndependentXY" />
+                    <span>Show X/Y axes</span>
+                  </label>
+                </div>
+                <div id="dpiStagesContainer" class="dpi-editor-list"></div>
+                <button id="btnApplyDpi" type="button" class="om-btn is-primary">Flash 5-stage DPI table</button>
+              </article>
+
+              <article class="setting-card">
+                <div class="setting-heading">
+                  <div>
+                    <h2>HyperPolling wireless frequency</h2>
+                    <p>Higher report rates reduce latency; lower rates extend battery life</p>
+                  </div>
+                  <output id="mousePollingFigure">1000 Hz</output>
+                </div>
+                <div class="rate-slider-buttons" id="mousePollingGroup">
+                  <button type="button" class="poll-pill" data-hz="125">125</button>
+                  <button type="button" class="poll-pill" data-hz="500">500</button>
+                  <button type="button" class="poll-pill is-on active" data-hz="1000">1000</button>
+                  <button type="button" class="poll-pill" data-hz="2000">2000</button>
+                  <button type="button" class="poll-pill" data-hz="4000">4000</button>
+                  <button type="button" class="poll-pill" data-hz="8000">8000</button>
+                </div>
+                <span class="om-meta" id="mouseBatteryEstimateNote">Estimated battery life at 1000 Hz: ~95 hours</span>
+              </article>
+            </div>
+
+            <!-- Mouse Panel 2: Calibration & Power -->
+            <div class="mouse-tab-panel settings-grid" data-panel="calibration" hidden>
+              <article class="setting-card">
+                <div class="setting-heading">
+                  <div>
+                    <h2>Smart Tracking &amp; Asymmetric Cut-off</h2>
+                    <p>26 granular height levels for lift-off and landing calibration</p>
+                  </div>
+                  <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2);cursor:pointer;">
+                    <input type="checkbox" id="chkAsymLod" />
+                    <span>Asymmetric</span>
+                  </label>
+                </div>
+
+                <div id="symLodWrap">
+                  <div class="segmented" id="symLodGroup" style="width:100%;">
+                    <button type="button" class="preset-btn selected active" data-lod="1">Low (1 mm)</button>
+                    <button type="button" class="preset-btn" data-lod="2">Medium (2 mm)</button>
+                    <button type="button" class="preset-btn" data-lod="3">High (3 mm)</button>
+                  </div>
+                </div>
+
+                <div id="asymLodWrap" style="display:grid;gap:12px;" hidden>
+                  <div class="stepper-slider">
+                    <div class="stepper-slider-head">
+                      <span class="stepper-slider-title">Lift-off distance (2–26)</span>
+                      <output id="valLiftOff">14 / 26</output>
+                    </div>
+                    <input type="range" id="rngLiftOff" min="2" max="26" step="1" value="14" />
+                  </div>
+                  <div class="stepper-slider">
+                    <div class="stepper-slider-head">
+                      <span class="stepper-slider-title">Landing distance (1–25, bounded below lift-off)</span>
+                      <output id="valLanding">10 / 25</output>
+                    </div>
+                    <input type="range" id="rngLanding" min="1" max="25" step="1" value="10" />
+                  </div>
+                </div>
+              </article>
+
+              <article class="setting-card">
+                <div class="setting-heading">
+                  <div>
+                    <h2>Sensor angle &amp; wireless power</h2>
+                    <p>Rotate sensor axis (-44° to +44°) and configure sleep timers</p>
+                  </div>
+                  <output id="valSensorAngle" class="val-pill">0°</output>
+                </div>
+
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Rotation angle</span>
+                    <button id="btnZeroAngle" type="button" class="om-btn is-sm">Reset 0°</button>
+                  </div>
+                  <input type="range" id="rngSensorAngle" min="-44" max="44" step="1" value="0" />
+                </div>
+
+                <label style="display:grid;gap:4px;">
+                  <span class="om-label">Dynamic sensitivity curve</span>
+                  <select id="selDynSens">
+                    <option value="0">Off (1:1 Raw Input)</option>
+                    <option value="1">Classic Curve</option>
+                    <option value="2">Natural Curve</option>
+                    <option value="3">Jump Curve</option>
+                  </select>
+                </label>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                  <div class="stepper-slider">
+                    <div class="stepper-slider-head">
+                      <span class="stepper-slider-title">Sleep after</span>
+                      <output id="valIdleSleep">5 min</output>
+                    </div>
+                    <input type="range" id="rngIdleSleep" min="1" max="15" step="1" value="5" />
+                  </div>
+                  <div class="stepper-slider">
+                    <div class="stepper-slider-head">
+                      <span class="stepper-slider-title">Low power at</span>
+                      <output id="valLowPower">15%</output>
+                    </div>
+                    <input type="range" id="rngLowPower" min="5" max="50" step="5" value="15" />
+                  </div>
+                </div>
+              </article>
+            </div>
+
+            <!-- Mouse Panel 3: Buttons & Hypershift -->
+            <div class="mouse-tab-panel settings-grid" data-panel="buttons" hidden>
+              <article class="setting-card" style="grid-column: 1 / -1;">
+                <div class="setting-heading">
+                  <div>
+                    <h2>6-Button &amp; Hypershift assignment</h2>
+                    <p>Configure primary and Hypershift bindings for your Razer mouse</p>
+                  </div>
+                  <div class="segmented" id="mouseLayerToggle">
+                    <button type="button" class="layer-btn selected active" data-mouse-layer="standard">Standard</button>
+                    <button type="button" class="layer-btn" data-mouse-layer="hypershift">⚡ Hypershift</button>
+                  </div>
+                </div>
+                <div id="mouseButtonsList" class="settings-grid"></div>
+              </article>
+            </div>
+          </div>
+
+          <!-- ==============================================================
+               AUDIO / HEADSETS / SPEAKERS / BROADCASTER PANELS
+               ============================================================== -->
+          <div id="audioPanelsWrap" class="settings-grid" hidden>
+            <article class="setting-card">
+              <div class="setting-heading">
+                <div>
+                  <h2>Audio Output, Microphone &amp; Sidetone</h2>
+                  <p>Protocol 25 Class 0x08 &amp; 0x18 hardware mixer, mic gain, and real-time sidetone monitoring</p>
+                </div>
+                <output id="valAudioVolumeBadge" class="val-pill">80%</output>
+              </div>
+              <div style="display:grid;gap:14px;">
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Master Volume</span>
+                    <output id="valAudioVolume">80%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngAudioVolume" min="0" max="100" step="1" value="80" />
+                    <button type="button" id="btnAudioMute" class="om-btn is-sm">🔊 Unmuted</button>
+                  </div>
+                </div>
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Microphone Gain</span>
+                    <output id="valMicVolume">80%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngMicVolume" min="0" max="100" step="1" value="80" />
+                    <button type="button" id="btnMicMute" class="om-btn is-sm">🎙️ Mic Active</button>
+                  </div>
+                </div>
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Microphone Sidetone (0–100%)</span>
+                    <output id="valSidetone">35%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngSidetone" min="0" max="100" step="1" value="35" />
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="setting-card">
+              <div class="setting-heading">
+                <div>
+                  <h2>THX / Sensa HD Haptics &amp; Enhancements</h2>
+                  <p>Hardware DSP bass boost, voice clarity, and Razer Sensa HD / HyperSense haptic intensity</p>
+                </div>
+                <output id="valHapticsBadge" class="val-pill">50%</output>
+              </div>
+              <div style="display:grid;gap:14px;">
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Sensa HD / HyperSense Haptics</span>
+                    <output id="valHapticsIntensity">50%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngHapticsIntensity" min="0" max="100" step="1" value="50" />
+                  </div>
+                </div>
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Bass Boost</span>
+                    <output id="valBassBoost">40%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngBassBoost" min="0" max="100" step="1" value="40" />
+                  </div>
+                </div>
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Voice Clarity / AI Noise Gate</span>
+                    <output id="valVoiceClarity">60%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngVoiceClarity" min="0" max="100" step="1" value="60" />
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="setting-card" style="grid-column: 1 / -1;">
+              <div class="setting-heading">
+                <div>
+                  <h2>10-Band Hardware Graphic Equalizer (-12 dB to +12 dB)</h2>
+                  <p>Flashes 10-band custom EQ curve directly to headset/speaker DSP via Protocol 25 (Class 0x18, Cmd 0x01)</p>
+                </div>
+                <div class="preset-group" id="audioEqPresetsGroup">
+                  <button type="button" class="preset-btn active" data-eq-preset="0">Default (Flat)</button>
+                  <button type="button" class="preset-btn" data-eq-preset="1">🎮 Game / Esports</button>
+                  <button type="button" class="preset-btn" data-eq-preset="2">🎬 Movie</button>
+                  <button type="button" class="preset-btn" data-eq-preset="3">🎵 Music</button>
+                  <button type="button" class="preset-btn" data-eq-preset="4">⚙️ Custom</button>
+                </div>
+              </div>
+              <div id="audioEqBandsGrid" style="display:grid;grid-template-columns:repeat(10,minmax(44px,1fr));gap:10px;padding-top:8px;text-align:center;"></div>
+            </article>
+          </div>
+
+          <!-- ==============================================================
+               CONTROLLERS & FIGHTSTICKS PANELS (Wolverine / Kitsune / Raiju)
+               ============================================================== -->
+          <div id="controllerPanelsWrap" class="settings-grid" hidden>
+            <article class="setting-card">
+              <div class="setting-heading">
+                <div>
+                  <h2>Hall-Effect Thumbstick Deadzones &amp; Clutch</h2>
+                  <p>Protocol 25 Class 0x0C thumbstick deadzone calibration (0–30%), circularity mode, and sensitivity clutch</p>
+                </div>
+                <output id="valCtrlDeadzoneBadge" class="val-pill">5% / 5%</output>
+              </div>
+              <div style="display:grid;gap:14px;">
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Left Stick Deadzone</span>
+                    <output id="valLeftDeadzone">5%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngLeftDeadzone" min="0" max="30" step="1" value="5" />
+                  </div>
+                </div>
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Right Stick Deadzone</span>
+                    <output id="valRightDeadzone">5%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngRightDeadzone" min="0" max="30" step="1" value="5" />
+                  </div>
+                </div>
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Sensitivity Clutch Factor</span>
+                    <output id="valCtrlClutch">50%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngCtrlClutch" min="10" max="100" step="5" value="50" />
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                  <span class="om-label">Thumbstick Circularity</span>
+                  <div class="segmented" id="ctrlCircularityGroup">
+                    <button type="button" class="mode-seg selected" data-circularity="0">Standard Axis</button>
+                    <button type="button" class="mode-seg" data-circularity="1">Raw Circular</button>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="setting-card">
+              <div class="setting-heading">
+                <div>
+                  <h2>Razer Pro HyperTriggers &amp; Haptic Rumble</h2>
+                  <p>Instant digital mouse-click hair triggers, analog travel range (10–100%), and dual-motor rumble scaling</p>
+                </div>
+                <output id="valCtrlRumbleBadge" class="val-pill">80% Rumble</output>
+              </div>
+              <div style="display:grid;gap:14px;">
+                <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                  <button type="button" id="btnLeftHairTrigger" class="om-btn is-primary is-sm">⚡ Left Hair Trigger: ON</button>
+                  <button type="button" id="btnRightHairTrigger" class="om-btn is-primary is-sm">⚡ Right Hair Trigger: ON</button>
+                </div>
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Trigger Actuation Range (LT / RT)</span>
+                    <output id="valCtrlTriggerRange">40%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngCtrlTriggerRange" min="10" max="100" step="5" value="40" />
+                  </div>
+                </div>
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Haptic Vibration Intensity (Left &amp; Right Motors)</span>
+                    <output id="valCtrlVibration">80%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngCtrlVibration" min="0" max="100" step="5" value="80" />
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <!-- ==============================================================
+               MOUSE MATS, DOCKS & CHROMA ARGB ACCESSORIES PANELS
+               ============================================================== -->
+          <div id="accessoryPanelsWrap" class="settings-grid" hidden>
+            <article class="setting-card" style="grid-column: 1 / -1;">
+              <div class="setting-heading">
+                <div>
+                  <h2>Multi-Zone Chroma RGB &amp; Addressable ARGB Studio</h2>
+                  <p>Configure addressable LED zone count (1–60 LEDs), per-zone colors, hardware effect, and brightness via Protocol 25 Class 0x0F</p>
+                </div>
+                <output id="valAccLedCountBadge" class="val-pill">15 Addressable Zones</output>
+              </div>
+              <div style="display:grid;gap:14px;">
+                <div id="accessoryZoneStrip" style="display:grid;grid-template-columns:repeat(15,1fr);gap:6px;padding:12px;background:rgba(0,0,0,0.35);border-radius:10px;border:1px solid var(--line-1);"></div>
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Addressable LED Zone Count</span>
+                    <output id="valAccLedCount">15 LEDs</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngAccLedCount" min="1" max="60" step="1" value="15" />
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <!-- ================================================================
+             VIEW 2: OPENMOUSE DEVICES SHELF & FULL SYNAPSE 4.0 CATALOG
+             ================================================================ -->
+        <section id="viewShelf" class="om-page" hidden>
+          <header class="om-page-head">
+            <div>
+              <h1>Active workspace devices</h1>
+              <p class="om-meta">Devices currently loaded in your workspace or paired via WebHID (`0x1532`)</p>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button id="btnShelfPairWebHid" type="button" class="om-btn is-primary is-sm">⚡ Pair USB / Dongle via WebHID</button>
+            </div>
+          </header>
+          <div id="devicesShelfGrid" class="om-shelf-grid"></div>
+
+          <section class="om-panel" style="margin-top:18px;padding:18px;">
+            <header class="om-panel-head" style="padding:0 0 14px;flex-wrap:wrap;gap:12px;">
+              <div>
+                <h2 style="font-size:16px;">Razer Synapse 4.0 Complete Hardware Catalog</h2>
+                <span class="om-meta">All 341 official Razer Synapse 4.0 models (488 Wired, 2.4GHz HyperSpeed &amp; Bluetooth PIDs) — click any device to load its workspace</span>
+              </div>
+              <div class="om-end" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <input
+                  type="search"
+                  id="inpCatalogSearch"
+                  placeholder="Search 341 devices or PID (e.g. Viper V3, BlackShark, Wolverine, 0x02A7)..."
+                  style="min-width:290px;padding:7px 12px;border-radius:8px;border:1px solid var(--line-2);background:var(--bg-0);color:var(--ink-0);font-size:12.5px;"
+                />
+                <span id="catalogCountBadge" class="om-badge is-ok">341 Models</span>
+              </div>
+            </header>
+            <div id="catalogCategoryFilters" class="segmented" style="margin-bottom:14px;display:flex;flex-wrap:wrap;gap:6px;">
+              <button type="button" class="toolbar-chip active" data-cat-filter="all">All Synapse 4 Devices</button>
+              <button type="button" class="toolbar-chip" data-cat-filter="mouse">🖱️ Mice &amp; Dongles</button>
+              <button type="button" class="toolbar-chip" data-cat-filter="keyboard-analog">⚡ Analog Keyboards</button>
+              <button type="button" class="toolbar-chip" data-cat-filter="keyboard">⌨️ Keyboards &amp; Laptops</button>
+              <button type="button" class="toolbar-chip" data-cat-filter="audio">🎧 Audio &amp; Broadcaster</button>
+              <button type="button" class="toolbar-chip" data-cat-filter="controller">🎮 Controllers &amp; Fightsticks</button>
+              <button type="button" class="toolbar-chip" data-cat-filter="mat-accessory">🌈 Mats, Docks &amp; Chroma</button>
+            </div>
+            <div id="synapseCatalogGrid" class="om-shelf-grid"></div>
+          </section>
+        </section>
+
+        <!-- ================================================================
+             VIEW 3: OPENMOUSE HARDWARE TEST SUITE
+             ================================================================ -->
+        <section id="viewHardwareTest" class="om-page" hidden>
+          <header class="om-page-head">
+            <div>
+              <h1>Hardware test &amp; polling analyzer</h1>
+              <p class="om-meta">Verify Protocol 25 read-back, flash round-trip integrity, and live pointer reporting stability</p>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button id="btnRunHardwareTest" type="button" class="om-btn is-primary">▶ Start hardware test</button>
+              <button id="btnDownloadTestReport" type="button" class="om-btn" disabled>⬇ Download report (.json)</button>
+            </div>
+          </header>
+
+          <div class="om-overview-top">
+            <section class="om-panel is-lit">
+              <header class="om-panel-head">
+                <h2>Live pointer polling rate sampler</h2>
+                <span class="om-meta">Move your mouse in steady circles inside this window during sampling</span>
+                <div class="om-end">
+                  <button id="btnSamplePollingOnly" type="button" class="om-btn is-sm">5s live sample</button>
+                </div>
+              </header>
+              <div class="om-setup-figures">
+                <div class="om-setup-figure">
+                  <span class="om-label">Average rate</span>
+                  <span class="om-fig"><span id="testAvgHz">–</span><span class="om-unit">Hz</span></span>
+                  <span class="om-meta" id="testEventsCount">0 coalesced events</span>
+                </div>
+                <div class="om-setup-figure">
+                  <span class="om-label">Peak / 5% low</span>
+                  <span class="om-fig is-sm" id="testPeakLowHz">– / – Hz</span>
+                  <span class="om-meta">Median-clamped</span>
+                </div>
+                <div class="om-setup-figure">
+                  <span class="om-label">Stability</span>
+                  <span class="om-fig"><span id="testStability">–</span><span class="om-unit">%</span></span>
+                  <span class="om-meta" id="testJitterMeta">Jitter: –%</span>
+                </div>
+                <div class="om-setup-figure">
+                  <span class="om-label">Dropouts</span>
+                  <span class="om-fig" id="testDropouts">0</span>
+                  <span class="om-meta">Intervals &gt; 2.5× median</span>
+                </div>
+              </div>
+              <div style="padding:0 16px 14px;">
+                <div class="hardware-test-progress">
+                  <i id="testSampleProgressBar" style="width:0%"></i>
+                </div>
+              </div>
+            </section>
+
+            <section class="om-panel">
+              <header class="om-panel-head">
+                <h2>Automated diagnostic stages</h2>
+                <span class="om-badge" id="hwTestVerdictBadge">Ready</span>
+              </header>
+              <div id="hardwareTestStagesList">
+                <div class="hardware-test-stage">
+                  <span>1</span>
+                  <div>
+                    <div style="font-weight:600;">Click "Start hardware test" to run the full diagnostic</div>
+                    <div class="om-meta">Tests HID control interface, firmware 0x00/0x87, device mode 0x00/0x84, 5s pointer polling, and slot round-trip</div>
+                  </div>
+                  <span class="hw-stage-badge">Idle</span>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <!-- ================================================================
+             VIEW 4: OPENMOUSE THEMES & INTERFACE SETTINGS
+             ================================================================ -->
+        <section id="viewSettings" class="om-page" hidden>
+          <header class="om-page-head">
+            <div>
+              <h1>Themes &amp; interface settings</h1>
+              <p class="om-meta">Customize appearance, staging behavior, audio feedback, and portable profile keys</p>
+            </div>
+          </header>
+
+          <section class="om-panel">
+            <header class="om-panel-head">
+              <h2>Appearance · 12 OpenMouse themes</h2>
+              <span class="om-meta">Each tile previews its own token palette</span>
+            </header>
+            <div style="padding:4px 16px 16px;">
+              <div id="themeGalleryGrid" class="om-theme-grid"></div>
+            </div>
+          </section>
+
+          <div class="settings-grid">
+            <article class="setting-card">
+              <div class="setting-heading">
+                <div>
+                  <h2>Behavior &amp; feedback</h2>
+                  <p>Control how settings are written to hardware</p>
+                </div>
+              </div>
+              <div class="switch-tiles-grid">
+                <label class="switch-tile" id="tileInstantFlash" data-state="on">
+                  <span class="switch-tile-icon">⚡</span>
+                  <input type="checkbox" id="chkInstantFlash" checked />
+                  <span class="switch-button"><span class="switch-thumb"></span></span>
+                  <span class="switch-tile-label">
+                    <strong>Instant hardware flash</strong>
+                    <small>Write immediately (off = stage in Apply Bar)</small>
+                  </span>
+                </label>
+                <label class="switch-tile" id="tileUiSounds" data-state="off">
+                  <span class="switch-tile-icon">🔔</span>
+                  <input type="checkbox" id="chkUiSounds" />
+                  <span class="switch-button"><span class="switch-thumb"></span></span>
+                  <span class="switch-tile-label">
+                    <strong>Web Audio chimes</strong>
+                    <small>Subtle synth tone on hardware flash</small>
+                  </span>
+                </label>
+                <label class="switch-tile" id="tileReducedMotion" data-state="off">
+                  <span class="switch-tile-icon">✨</span>
+                  <input type="checkbox" id="chkReducedMotion" />
+                  <span class="switch-button"><span class="switch-thumb"></span></span>
+                  <span class="switch-tile-label">
+                    <strong>Reduce motion</strong>
+                    <small>Disable ASCII sweep &amp; card transitions</small>
+                  </span>
+                </label>
+              </div>
+            </article>
+
+            <article class="setting-card">
+              <div class="setting-heading">
+                <div>
+                  <h2>Portable profile key (RZW1:)</h2>
+                  <p>Copy or paste a Base64 key to share or restore your active slot setup anywhere</p>
+                </div>
+              </div>
+              <label style="display:grid;gap:4px;">
+                <span class="om-label">Your active slot key</span>
+                <textarea id="txtProfileKeyExport" rows="2" readonly style="font-family:var(--font-mono);font-size:11.5px;"></textarea>
+              </label>
+              <div style="display:flex;gap:8px;">
+                <button id="btnCopyProfileKey" type="button" class="om-btn is-sm">📋 Copy profile key</button>
+              </div>
+              <label style="display:grid;gap:4px;">
+                <span class="om-label">Import profile key</span>
+                <textarea id="txtProfileKeyImport" rows="2" placeholder="Paste RZW1:... profile key here" style="font-family:var(--font-mono);font-size:11.5px;"></textarea>
+              </label>
+              <div>
+                <button id="btnApplyProfileKey" type="button" class="om-btn is-primary is-sm">Import &amp; apply key</button>
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
+
+      <!-- OpenMouse Floating Staged Apply Bar (shown when Instant Flash is off & changes are queued) -->
+      <div id="pendingApplyBar" class="apply-bar" hidden>
+        <div class="apply-bar-label">
+          <span class="om-dot is-ok"></span>
+          <span id="pendingCountText">1 staged change</span>
+          <span id="pendingSummaryText" class="apply-bar-summary">Ready to flash to hardware</span>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button id="btnRevertStaged" type="button" class="om-btn is-ghost is-sm">Revert</button>
+          <button id="btnFlushStaged" type="button" class="om-btn is-primary is-sm">Apply to hardware</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Protocol 25 Packet Inspector Drawer -->
+    <aside id="inspectorDrawer" class="inspector-drawer" hidden>
+      <header class="om-panel-head" style="border-bottom:1px solid var(--line-1);">
+        <h2>Protocol 25 packet log (91-byte HID)</h2>
+        <div class="om-end">
+          <button id="btnClearPackets" type="button" class="om-btn is-sm">Clear</button>
+          <button id="btnCloseDrawer" type="button" class="om-icon-btn">✕</button>
+        </div>
+      </header>
+      <div id="packetList" class="packet-list"></div>
+    </aside>
+
+    <div id="toastContainer" class="toast-stack"></div>
+  </div>
+
+  <script src="./protocol25.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
