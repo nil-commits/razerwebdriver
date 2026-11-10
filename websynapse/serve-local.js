@@ -20,6 +20,7 @@ const PUBLIC_ALLOWLIST = new Set([
   "/styles.css",
   "/app.js",
   "/protocol25.js",
+  "/timer-worker.js",
   "/LICENSE",
   "/fonts/DMSans-Variable.ttf",
   "/fonts/DM-Sans-OFL.txt",
@@ -68,7 +69,7 @@ http
     res.writeHead(200, {
       "Content-Type": MIME[ext] || "text/plain; charset=utf-8",
       "Content-Security-Policy":
-        "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; font-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; frame-src 'none'; frame-ancestors 'none'; worker-src 'none'; base-uri 'none'; form-action 'none';",
+        "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; font-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; frame-src 'none'; frame-ancestors 'none'; worker-src 'self' blob:; base-uri 'none'; form-action 'none';",
       "Permissions-Policy":
         "hid=(self), usb=(), serial=(), bluetooth=(), camera=(), microphone=(), geolocation=(), payment=()",
       "X-Content-Type-Options": "nosniff",

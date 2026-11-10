@@ -5,7 +5,7 @@
 ## 1. Zero-Network / Zero-Exfiltration Content Security Policy (CSP)
 Both [`index.html`](./index.html) and the server headers ([`nginx.conf.example`](./nginx.conf.example), [`Caddyfile.example`](./Caddyfile.example), [`_headers`](./_headers)) enforce:
 ```http
-Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; font-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; frame-src 'none'; frame-ancestors 'none'; worker-src 'none'; base-uri 'none'; form-action 'none';
+Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; font-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; frame-src 'none'; frame-ancestors 'none'; worker-src 'self' blob:; base-uri 'none'; form-action 'none';
 ```
 - **`connect-src 'none'`**: Completely disables `fetch()`, `XMLHttpRequest`, `WebSocket`, `EventSource`, and `navigator.sendBeacon()` at the browser engine level. Even if a user loads a third-party browser extension, the page cannot exfiltrate telemetry, device serials, or profile data over the network.
 - **`script-src 'self'`**: Blocks all inline `<script>` tags, inline `on*` event attributes, `javascript:` URLs, `eval()`, and `new Function()`.
