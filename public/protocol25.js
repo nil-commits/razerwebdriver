@@ -672,10 +672,21 @@
     0x1c: 22, // Y
     0x1d: 46, // Z
     0x2c: 61, // Space
-    0x4f: 79, // Right Arrow
-    0x50: 75, // Left Arrow
-    0x51: 80, // Down Arrow
-    0x52: 72, // Up Arrow
+    0x32: 42, // Non-US #
+    0x4f: 89, // Right Arrow
+    0x50: 79, // Left Arrow
+    0x51: 84, // Down Arrow
+    0x52: 83, // Up Arrow
+    0x64: 45, // Non-US \
+    0x65: 129, // Application / Menu
+    0xe0: 58, // Left Ctrl
+    0xe1: 44, // Left Shift
+    0xe2: 60, // Left Alt
+    0xe3: 127, // Left GUI / Win
+    0xe4: 64, // Right Ctrl
+    0xe5: 57, // Right Shift
+    0xe6: 62, // Right Alt
+    0xe7: 59, // Right GUI / Fn
   };
 
   const STRING_TO_RAZER_KEY_ID = {
@@ -688,7 +699,7 @@
     CAPS: 30, A: 31, S: 32, D: 33, F: 34, G: 35, H: 36, J: 37, K: 38, L: 39, ";": 40, "'": 41, ENTER: 43,
     SHIFT: 44, LSHIFT: 44, Z: 46, X: 47, C: 48, V: 49, B: 50, N: 51, M: 52, ",": 53, ".": 54, "/": 55, RSHIFT: 57,
     UP: 83, "↑": 83,
-    CTRL: 58, LCTRL: 58, WIN: 59, ALT: 60, LALT: 60, SPACE: 61, RALT: 62, FN: 63, MENU: 64, RCTRL: 65,
+    CTRL: 58, LCTRL: 58, WIN: 127, LWIN: 127, ALT: 60, LALT: 60, SPACE: 61, RALT: 62, FN: 59, MENU: 129, RCTRL: 64,
     LEFT: 79, "←": 79, DOWN: 84, "↓": 84, RIGHT: 89, "→": 89,
   };
 
@@ -697,11 +708,15 @@
     J: 0x0d, K: 0x0e, L: 0x0f, M: 0x10, N: 0x11, O: 0x12, P: 0x13, Q: 0x14, R: 0x15,
     S: 0x16, T: 0x17, U: 0x18, V: 0x19, W: 0x1a, X: 0x1b, Y: 0x1c, Z: 0x1d,
     1: 0x1e, 2: 0x1f, 3: 0x20, 4: 0x21, 5: 0x22, 6: 0x23, 7: 0x24, 8: 0x25, 9: 0x26, 0: 0x27,
-    ENTER: 0x28, ESC: 0x29, BACKSPACE: 0x2a, TAB: 0x2b, SPACE: 0x2c,
+    ENTER: 0x28, ESC: 0x29, BACKSPACE: 0x2a, BKSP: 0x2a, TAB: 0x2b, SPACE: 0x2c,
+    "-": 0x2d, "=": 0x2e, "[": 0x2f, "]": 0x30, "\\": 0x31, ";": 0x33, "'": 0x34, "`": 0x35, ",": 0x36, ".": 0x37, "/": 0x38,
     CAPS: 0x39, F1: 0x3a, F2: 0x3b, F3: 0x3c, F4: 0x3d, F5: 0x3e, F6: 0x3f,
     F7: 0x40, F8: 0x41, F9: 0x42, F10: 0x43, F11: 0x44, F12: 0x45,
-    RIGHT: 0x4f, LEFT: 0x50, DOWN: 0x51, UP: 0x52,
-    LCTRL: 0xe0, CTRL: 0xe0, LSHIFT: 0xe1, SHIFT: 0xe1, LALT: 0xe2, ALT: 0xe2, WIN: 0xe3,
+    PRT: 0x46, SCR: 0x47, PAU: 0x48, INS: 0x49, HOME: 0x4a, PGUP: 0x4b, DEL: 0x4c, END: 0x4d, PGDN: 0x4e,
+    RIGHT: 0x4f, "→": 0x4f, LEFT: 0x50, "←": 0x50, DOWN: 0x51, "↓": 0x51, UP: 0x52, "↑": 0x52,
+    MENU: 0x65,
+    LCTRL: 0xe0, CTRL: 0xe0, LSHIFT: 0xe1, SHIFT: 0xe1, LALT: 0xe2, ALT: 0xe2, WIN: 0xe3, LWIN: 0xe3,
+    RCTRL: 0xe4, RSHIFT: 0xe5, RALT: 0xe6, FN: 0xe7,
   };
 
   function resolveDefaultUsbHid(keyIdOrLabel) {
@@ -1335,6 +1350,98 @@
       });
     },
 
+    getPollingRate({ slot = 1, transactionId = 0x1f } = {}) {
+      return buildPacket({
+        commandClass: 0x00,
+        commandId: 0xc0,
+        dataSize: 0x02,
+        args: [slot & 0xff, 0x00],
+        transactionId,
+      });
+    },
+
+    getActiveProfileSlot(transactionId = 0x1f) {
+      return buildPacket({
+        commandClass: 0x05,
+        commandId: 0x84,
+        dataSize: 0x01,
+        args: [0x00],
+        transactionId,
+      });
+    },
+
+    getGameMode({ varStore = 1, transactionId = 0x1f } = {}) {
+      return buildPacket({
+        commandClass: 0x03,
+        commandId: 0x80,
+        dataSize: 0x03,
+        args: [varStore & 0xff, 0x08, 0x00],
+        transactionId,
+      });
+    },
+
+    getSnapTap({ varStore = 1, transactionId = 0x1f } = {}) {
+      return buildPacket({
+        commandClass: 0x02,
+        commandId: 0xa1,
+        dataSize: 0x04,
+        args: [varStore & 0xff, 0x00, 0x00, 0x00],
+        transactionId,
+      });
+    },
+
+    getAnalogActuation({ keyId = 31, varStore = 0, transactionId = 0x1f } = {}) {
+      const k = resolveRazerKeyId(keyId);
+      return buildPacket({
+        commandClass: 0x02,
+        commandId: 0x99,
+        dataSize: 0x07,
+        args: [varStore & 0xff, 0x01, k & 0xff, 0x00, 0x00, 0x00, 0x00],
+        transactionId,
+      });
+    },
+
+    getRapidTrigger({ keyId = 31, varStore = 0, transactionId = 0x1f } = {}) {
+      const k = resolveRazerKeyId(keyId);
+      return buildPacket({
+        commandClass: 0x02,
+        commandId: 0x9a,
+        dataSize: 0x08,
+        args: [varStore & 0xff, 0x01, k & 0xff, 0x00, 0x00, 0x00, 0x00, 0x00],
+        transactionId,
+      });
+    },
+
+    getContinuousRapidTrigger({ varStore = 1, transactionId = 0x1f } = {}) {
+      return buildPacket({
+        commandClass: 0x02,
+        commandId: 0xa0,
+        dataSize: 0x02,
+        args: [varStore & 0xff, 0x00],
+        transactionId,
+      });
+    },
+
+    getMultiWirelessStatusV2(transactionId = 0xff) {
+      return buildPacket({
+        commandClass: 0x00,
+        commandId: 0xbf,
+        dataSize: 80,
+        args: [],
+        transactionId,
+      });
+    },
+
+    getPrimaryDevice(transactionId = 0xff) {
+      return buildPacket({
+        commandClass: 0x00,
+        commandId: 0xc5,
+        dataSize: 0x03,
+        args: [0x00, 0x00, 0x00],
+        transactionId,
+      });
+    },
+
     getBatteryLevel(transactionId = 0x1f) {
       return buildPacket({
         commandClass: 0x07,
@@ -1537,6 +1644,74 @@
     },
   };
 
+  const Decoders = {
+    pollingRate(parsed) {
+      if (!parsed || parsed.status !== STATUS.SUCCESS) return null;
+      const code = parsed.allArgs?.[1] ?? parsed.allArgs?.[0] ?? 0x08;
+      const map = { 0x01: 8000, 0x02: 4000, 0x04: 2000, 0x08: 1000, 0x10: 500, 0x20: 250, 0x40: 125 };
+      return map[code] || 1000;
+    },
+    activeProfileSlot(parsed) {
+      if (!parsed || parsed.status !== STATUS.SUCCESS) return null;
+      const slot = parsed.allArgs?.[0] ?? 1;
+      return slot >= 1 && slot <= 6 ? slot : 1;
+    },
+    snapTap(parsed) {
+      if (!parsed || parsed.status !== STATUS.SUCCESS) return null;
+      const a = parsed.allArgs || [];
+      return {
+        varStore: a[0] ?? 1,
+        enabled: Boolean(a[1]),
+        keyAId: a[2] ?? 31,
+        keyBId: a[3] ?? 33,
+      };
+    },
+    analogActuation(parsed) {
+      if (!parsed || parsed.status !== STATUS.SUCCESS) return null;
+      const a = parsed.allArgs || [];
+      const breakRaw = ((a[3] ?? 0) << 8) | (a[4] ?? 0);
+      const makeRaw = ((a[5] ?? 0) << 8) | (a[6] ?? 0);
+      if (!makeRaw) return null;
+      return {
+        keyId: a[2] ?? 31,
+        resetMm: Math.round((breakRaw / 16380) * 10) / 10,
+        actuationMm: Math.round((makeRaw / 16380) * 10) / 10,
+      };
+    },
+    rapidTrigger(parsed) {
+      if (!parsed || parsed.status !== STATUS.SUCCESS) return null;
+      const a = parsed.allArgs || [];
+      const upRaw = ((a[4] ?? 0) << 8) | (a[5] ?? 0);
+      const downRaw = ((a[6] ?? 0) << 8) | (a[7] ?? 0);
+      return {
+        keyId: a[2] ?? 31,
+        enabled: Boolean(a[3]),
+        upMm: upRaw ? Math.round((upRaw / 16380) * 10) / 10 : 0.3,
+        downMm: downRaw ? Math.round((downRaw / 16380) * 10) / 10 : 0.3,
+      };
+    },
+    continuousRapidTrigger(parsed) {
+      if (!parsed || parsed.status !== STATUS.SUCCESS) return null;
+      const a = parsed.allArgs || [];
+      return Boolean(a[1]);
+    },
+    multiWirelessStatusV2(parsed) {
+      if (!parsed || parsed.status !== STATUS.SUCCESS) return null;
+      const a = parsed.allArgs || [];
+      const count = a[0] ?? 0;
+      const devices = [];
+      let idx = 1;
+      for (let i = 0; i < count && idx + 2 < a.length; i++, idx += 3) {
+        const status = a[idx];
+        const productId = ((a[idx + 1] ?? 0) << 8) | (a[idx + 2] ?? 0);
+        if (productId && productId !== 0xffff) {
+          devices.push({ productId, connected: status > 0, status });
+        }
+      }
+      return { deviceCount: count, devices };
+    },
+  };
+
   function getDeviceMetadata(pid, fallbackProductName = "") {
     const numPid = Number(pid);
     const known = KNOWN_DEVICES[numPid];
@@ -1598,5 +1773,6 @@
     buildPacket,
     parsePacket,
     Builders,
+    Decoders,
   };
 });
