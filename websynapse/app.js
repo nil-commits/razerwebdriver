@@ -811,29 +811,42 @@
       // Report ID 6: LampArrayControlReport -> AutonomousMode = 0 (Host control)
       await lampDev.sendFeatureReport(6, new Uint8Array([0]));
 
-      const sendRangeColor = async (r, g, b, intensity = 255) => {
-        // Report ID 5: LampRangeUpdateReport (Flags=1, Start=0, End=endId, R, G, B, Intensity)
-        const rep5 = new Uint8Array([
-          1,
-          0,
-          0,
-          endLo,
-          endHi,
-          Math.round(r * brScale) & 0xff,
-          Math.round(g * brScale) & 0xff,
-          Math.round(b * brScale) & 0xff,
-          intensity & 0xff,
-        ]);
+      const sendAllLampsColor = async (r, g, b, intensity = 255) => {
+        const sr = Math.round(r * brScale) & 0xff;
+        const sg = Math.round(g * brScale) & 0xff;
+        const sb = Math.round(b * brScale) & 0xff;
+        const si = intensity & 0xff;
+        // Send Report ID 4 (LampMultiUpdateReport, 8 lamps per 50-byte packet) for universal firmware compatibility
+        for (let baseIdx = 0; baseIdx < lampCount; baseIdx += 8) {
+          const count = Math.min(8, lampCount - baseIdx);
+          const isLast = baseIdx + 8 >= lampCount;
+          const rep4 = new Uint8Array(50);
+          rep4[0] = count;
+          rep4[1] = isLast ? 1 : 0; // LampUpdateComplete on final batch
+          for (let i = 0; i < count; i++) {
+            const lampId = baseIdx + i;
+            rep4[2 + i * 2] = lampId & 0xff;
+            rep4[2 + i * 2 + 1] = (lampId >> 8) & 0xff;
+            const colOff = 18 + i * 4;
+            rep4[colOff] = sr;
+            rep4[colOff + 1] = sg;
+            rep4[colOff + 2] = sb;
+            rep4[colOff + 3] = si;
+          }
+          await lampDev.sendFeatureReport(4, rep4);
+        }
+        // Also send Report ID 5 (LampRangeUpdateReport) for range-capable LampArray controllers
+        const rep5 = new Uint8Array([1, 0, 0, endLo, endHi, sr, sg, sb, si]);
         await lampDev.sendFeatureReport(5, rep5);
       };
 
       if (effect === "off" || brScale <= 0) {
-        await sendRangeColor(0, 0, 0, 0);
+        await sendAllLampsColor(0, 0, 0, 0);
         return true;
       }
 
       if (effect === "static" || effect === "reactive") {
-        await sendRangeColor(baseR, baseG, baseB, 255);
+        await sendAllLampsColor(baseR, baseG, baseB, 255);
         return true;
       }
 
@@ -843,41 +856,41 @@
       let busy = false;
 
       if (effect === "spectrum") {
-        await sendRangeColor(baseR, baseG, baseB, 255);
+        await sendAllLampsColor(baseR, baseG, baseB, 255);
         const timer = setInterval(async () => {
           if (busy || !lampDev.opened) return;
           busy = true;
           try {
-            tick += speedMult * 2.2;
+            tick += speedMult * 3.2;
             const [r, g, b] = hsvToRgb(tick % 360, 1, 1);
-            await sendRangeColor(r, g, b, 255);
+            await sendAllLampsColor(r, g, b, 255);
           } catch {
             clearInterval(timer);
           } finally {
             busy = false;
           }
-        }, 45);
+        }, 70);
         lampArrayTimerByPid.set(numPid, timer);
         return true;
       }
 
       if (effect === "breathing" || effect === "breathingDual") {
-        await sendRangeColor(baseR, baseG, baseB, 255);
+        await sendAllLampsColor(baseR, baseG, baseB, 255);
         const timer = setInterval(async () => {
           if (busy || !lampDev.opened) return;
           busy = true;
           try {
-            tick += 0.065 * speedMult;
+            tick += 0.085 * speedMult;
             const phase = 0.5 + 0.5 * Math.sin(tick);
             if (effect === "breathingDual" && Math.cos(tick * 0.5) < 0) {
-              await sendRangeColor(
+              await sendAllLampsColor(
                 Math.round((255 - baseR) * phase),
                 Math.round(baseB * phase),
                 Math.round(baseG * phase),
                 255
               );
             } else {
-              await sendRangeColor(
+              await sendAllLampsColor(
                 Math.round(baseR * phase),
                 Math.round(baseG * phase),
                 Math.round(baseB * phase),
@@ -889,7 +902,7 @@
           } finally {
             busy = false;
           }
-        }, 45);
+        }, 70);
         lampArrayTimerByPid.set(numPid, timer);
         return true;
       }
@@ -943,7 +956,7 @@
         return true;
       }
 
-      await sendRangeColor(baseR, baseG, baseB, 255);
+      await sendAllLampsColor(baseR, baseG, baseB, 255);
       return true;
     } catch {
       return false;
@@ -1251,6 +1264,13 @@
           }
           if (!dev.opened) {
             await dev.open();
+          }
+          // If this is a lighting command and the device also exposes LampArray (0x0059),
+          // ensure ForceChromaCtrl (0x0F / 0x10) is set to 0x00 so LampArray is unlocked in firmware.
+          if (isLightingCmd && findLampArrayDevice(pidKey) && Protocol25.Builders?.setForceChromaCtrl) {
+            const unlockPkt = Protocol25.Builders.setForceChromaCtrl(false, body90[1] || 0x1f);
+            await dev.sendFeatureReport(0x00, Uint8Array.from(unlockPkt)).catch(() => {});
+            await new Promise((r) => setTimeout(r, 10));
           }
           const txBuf = Uint8Array.from(body90);
           await dev.sendFeatureReport(0x00, txBuf);

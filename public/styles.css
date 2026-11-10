@@ -2029,6 +2029,10 @@ select option {
   box-shadow: var(--lit), inset 0 0 0 1px var(--accent-line), var(--shadow-float);
 }
 
+[hidden] {
+  display: none !important;
+}
+
 /* Protocol 25 Packet Inspector Drawer */
 .inspector-drawer {
   position: fixed;
@@ -2042,6 +2046,9 @@ select option {
   box-shadow: var(--shadow-float);
   display: flex;
   flex-direction: column;
+}
+.inspector-drawer[hidden] {
+  display: none !important;
 }
 .packet-list {
   flex: 1;

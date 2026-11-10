@@ -1040,6 +1040,31 @@
       });
     },
 
+    /**
+     * Force Chroma Ctrl / WDL Lockout Toggle (Class 0x0F, Cmd 0x10 / 0x90)
+     * Setting enabled = false (0x00) unlocks USB HID LampArray (MI_04, UsagePage 0x0059)
+     * so browser WebHID LampArray reports can control the hardware LEDs directly.
+     */
+    setForceChromaCtrl(enabled = false, transactionId = 0x1f) {
+      return buildPacket({
+        commandClass: 0x0f,
+        commandId: 0x10,
+        dataSize: 0x01,
+        args: [enabled ? 0x01 : 0x00],
+        transactionId,
+      });
+    },
+
+    getForceChromaCtrl(transactionId = 0x1f) {
+      return buildPacket({
+        commandClass: 0x0f,
+        commandId: 0x90,
+        dataSize: 0x01,
+        args: [0x00],
+        transactionId,
+      });
+    },
+
     setChromaEffect({
       effect = "static",
       r = 0,

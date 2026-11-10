@@ -852,6 +852,15 @@ const server = http.createServer(async (req, res) => {
       // reflect the change immediately regardless of active profile mode.
       const norm90 = packet90.length === 91 ? packet90.slice(1) : packet90;
       if (norm90[6] === 0x0f && (norm90[7] === 0x02 || norm90[7] === 0x04)) {
+        // Ensure ForceChromaCtrl (0x0F / 0x10) is 0x00 so USB HID LampArray (MI_04) is never locked out
+        if (Protocol25.Builders?.setForceChromaCtrl) {
+          await sendProtocol25Command({
+            productId: pid,
+            interfaceNum: body.interfaceNum ?? 3,
+            reportId: body.reportId ?? 0,
+            packet90: Protocol25.Builders.setForceChromaCtrl(false, norm90[1] || 0x1f),
+          }).catch(() => null);
+        }
         const altProfile = norm90[8] === 0x00 ? 0x01 : 0x00;
         const altArgs = norm90.slice(8, 8 + (norm90[5] || 9));
         altArgs[0] = altProfile;
