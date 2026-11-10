@@ -583,6 +583,24 @@
                   <input type="color" id="inpChromaColor" value="#00e676" style="width:28px;height:28px;cursor:pointer;" />
                 </div>
 
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                  <div style="display:grid;gap:4px;">
+                    <span class="ws-label">Wave direction</span>
+                    <div class="preset-group" id="chromaDirGroup">
+                      <button type="button" class="preset-btn active" data-chroma-dir="1">Left → Right</button>
+                      <button type="button" class="preset-btn" data-chroma-dir="2">Right → Left</button>
+                    </div>
+                  </div>
+                  <div style="display:grid;gap:4px;">
+                    <span class="ws-label">Effect speed</span>
+                    <div class="preset-group" id="chromaSpeedGroup">
+                      <button type="button" class="preset-btn" data-chroma-speed="1">Slow</button>
+                      <button type="button" class="preset-btn active" data-chroma-speed="2">Medium</button>
+                      <button type="button" class="preset-btn" data-chroma-speed="3">Fast</button>
+                    </div>
+                  </div>
+                </div>
+
                 <div class="stepper-slider">
                   <div class="stepper-slider-head">
                     <span class="stepper-slider-title">Matrix brightness</span>

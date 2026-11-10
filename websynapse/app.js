@@ -764,6 +764,189 @@
     ];
   }
 
+  // Hardware-verified 87-Lamp Coordinate & Input-Binding Table for Razer Huntsman V3 Pro TKL (PID 0x02A7)
+  // Extracted from USB HID LampArray Report IDs 1..3 (x/y in mm, usage = USB HID Keyboard Usage Page 0x07)
+  const TKL_87_LAMPS = [
+    { id: 0, x: 16, y: 14, usage: 0x29, code: "Escape", label: "ESC" },
+    { id: 1, x: 54, y: 14, usage: 0x3a, code: "F1", label: "F1" },
+    { id: 2, x: 73, y: 14, usage: 0x3b, code: "F2", label: "F2" },
+    { id: 3, x: 92, y: 14, usage: 0x3c, code: "F3", label: "F3" },
+    { id: 4, x: 111, y: 14, usage: 0x3d, code: "F4", label: "F4" },
+    { id: 5, x: 139, y: 14, usage: 0x3e, code: "F5", label: "F5" },
+    { id: 6, x: 158, y: 14, usage: 0x3f, code: "F6", label: "F6" },
+    { id: 7, x: 177, y: 14, usage: 0x40, code: "F7", label: "F7" },
+    { id: 8, x: 196, y: 14, usage: 0x41, code: "F8", label: "F8" },
+    { id: 9, x: 225, y: 14, usage: 0x42, code: "F9", label: "F9" },
+    { id: 10, x: 244, y: 14, usage: 0x43, code: "F10", label: "F10" },
+    { id: 11, x: 263, y: 14, usage: 0x44, code: "F11", label: "F11" },
+    { id: 12, x: 282, y: 14, usage: 0x45, code: "F12", label: "F12" },
+    { id: 13, x: 318, y: 14, usage: 0x46, code: "PrintScreen", label: "PRT" },
+    { id: 14, x: 350, y: 14, usage: 0x47, code: "ScrollLock", label: "SCR" },
+    { id: 15, x: 16, y: 39, usage: 0x35, code: "Backquote", label: "`" },
+    { id: 16, x: 35, y: 39, usage: 0x1e, code: "Digit1", label: "1" },
+    { id: 17, x: 54, y: 39, usage: 0x1f, code: "Digit2", label: "2" },
+    { id: 18, x: 73, y: 39, usage: 0x20, code: "Digit3", label: "3" },
+    { id: 19, x: 92, y: 39, usage: 0x21, code: "Digit4", label: "4" },
+    { id: 20, x: 111, y: 39, usage: 0x22, code: "Digit5", label: "5" },
+    { id: 21, x: 130, y: 39, usage: 0x23, code: "Digit6", label: "6" },
+    { id: 22, x: 149, y: 39, usage: 0x24, code: "Digit7", label: "7" },
+    { id: 23, x: 168, y: 39, usage: 0x25, code: "Digit8", label: "8" },
+    { id: 24, x: 187, y: 39, usage: 0x26, code: "Digit9", label: "9" },
+    { id: 25, x: 206, y: 39, usage: 0x27, code: "Digit0", label: "0" },
+    { id: 26, x: 225, y: 39, usage: 0x2d, code: "Minus", label: "-" },
+    { id: 27, x: 244, y: 39, usage: 0x2e, code: "Equal", label: "=" },
+    { id: 28, x: 272, y: 39, usage: 0x2a, code: "Backspace", label: "BKSP" },
+    { id: 29, x: 308, y: 39, usage: 0x49, code: "Insert", label: "INS" },
+    { id: 30, x: 327, y: 39, usage: 0x4a, code: "Home", label: "HOME" },
+    { id: 31, x: 346, y: 39, usage: 0x4b, code: "PageUp", label: "PGUP" },
+    { id: 32, x: 21, y: 58, usage: 0x2b, code: "Tab", label: "TAB" },
+    { id: 33, x: 44, y: 58, usage: 0x14, code: "KeyQ", label: "Q" },
+    { id: 34, x: 63, y: 58, usage: 0x1a, code: "KeyW", label: "W" },
+    { id: 35, x: 82, y: 58, usage: 0x08, code: "KeyE", label: "E" },
+    { id: 36, x: 101, y: 58, usage: 0x15, code: "KeyR", label: "R" },
+    { id: 37, x: 120, y: 58, usage: 0x17, code: "KeyT", label: "T" },
+    { id: 38, x: 139, y: 58, usage: 0x1c, code: "KeyY", label: "Y" },
+    { id: 39, x: 158, y: 58, usage: 0x18, code: "KeyU", label: "U" },
+    { id: 40, x: 177, y: 58, usage: 0x0c, code: "KeyI", label: "I" },
+    { id: 41, x: 196, y: 58, usage: 0x12, code: "KeyO", label: "O" },
+    { id: 42, x: 215, y: 58, usage: 0x13, code: "KeyP", label: "P" },
+    { id: 43, x: 234, y: 58, usage: 0x2f, code: "BracketLeft", label: "[" },
+    { id: 44, x: 253, y: 58, usage: 0x30, code: "BracketRight", label: "]" },
+    { id: 45, x: 279, y: 68, usage: 0x28, code: "Enter", label: "ENTER" },
+    { id: 46, x: 308, y: 58, usage: 0x4c, code: "Delete", label: "DEL" },
+    { id: 47, x: 327, y: 58, usage: 0x4d, code: "End", label: "END" },
+    { id: 48, x: 346, y: 58, usage: 0x4e, code: "PageDown", label: "PGDN" },
+    { id: 49, x: 23, y: 77, usage: 0x39, code: "CapsLock", label: "CAPS" },
+    { id: 50, x: 49, y: 77, usage: 0x04, code: "KeyA", label: "A" },
+    { id: 51, x: 68, y: 77, usage: 0x16, code: "KeyS", label: "S" },
+    { id: 52, x: 87, y: 77, usage: 0x07, code: "KeyD", label: "D" },
+    { id: 53, x: 106, y: 77, usage: 0x09, code: "KeyF", label: "F" },
+    { id: 54, x: 125, y: 77, usage: 0x0a, code: "KeyG", label: "G" },
+    { id: 55, x: 144, y: 77, usage: 0x0b, code: "KeyH", label: "H" },
+    { id: 56, x: 163, y: 77, usage: 0x0d, code: "KeyJ", label: "J" },
+    { id: 57, x: 182, y: 77, usage: 0x0e, code: "KeyK", label: "K" },
+    { id: 58, x: 201, y: 77, usage: 0x0f, code: "KeyL", label: "L" },
+    { id: 59, x: 220, y: 77, usage: 0x33, code: "Semicolon", label: ";" },
+    { id: 60, x: 239, y: 77, usage: 0x34, code: "Quote", label: "'" },
+    { id: 61, x: 258, y: 77, usage: 0x32, code: "Backslash", label: "\\" },
+    { id: 62, x: 18, y: 96, usage: 0xe1, code: "ShiftLeft", label: "LSHIFT" },
+    { id: 63, x: 40, y: 96, usage: 0x64, code: "IntlBackslash", label: "LSHIFT" },
+    { id: 64, x: 59, y: 96, usage: 0x1d, code: "KeyZ", label: "Z" },
+    { id: 65, x: 78, y: 96, usage: 0x1b, code: "KeyX", label: "X" },
+    { id: 66, x: 97, y: 96, usage: 0x06, code: "KeyC", label: "C" },
+    { id: 67, x: 116, y: 96, usage: 0x19, code: "KeyV", label: "V" },
+    { id: 68, x: 135, y: 96, usage: 0x05, code: "KeyB", label: "B" },
+    { id: 69, x: 154, y: 96, usage: 0x11, code: "KeyN", label: "N" },
+    { id: 70, x: 173, y: 96, usage: 0x10, code: "KeyM", label: "M" },
+    { id: 71, x: 192, y: 96, usage: 0x36, code: "Comma", label: "," },
+    { id: 72, x: 211, y: 96, usage: 0x37, code: "Period", label: "." },
+    { id: 73, x: 230, y: 96, usage: 0x38, code: "Slash", label: "/" },
+    { id: 74, x: 265, y: 96, usage: 0xe5, code: "ShiftRight", label: "RSHIFT" },
+    { id: 75, x: 327, y: 96, usage: 0x52, code: "ArrowUp", label: "↑" },
+    { id: 76, x: 18, y: 115, usage: 0xe0, code: "ControlLeft", label: "LCTRL" },
+    { id: 77, x: 42, y: 115, usage: 0xe3, code: "MetaLeft", label: "WIN" },
+    { id: 78, x: 66, y: 115, usage: 0xe2, code: "AltLeft", label: "LALT" },
+    { id: 79, x: 137, y: 115, usage: 0x2c, code: "Space", label: "SPACE" },
+    { id: 80, x: 208, y: 115, usage: 0xe6, code: "AltRight", label: "RALT" },
+    { id: 81, x: 232, y: 115, usage: 0x00, code: "Fn", label: "FN" },
+    { id: 82, x: 256, y: 115, usage: 0x65, code: "ContextMenu", label: "MENU" },
+    { id: 83, x: 279, y: 115, usage: 0xe4, code: "ControlRight", label: "RCTRL" },
+    { id: 84, x: 308, y: 115, usage: 0x50, code: "ArrowLeft", label: "←" },
+    { id: 85, x: 327, y: 115, usage: 0x51, code: "ArrowDown", label: "↓" },
+    { id: 86, x: 346, y: 115, usage: 0x4f, code: "ArrowRight", label: "→" },
+  ];
+
+  const lampLayoutCacheByPid = new Map();
+  const reactiveTriggerByPid = new Map();
+  let reactiveKeyListenersBound = false;
+
+  function ensureReactiveKeyListeners() {
+    if (reactiveKeyListenersBound) return;
+    reactiveKeyListenersBound = true;
+
+    window.addEventListener(
+      "keydown",
+      (ev) => {
+        for (const handler of reactiveTriggerByPid.values()) {
+          if (typeof handler.onKeyDown === "function") {
+            handler.onKeyDown(ev.code, ev.key);
+          }
+        }
+      },
+      { passive: true }
+    );
+
+    window.addEventListener(
+      "keyup",
+      (ev) => {
+        for (const handler of reactiveTriggerByPid.values()) {
+          if (typeof handler.onKeyUp === "function") {
+            handler.onKeyUp(ev.code, ev.key);
+          }
+        }
+      },
+      { passive: true }
+    );
+
+    window.addEventListener(
+      "blur",
+      () => {
+        for (const handler of reactiveTriggerByPid.values()) {
+          if (typeof handler.onReleaseAll === "function") {
+            handler.onReleaseAll();
+          }
+        }
+      },
+      { passive: true }
+    );
+  }
+
+  function buildLampLayoutMeta(lampCount) {
+    const lamps = [];
+    const byCode = new Map();
+    const byLabel = new Map();
+
+    for (let id = 0; id < lampCount; id++) {
+      const ref = TKL_87_LAMPS[id];
+      const x = ref ? ref.x : 16 + ((id % 16) / 15) * 334;
+      const y = ref ? ref.y : 14 + Math.floor(id / 16) * 20;
+      const nx = Math.max(0, Math.min(1, (x - 16) / 334));
+      const ny = Math.max(0, Math.min(1, (y - 14) / 101));
+      const item = {
+        id,
+        x,
+        y,
+        nx,
+        ny,
+        code: ref?.code || "",
+        label: ref?.label || "",
+      };
+      lamps.push(item);
+      if (item.code) {
+        if (!byCode.has(item.code)) byCode.set(item.code, []);
+        byCode.get(item.code).push(id);
+      }
+      if (item.label) {
+        if (!byLabel.has(item.label)) byLabel.set(item.label, []);
+        byLabel.get(item.label).push(id);
+      }
+    }
+
+    // Alias Pause/Break and IntlHash / NumpadEnter to nearest TKL keys
+    if (byLabel.has("SCR") && !byCode.has("Pause")) byCode.set("Pause", byLabel.get("SCR"));
+    if (byLabel.has("ENTER") && !byCode.has("NumpadEnter")) byCode.set("NumpadEnter", byLabel.get("ENTER"));
+    if (byLabel.has("\\") && !byCode.has("IntlHash")) byCode.set("IntlHash", byLabel.get("\\"));
+
+    // Sort lamp IDs horizontally from Left to Right (by X coordinate, then Y)
+    // so multi-packet Report ID 4 updates scan horizontally instead of top-to-bottom.
+    const sortedIdsByX = lamps
+      .slice()
+      .sort((a, b) => a.x - b.x || a.y - b.y || a.id - b.id)
+      .map((l) => l.id);
+
+    return { lamps, byCode, byLabel, sortedIdsByX };
+  }
+
   async function applyLampArrayEffect(pidKey) {
     const numPid = Number(pidKey);
     const prevTimer = lampArrayTimerByPid.get(numPid);
@@ -771,6 +954,8 @@
       clearInterval(prevTimer);
       lampArrayTimerByPid.delete(numPid);
     }
+    reactiveTriggerByPid.delete(numPid);
+    document.querySelectorAll(".keycap.is-reactive-lit").forEach((el) => el.classList.remove("is-reactive-lit"));
 
     const lampDev = findLampArrayDevice(numPid);
     if (!lampDev) return false;
@@ -795,6 +980,12 @@
         lampArrayCountByPid.set(numPid, lampCount);
       }
 
+      let layout = lampLayoutCacheByPid.get(numPid);
+      if (!layout || layout.lamps.length !== lampCount) {
+        layout = buildLampLayoutMeta(lampCount);
+        lampLayoutCacheByPid.set(numPid, layout);
+      }
+
       const devProf = driverState.profilesByPid?.[numPid] || buildDefaultDeviceProfile(numPid);
       const slot = devProf.slots?.[devProf.activeSlot || 1] || {};
       const light = slot.lighting || { effect: "static", color1: "#00e676", brightness: 100, speed: 2, waveDirection: 1 };
@@ -804,27 +995,52 @@
       const baseR = parseInt(hex.slice(0, 2), 16) || 0;
       const baseG = parseInt(hex.slice(2, 4), 16) || 230;
       const baseB = parseInt(hex.slice(4, 6), 16) || 118;
-      const endId = Math.max(0, lampCount - 1);
-      const endLo = endId & 0xff;
-      const endHi = (endId >> 8) & 0xff;
 
       // Report ID 6: LampArrayControlReport -> AutonomousMode = 0 (Host control)
       await lampDev.sendFeatureReport(6, new Uint8Array([0]));
 
+      // Send a subset of lamps via Report ID 4 (8 lamps per 50-byte packet, LampUpdateComplete=1 on final packet)
+      const sendLampSubset = async (entries) => {
+        if (!entries || entries.length === 0) return;
+        const packets = [];
+        for (let baseIdx = 0; baseIdx < entries.length; baseIdx += 8) {
+          const count = Math.min(8, entries.length - baseIdx);
+          const isLast = baseIdx + 8 >= entries.length;
+          const rep4 = new Uint8Array(50);
+          rep4[0] = count;
+          rep4[1] = isLast ? 1 : 0;
+          for (let i = 0; i < count; i++) {
+            const item = entries[baseIdx + i];
+            const lampId = item.id;
+            rep4[2 + i * 2] = lampId & 0xff;
+            rep4[2 + i * 2 + 1] = (lampId >> 8) & 0xff;
+            const colOff = 18 + i * 4;
+            rep4[colOff] = Math.round(item.r * brScale) & 0xff;
+            rep4[colOff + 1] = Math.round(item.g * brScale) & 0xff;
+            rep4[colOff + 2] = Math.round(item.b * brScale) & 0xff;
+            rep4[colOff + 3] = (item.i ?? 255) & 0xff;
+          }
+          packets.push(rep4);
+        }
+        await Promise.all(packets.map((pkt) => lampDev.sendFeatureReport(4, pkt)));
+      };
+
+      // Send uniform color across all lamps (ordered Left-to-Right and dispatched concurrently)
       const sendAllLampsColor = async (r, g, b, intensity = 255) => {
         const sr = Math.round(r * brScale) & 0xff;
         const sg = Math.round(g * brScale) & 0xff;
         const sb = Math.round(b * brScale) & 0xff;
         const si = intensity & 0xff;
-        // Send Report ID 4 (LampMultiUpdateReport, 8 lamps per 50-byte packet) for universal firmware compatibility
-        for (let baseIdx = 0; baseIdx < lampCount; baseIdx += 8) {
-          const count = Math.min(8, lampCount - baseIdx);
-          const isLast = baseIdx + 8 >= lampCount;
+        const ids = layout.sortedIdsByX;
+        const packets = [];
+        for (let baseIdx = 0; baseIdx < ids.length; baseIdx += 8) {
+          const count = Math.min(8, ids.length - baseIdx);
+          const isLast = baseIdx + 8 >= ids.length;
           const rep4 = new Uint8Array(50);
           rep4[0] = count;
-          rep4[1] = isLast ? 1 : 0; // LampUpdateComplete on final batch
+          rep4[1] = isLast ? 1 : 0;
           for (let i = 0; i < count; i++) {
-            const lampId = baseIdx + i;
+            const lampId = ids[baseIdx + i];
             rep4[2 + i * 2] = lampId & 0xff;
             rep4[2 + i * 2 + 1] = (lampId >> 8) & 0xff;
             const colOff = 18 + i * 4;
@@ -833,11 +1049,9 @@
             rep4[colOff + 2] = sb;
             rep4[colOff + 3] = si;
           }
-          await lampDev.sendFeatureReport(4, rep4);
+          packets.push(rep4);
         }
-        // Also send Report ID 5 (LampRangeUpdateReport) for range-capable LampArray controllers
-        const rep5 = new Uint8Array([1, 0, 0, endLo, endHi, sr, sg, sb, si]);
-        await lampDev.sendFeatureReport(5, rep5);
+        await Promise.all(packets.map((pkt) => lampDev.sendFeatureReport(4, pkt)));
       };
 
       if (effect === "off" || brScale <= 0) {
@@ -845,113 +1059,303 @@
         return true;
       }
 
-      if (effect === "static" || effect === "reactive") {
+      if (effect === "static") {
         await sendAllLampsColor(baseR, baseG, baseB, 255);
         return true;
       }
 
       const speedMult = Number(light.speed || 2);
       const dirSign = Number(light.waveDirection || 1) === 2 ? -1 : 1;
-      let tick = 0;
+      const t0 = performance.now();
       let busy = false;
 
+      // REACTIVE: All keys start dark (0,0,0); pressing any physical key or clicking a UI keycap
+      // immediately lights up that key and smoothly fades it back to black upon release.
+      if (effect === "reactive") {
+        ensureReactiveKeyListeners();
+        await sendAllLampsColor(0, 0, 0, 0);
+
+        const fadeDurationMs = speedMult === 1 ? 1350 : speedMult === 3 ? 420 : 800;
+        const activeLamps = new Map(); // lampId -> { held: boolean, releasedAt: number, lastLevel: number }
+
+        const triggerLampsDown = (lampIds) => {
+          if (!lampIds || lampIds.length === 0) return;
+          const immediateBatch = [];
+          for (const id of lampIds) {
+            const prev = activeLamps.get(id);
+            activeLamps.set(id, { held: true, releasedAt: 0, lastLevel: 255 });
+            if (!prev || prev.lastLevel !== 255) {
+              immediateBatch.push({ id, r: baseR, g: baseG, b: baseB, i: 255 });
+            }
+            const lbl = layout.lamps[id]?.label;
+            if (lbl) {
+              const keyEl = document.querySelector(`.keycap[data-key="${CSS.escape(lbl)}"]`);
+              if (keyEl) keyEl.classList.add("is-reactive-lit");
+            }
+          }
+          if (immediateBatch.length > 0 && lampDev.opened && !busy) {
+            busy = true;
+            sendLampSubset(immediateBatch)
+              .catch(() => {})
+              .finally(() => {
+                busy = false;
+              });
+          }
+        };
+
+        const triggerLampsUp = (lampIds) => {
+          if (!lampIds || lampIds.length === 0) return;
+          const now = performance.now();
+          for (const id of lampIds) {
+            const entry = activeLamps.get(id);
+            if (entry) {
+              entry.held = false;
+              entry.releasedAt = now;
+            } else {
+              activeLamps.set(id, { held: false, releasedAt: now, lastLevel: 255 });
+            }
+            const lbl = layout.lamps[id]?.label;
+            if (lbl) {
+              const keyEl = document.querySelector(`.keycap[data-key="${CSS.escape(lbl)}"]`);
+              if (keyEl) keyEl.classList.remove("is-reactive-lit");
+            }
+          }
+        };
+
+        reactiveTriggerByPid.set(numPid, {
+          onKeyDown(code) {
+            const ids = layout.byCode.get(code);
+            if (ids) triggerLampsDown(ids);
+          },
+          onKeyUp(code) {
+            const ids = layout.byCode.get(code);
+            if (ids) triggerLampsUp(ids);
+          },
+          onLabelTrigger(label) {
+            const ids = layout.byLabel.get(label);
+            if (ids) {
+              triggerLampsDown(ids);
+              setTimeout(() => triggerLampsUp(ids), 140);
+            }
+          },
+          onReleaseAll() {
+            const now = performance.now();
+            for (const entry of activeLamps.values()) {
+              if (entry.held) {
+                entry.held = false;
+                entry.releasedAt = now;
+              }
+            }
+            document.querySelectorAll(".keycap.is-reactive-lit").forEach((el) => el.classList.remove("is-reactive-lit"));
+          },
+        });
+
+        const timer = setInterval(async () => {
+          if (busy || !lampDev.opened || activeLamps.size === 0) return;
+          busy = true;
+          try {
+            const now = performance.now();
+            const updates = [];
+            for (const [id, state] of activeLamps.entries()) {
+              if (state.held) {
+                if (state.lastLevel !== 255) {
+                  state.lastLevel = 255;
+                  updates.push({ id, r: baseR, g: baseG, b: baseB, i: 255 });
+                }
+                continue;
+              }
+              const elapsed = now - state.releasedAt;
+              if (elapsed >= fadeDurationMs) {
+                activeLamps.delete(id);
+                updates.push({ id, r: 0, g: 0, b: 0, i: 0 });
+              } else {
+                const progress = Math.max(0, 1 - elapsed / fadeDurationMs);
+                const gammaScale = progress * progress; // Gamma-2.0 smooth LED decay
+                const level = Math.round(gammaScale * 255);
+                if (Math.abs(level - state.lastLevel) >= 4) {
+                  state.lastLevel = level;
+                  updates.push({
+                    id,
+                    r: Math.round(baseR * gammaScale),
+                    g: Math.round(baseG * gammaScale),
+                    b: Math.round(baseB * gammaScale),
+                    i: 255,
+                  });
+                }
+              }
+            }
+            if (updates.length > 0) {
+              await sendLampSubset(updates);
+            }
+          } catch {
+            clearInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 33);
+
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      // SPECTRUM: Smooth 360-degree rainbow color cycle across all keys simultaneously
       if (effect === "spectrum") {
         await sendAllLampsColor(baseR, baseG, baseB, 255);
+        const degPerMs = (speedMult === 1 ? 18 : speedMult === 3 ? 52 : 32) / 1000;
         const timer = setInterval(async () => {
           if (busy || !lampDev.opened) return;
           busy = true;
           try {
-            tick += speedMult * 3.2;
-            const [r, g, b] = hsvToRgb(tick % 360, 1, 1);
+            const hue = ((performance.now() - t0) * degPerMs) % 360;
+            const [r, g, b] = hsvToRgb(hue, 1, 1);
             await sendAllLampsColor(r, g, b, 255);
           } catch {
             clearInterval(timer);
           } finally {
             busy = false;
           }
-        }, 70);
+        }, 42);
         lampArrayTimerByPid.set(numPid, timer);
         return true;
       }
 
+      // BREATHING: Smooth gamma-corrected inhale/exhale with natural dark pause between breaths
       if (effect === "breathing" || effect === "breathingDual") {
-        await sendAllLampsColor(baseR, baseG, baseB, 255);
+        const cycleDurationMs = speedMult === 1 ? 4200 : speedMult === 3 ? 1800 : 2800;
         const timer = setInterval(async () => {
           if (busy || !lampDev.opened) return;
           busy = true;
           try {
-            tick += 0.085 * speedMult;
-            const phase = 0.5 + 0.5 * Math.sin(tick);
-            if (effect === "breathingDual" && Math.cos(tick * 0.5) < 0) {
-              await sendAllLampsColor(
-                Math.round((255 - baseR) * phase),
-                Math.round(baseB * phase),
-                Math.round(baseG * phase),
-                255
-              );
-            } else {
-              await sendAllLampsColor(
-                Math.round(baseR * phase),
-                Math.round(baseG * phase),
-                Math.round(baseB * phase),
-                255
-              );
+            const elapsed = performance.now() - t0;
+            const cycleCount = Math.floor(elapsed / cycleDurationMs);
+            const cyclePos = (elapsed % cycleDurationMs) / cycleDurationMs;
+            // 0..0.80 = smooth breath in & out; 0.80..1.0 = brief dark pause at 0%
+            let env = 0;
+            if (cyclePos < 0.8) {
+              const s = Math.sin((cyclePos / 0.8) * Math.PI);
+              env = Math.pow(Math.max(0, s), 2.2);
             }
+            const useSecondColor = effect === "breathingDual" && cycleCount % 2 === 1;
+            const r = useSecondColor ? 255 - baseR : baseR;
+            const g = useSecondColor ? baseB : baseG;
+            const b = useSecondColor ? baseG : baseB;
+            await sendAllLampsColor(
+              Math.round(r * env),
+              Math.round(g * env),
+              Math.round(b * env),
+              255
+            );
           } catch {
             clearInterval(timer);
           } finally {
             busy = false;
           }
-        }, 70);
+        }, 42);
         lampArrayTimerByPid.set(numPid, timer);
         return true;
       }
 
-      if (effect === "wave" || effect === "starlight") {
-        // Use Report ID 4 (LampMultiUpdateReport, 8 lamps per 50-byte packet)
+      // WAVE: Horizontal rainbow wave moving Left-to-Right (dir=1) or Right-to-Left (dir=2)
+      // using each key's physical X coordinate (nx in 0..1)
+      if (effect === "wave") {
+        const degPerMs = (speedMult === 1 ? 65 : speedMult === 3 ? 190 : 120) / 1000;
+        const ids = layout.sortedIdsByX;
         const sendWaveFrame = async (phaseDeg) => {
-          for (let baseIdx = 0; baseIdx < lampCount; baseIdx += 8) {
-            const count = Math.min(8, lampCount - baseIdx);
-            const isLast = baseIdx + 8 >= lampCount;
+          const packets = [];
+          for (let baseIdx = 0; baseIdx < ids.length; baseIdx += 8) {
+            const count = Math.min(8, ids.length - baseIdx);
+            const isLast = baseIdx + 8 >= ids.length;
             const rep4 = new Uint8Array(50);
             rep4[0] = count;
-            rep4[1] = isLast ? 1 : 0; // LampUpdateComplete on final batch
+            rep4[1] = isLast ? 1 : 0;
             for (let i = 0; i < count; i++) {
-              const lampId = baseIdx + i;
+              const lampId = ids[baseIdx + i];
+              const lampMeta = layout.lamps[lampId];
+              const nx = lampMeta ? lampMeta.nx : (lampId % 16) / 15;
+              // Subtract dirSign * phaseDeg so dirSign = +1 flows Left -> Right and dirSign = -1 flows Right -> Left
+              const hue = (nx * 360 - dirSign * phaseDeg + 36000) % 360;
+              const [r, g, b] = hsvToRgb(hue, 1, 1);
               rep4[2 + i * 2] = lampId & 0xff;
               rep4[2 + i * 2 + 1] = (lampId >> 8) & 0xff;
-              let r = baseR, g = baseG, b = baseB;
-              if (effect === "wave") {
-                const hue = (phaseDeg + dirSign * lampId * 6) % 360;
-                [r, g, b] = hsvToRgb(hue, 1, 1);
-              } else {
-                const twinkle = 0.25 + 0.75 * Math.max(0, Math.sin(phaseDeg * 0.08 + lampId * 1.9));
-                r = Math.round(baseR * twinkle);
-                g = Math.round(baseG * twinkle);
-                b = Math.round(baseB * twinkle);
-              }
               const colOff = 18 + i * 4;
               rep4[colOff] = Math.round(r * brScale) & 0xff;
               rep4[colOff + 1] = Math.round(g * brScale) & 0xff;
               rep4[colOff + 2] = Math.round(b * brScale) & 0xff;
               rep4[colOff + 3] = 255;
             }
-            await lampDev.sendFeatureReport(4, rep4);
+            packets.push(rep4);
           }
+          await Promise.all(packets.map((pkt) => lampDev.sendFeatureReport(4, pkt)));
         };
+
         await sendWaveFrame(0);
         const timer = setInterval(async () => {
           if (busy || !lampDev.opened) return;
           busy = true;
           try {
-            tick += speedMult * 6;
-            await sendWaveFrame(tick);
+            const phaseDeg = (performance.now() - t0) * degPerMs;
+            await sendWaveFrame(phaseDeg);
           } catch {
             clearInterval(timer);
           } finally {
             busy = false;
           }
-        }, 65);
+        }, 42);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      // STARLIGHT: Dark matrix where random individual keys ignite, twinkle up to peak brightness, and fade out to black
+      if (effect === "starlight") {
+        await sendAllLampsColor(0, 0, 0, 0);
+        const stars = new Map(); // lampId -> { bornAt, durationMs }
+        const maxActiveStars = speedMult === 1 ? 8 : speedMult === 3 ? 22 : 14;
+        const spawnProb = speedMult === 1 ? 0.35 : speedMult === 3 ? 0.85 : 0.6;
+
+        const timer = setInterval(async () => {
+          if (busy || !lampDev.opened) return;
+          busy = true;
+          try {
+            const now = performance.now();
+            if (stars.size < maxActiveStars && Math.random() < spawnProb) {
+              const bursts = speedMult === 3 ? 2 : 1;
+              for (let b = 0; b < bursts; b++) {
+                const randId = Math.floor(Math.random() * lampCount);
+                if (!stars.has(randId)) {
+                  const dur = (speedMult === 1 ? 1500 : speedMult === 3 ? 650 : 1050) * (0.75 + Math.random() * 0.5);
+                  stars.set(randId, { bornAt: now, durationMs: dur });
+                }
+              }
+            }
+
+            const updates = [];
+            for (const [id, st] of stars.entries()) {
+              const age = now - st.bornAt;
+              if (age >= st.durationMs) {
+                stars.delete(id);
+                updates.push({ id, r: 0, g: 0, b: 0, i: 0 });
+              } else {
+                const s = Math.sin((age / st.durationMs) * Math.PI);
+                const env = Math.pow(Math.max(0, s), 1.8);
+                updates.push({
+                  id,
+                  r: Math.round(baseR * env),
+                  g: Math.round(baseG * env),
+                  b: Math.round(baseB * env),
+                  i: 255,
+                });
+              }
+            }
+
+            if (updates.length > 0) {
+              await sendLampSubset(updates);
+            }
+          } catch {
+            clearInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 42);
         lampArrayTimerByPid.set(numPid, timer);
         return true;
       }
@@ -2406,6 +2810,12 @@
       container.style.setProperty("--key-color", "#6e7785");
       container.style.setProperty("--key-glow", "transparent");
       container.style.setProperty("--kbd-glow", "transparent");
+    } else if (eff === "reactive") {
+      container.style.setProperty("--key-color", `rgba(${r}, ${g}, ${b}, 0.28)`);
+      container.style.setProperty("--key-glow", "transparent");
+      container.style.setProperty("--kbd-glow", "transparent");
+      container.style.setProperty("--reactive-color", `rgba(${r}, ${g}, ${b}, 1)`);
+      container.style.setProperty("--reactive-glow", `rgba(${r}, ${g}, ${b}, 0.55)`);
     } else {
       const keyAlpha = Math.max(0.35, scale).toFixed(2);
       const glowAlpha = (0.24 * scale).toFixed(2);
@@ -2454,6 +2864,7 @@
           `;
 
           keyEl.addEventListener("click", (ev) => {
+            reactiveTriggerByPid.get(Number(selectedPid))?.onLabelTrigger?.(keyId);
             const slot = getActiveSlotData();
             if (ev.ctrlKey || ev.metaKey || ev.shiftKey) {
               if (selectedKeys.has(keyId)) selectedKeys.delete(keyId);

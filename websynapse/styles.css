@@ -1344,6 +1344,14 @@ button {
   animation: chroma-breathe 2.0s ease-in-out infinite;
   animation-delay: calc(var(--col-idx, 0) * -210ms);
 }
+.keycap.is-reactive-lit {
+  color: var(--reactive-color, var(--accent)) !important;
+  box-shadow:
+    inset 0 0 0 1.5px var(--reactive-color, var(--accent)),
+    inset 0 0 14px var(--reactive-glow, rgb(var(--accent-rgb) / 0.55)),
+    0 0 16px var(--reactive-glow, rgb(var(--accent-rgb) / 0.45)) !important;
+  transform: translateY(1px);
+}
 @keyframes chroma-breathe {
   0%, 100% { filter: brightness(0.7); }
   50% { filter: brightness(1.25); }
