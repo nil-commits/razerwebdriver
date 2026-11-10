@@ -1,6 +1,6 @@
 # websynap.se — Public Deployment Security Architecture
 
-`websynap.se` is hardened for public internet hosting as a **100% static, zero-backend client-side application** communicating directly with user-authorized Razer USB hardware over Chromium's WebHID API.
+`websynap.se` is hardened for public internet hosting as a **100% static, zero-backend client-side application** communicating directly with user-authorized Razer USB hardware over Chromium's WebHID/WebUSB APIs.
 
 ## 1. Zero-Network / Zero-Exfiltration Content Security Policy (CSP)
 Both [`index.html`](./index.html) and the server headers ([`nginx.conf.example`](./nginx.conf.example), [`Caddyfile.example`](./Caddyfile.example), [`_headers`](./_headers)) enforce:
@@ -11,9 +11,9 @@ Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'
 - **`script-src 'self'`**: Blocks all inline `<script>` tags, inline `on*` event attributes, `javascript:` URLs, `eval()`, and `new Function()`.
 - **`frame-ancestors 'none'` + `X-Frame-Options: DENY`**: Prevents clickjacking and cross-origin iframe embedding of WebHID prompts.
 
-## 2. Explicit WebHID `Permissions-Policy`
+## 2. Explicit WebHID/WebUSB `Permissions-Policy`
 ```http
-Permissions-Policy: hid=(self), usb=(), serial=(), bluetooth=(), camera=(), microphone=(), geolocation=(), payment=()
+Permissions-Policy: hid=(self), usb=(self), serial=(), bluetooth=(), camera=(), microphone=(), geolocation=(), payment=()
 ```
 - Grants `navigator.hid` exclusively to the top-level `self` origin while explicitly disabling WebUSB, WebSerial, WebBluetooth, Camera, Microphone, and Geolocation.
 

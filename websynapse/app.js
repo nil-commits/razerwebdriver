@@ -671,6 +671,8 @@
     const anyRazer = hasAnyRazerDevice();
     const secure = window.isSecureContext;
     const hid = !!navigator.hid;
+    const usb = !!navigator.usb;
+    const supportsUsb = hid || usb;
 
     if (notice) notice.hidden = connected;
     if (navWorkspace) navWorkspace.disabled = !connected;
@@ -691,24 +693,24 @@
       }
     }
 
-    if (pairBtn) pairBtn.hidden = !hid || !secure;
-    if (bannerPairBtn) bannerPairBtn.hidden = !hid || !secure;
-    if (compatPair) compatPair.hidden = !hid || !secure;
+    if (pairBtn) pairBtn.hidden = !supportsUsb || !secure;
+    if (bannerPairBtn) bannerPairBtn.hidden = !supportsUsb || !secure;
+    if (compatPair) compatPair.hidden = !supportsUsb || !secure;
     if (compatCatalog) compatCatalog.hidden = false;
 
     if (!title || !text) return;
     if (!secure) {
       title.textContent = "HTTPS is required";
       text.textContent =
-        "WebHID is only available in a secure context. Open https://websynap.se/ (or localhost for local testing) in a Chromium-based browser.";
-    } else if (!hid) {
+        "WebHID/WebUSB is only available in a secure context. Open https://websynap.se/ (or localhost for local testing) in a Chromium-based browser.";
+    } else if (!supportsUsb) {
       title.textContent = "Chromium-based browser required";
       text.textContent =
-        "This site uses the WebHID API. Open it in Chrome, Edge, Brave, Opera, or Vivaldi. Firefox and Safari do not support WebHID.";
+        "This site uses WebHID or WebUSB. Open it in Chrome, Edge, Brave, Opera, or Vivaldi. Firefox and Safari do not support these APIs.";
     } else if (!anyRazer) {
       title.textContent = "No compatible Razer device detected";
       text.textContent =
-        "Connect a Razer keyboard or mouse with a data-capable USB cable, close Razer Synapse, then click “Connect Razer Device” and grant WebHID access. Use “Check supported devices” to verify your model.";
+        "Connect a Razer keyboard or mouse with a data-capable USB cable, close Razer Synapse, then click “Connect Razer Device” and grant USB access. Use “Check supported devices” to verify your model.";
     } else if (!connected) {
       title.textContent = "Connected Razer device is not supported";
       text.textContent =
@@ -2071,22 +2073,22 @@
       if (bannerDot) bannerDot.className = "ws-dot is-warn";
       if (bannerText) {
         bannerText.innerHTML =
-          "<strong>HTTPS Secure Context Required</strong> — WebHID hardware access is blocked on plain <code>http://</code> origins. Access this server over <b>https://</b> (or <code>localhost</code>) to enable USB communication.";
+          "<strong>HTTPS Secure Context Required</strong> — WebHID/WebUSB hardware access is blocked on plain <code>http://</code> origins. Access this server over <b>https://</b> (or <code>localhost</code>) to enable USB communication.";
       }
       if (pairBtn) pairBtn.disabled = true;
       if (bannerPairBtn) bannerPairBtn.hidden = true;
       return;
     }
 
-    if (!navigator.hid) {
+    if (!navigator.hid && !navigator.usb) {
       if (connDot) connDot.className = "ws-dot is-warn";
-      if (connText) connText.textContent = "WebHID Unsupported";
+      if (connText) connText.textContent = "WebHID/WebUSB Unsupported";
       if (fwBadge) fwBadge.textContent = "Use Chromium";
       if (banner) banner.style.borderColor = "rgba(255,171,64,0.5)";
       if (bannerDot) bannerDot.className = "ws-dot is-warn";
       if (bannerText) {
         bannerText.innerHTML =
-          "<strong>Browser Does Not Support WebHID</strong> — Please open <b>websynap.se</b> in a Chromium-based browser (Chrome, Edge, Brave, Opera, or Vivaldi) to configure your Razer devices directly from the cloud.";
+          "<strong>Browser Does Not Support WebHID/WebUSB</strong> — Please open <b>websynap.se</b> in a Chromium-based browser (Chrome, Edge, Brave, Opera, or Vivaldi) to configure your Razer devices directly from the cloud.";
       }
       if (pairBtn) pairBtn.disabled = true;
       if (bannerPairBtn) bannerPairBtn.hidden = true;
@@ -2106,9 +2108,9 @@
 
       if (connDot) connDot.className = "ws-dot is-ok";
       if (connText) {
-        connText.textContent = `WebHID Live (${liveCount} USB)`;
+        connText.textContent = `USB Live (${liveCount} device${liveCount > 1 ? "s" : ""})`;
       }
-      if (fwBadge && (fwBadge.textContent === "Click to Pair" || fwBadge.textContent === "WebHID")) {
+      if (fwBadge && (fwBadge.textContent === "Click to Pair" || fwBadge.textContent === "USB" || fwBadge.textContent === "WebHID")) {
         fwBadge.textContent = "0x02 READY";
       }
       if (bannerDot) bannerDot.className = "ws-dot is-ok";
@@ -2120,9 +2122,9 @@
         if (anyHasFeatureReport0 || anyHasWebUsb) {
           bannerText.innerHTML = `<strong>Direct Hardware Flash Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Live 90-byte Protocol 25 Onboard Slot (S1–S6) NVRAM Flash &amp; Chroma RGB active with <b>${safeNames}</b>.`;
         } else if (anyHasLampArray) {
-          bannerText.innerHTML = `<strong>WebHID Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Direct USB LampArray Chroma RGB &amp; Cloud Profile Studio active for <b>${safeNames}</b>.`;
+          bannerText.innerHTML = `<strong>USB Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Direct USB LampArray Chroma RGB &amp; Cloud Profile Studio active for <b>${safeNames}</b>.`;
         } else {
-          bannerText.innerHTML = `<strong>WebHID Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Cloud Profile Studio &amp; USB Telemetry active for <b>${safeNames}</b>.`;
+          bannerText.innerHTML = `<strong>USB Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Cloud Profile Studio &amp; USB Telemetry active for <b>${safeNames}</b>.`;
         }
       }
       if (bannerPairBtn) bannerPairBtn.textContent = "+ Add Another Device";
@@ -2139,7 +2141,7 @@
     } else {
       if (connDot) connDot.className = "ws-dot is-warn";
       if (connText) connText.textContent = "No device connected";
-      if (fwBadge) fwBadge.textContent = "WebHID";
+      if (fwBadge) fwBadge.textContent = "USB";
       if (bannerDot) bannerDot.className = "ws-dot is-warn";
       if (bannerText) {
         bannerText.innerHTML =
@@ -2245,11 +2247,11 @@
 
   async function pairWebHidDevices() {
     if (!window.isSecureContext) {
-      showToast("HTTPS is required for WebHID hardware access", false);
+      showToast("HTTPS is required for WebHID/WebUSB hardware access", false);
       return;
     }
     if (!navigator.hid && !navigator.usb) {
-      showToast("WebHID requires Chrome, Edge, Brave, Opera, or Vivaldi", false);
+      showToast("WebHID/WebUSB requires Chrome, Edge, Brave, Opera, or Vivaldi", false);
       return;
     }
     try {
@@ -2289,7 +2291,7 @@
       }
     } catch (err) {
       if (err?.name !== "NotAllowedError") {
-        showToast(`WebHID pairing error: ${err.message}`, false);
+        showToast(`USB pairing error: ${err.message}`, false);
       }
     }
   }
@@ -2839,7 +2841,7 @@
     const slotId = devProf.activeSlot || 1;
     const devEntry = devices.find((d) => Number(d.productId) === Number(selectedPid));
     const displayName = devEntry?.productName || meta.name || `Razer Device (${meta.hexPid})`;
-    const connBadge = devEntry?.connectedLive ? "WebHID Live" : "Preview / Ready";
+    const connBadge = devEntry?.connectedLive ? "USB Live" : "Offline";
     const txHex = `0x${(meta.defaultTransactionId ?? 0x1f).toString(16).toUpperCase().padStart(2, "0")}`;
 
     const titleEl = document.getElementById("overviewDeviceTitle");
@@ -3297,7 +3299,7 @@
         <article class="ws-device-block">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
             <strong style="font-size:16px;font-weight:650;">${safeProdName}</strong>
-            <span class="ws-badge ${dev.connectedLive ? "is-ok" : ""}"><span class="ws-dot ${dev.connectedLive ? "is-ok" : ""}"></span>${dev.connectedLive ? "WebHID Live" : "Workspace"}</span>
+            <span class="ws-badge ${dev.connectedLive ? "is-ok" : ""}"><span class="ws-dot ${dev.connectedLive ? "is-ok" : ""}"></span>${dev.connectedLive ? "USB Live" : "Offline"}</span>
           </div>
           <span class="ws-meta">Razer · ${escapeHtml(getCategoryLabel(cat))} · PID ${escapeHtml(meta.hexPid)}</span>
           <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums;">
@@ -4575,7 +4577,7 @@
       const devEntry = devices.find((d) => Number(d.productId) === pid);
       lastTestReport = {
         runAt: new Date().toISOString(),
-        driver: "websynap.se v3.0 (Zero-Install WebHID Edition)",
+        driver: "websynap.se v3.0 (Zero-Install WebHID/WebUSB Edition)",
         productId: selectedPid,
         deviceName: devEntry?.productName || `Razer PID ${pid}`,
         firmware: fwStr,
@@ -5820,7 +5822,7 @@
     if (navigator.hid) {
       navigator.hid.addEventListener("connect", () => {
         void refreshAuthorizedWebHidDevices();
-        showToast("Razer USB device connected via WebHID");
+        showToast("Razer USB device connected");
       });
       navigator.hid.addEventListener("disconnect", () => {
         void refreshAuthorizedWebHidDevices();

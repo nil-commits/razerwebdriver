@@ -6,7 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; font-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; frame-src 'none'; worker-src 'self' blob:; base-uri 'none'; form-action 'none';" />
   <meta name="referrer" content="no-referrer" />
   <meta name="color-scheme" content="dark" />
-  <title>websynap.se · Zero-Install Razer WebHID Configurator</title>
+  <title>websynap.se · Zero-Install Razer WebHID/WebUSB Configurator</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
@@ -29,7 +29,7 @@
           </span>
           <div class="ws-brand-text">
             <span class="ws-brand-name">websynap.se</span>
-            <span class="ws-brand-build" id="sidebarBuildLabel">v3.0 · WebHID · Zero Install</span>
+            <span class="ws-brand-build" id="sidebarBuildLabel">v3.0 · WebHID/WebUSB · Zero Install</span>
           </div>
         </div>
         <button id="btnCollapseSidebar" type="button" class="ws-icon-btn" title="Toggle sidebar">
@@ -75,7 +75,7 @@
       <div class="ws-sidebar-foot">
         <button id="btnQueryFw" type="button" class="ws-bridge-line" title="Query live firmware over WebHID Protocol 25">
           <span class="ws-dot" id="connDot"></span>
-          <span class="ws-bridge-line-text" id="connText">WebHID · No device</span>
+          <span class="ws-bridge-line-text" id="connText">USB · No device</span>
           <span class="ws-bridge-line-flag" id="fwBadge">Click to Pair</span>
         </button>
         <button id="btnToggleDrawer" type="button" class="ws-nav-item">
@@ -100,7 +100,7 @@
           <span id="activeProfileNameTag" class="slot-name-tag">Default Profile</span>
         </div>
         <div class="ws-topbar-actions">
-          <button id="btnWebHidPair" type="button" class="ws-btn is-primary is-sm" title="Pair your Razer USB Keyboard or Mouse directly in Chromium via WebHID">
+          <button id="btnWebHidPair" type="button" class="ws-btn is-primary is-sm" title="Pair your Razer USB Keyboard or Mouse directly in Chromium via WebHID/WebUSB">
             ⚡ Connect Razer Device
           </button>
           <button id="btnSaveSlot" type="button" class="ws-btn is-sm" title="Flash current slot to device onboard memory">
@@ -124,7 +124,7 @@
         <div style="display:flex;align-items:center;gap:10px;font-size:13px;">
           <span class="ws-dot" id="bannerDot"></span>
           <span id="bannerStatusText">
-            <strong>Checking WebHID compatibility…</strong> — This configurator requires a Chromium-based browser with WebHID and a compatible Razer device.
+            <strong>Checking WebHID/WebUSB compatibility…</strong> — This configurator requires a Chromium-based browser with WebHID or WebUSB and a compatible Razer device.
           </span>
         </div>
         <button id="btnBannerPair" type="button" class="ws-btn is-primary is-sm">Connect USB (0x1532)</button>
@@ -135,7 +135,7 @@
         <section id="compatNotice" class="ws-panel" role="status" aria-live="polite" style="margin:14px 22px;padding:18px 20px;border-color:rgba(255,171,64,0.5);">
           <h2 id="compatTitle" style="margin:0 0 6px;font-size:18px;">Checking browser compatibility…</h2>
           <p id="compatText" class="ws-meta" style="line-height:1.55;margin:0 0 12px;">
-            This configurator requires a Chromium-based browser with WebHID and a compatible Razer device connected via USB.
+            This configurator requires a Chromium-based browser with WebHID or WebUSB and a compatible Razer device connected via USB.
           </p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button id="btnCompatPair" type="button" class="ws-btn is-primary is-sm">⚡ Connect Razer Device</button>
@@ -152,7 +152,7 @@
             <section class="ws-panel is-lit">
               <header class="ws-panel-head">
                 <h2 id="overviewDeviceTitle">No device connected</h2>
-                <span class="ws-meta" id="overviewDeviceMeta">WebHID · No device</span>
+                <span class="ws-meta" id="overviewDeviceMeta">USB · No device</span>
                 <div class="ws-end">
                   <div class="segmented" id="deviceModeGroup" role="group" aria-label="Operating mode">
                     <button type="button" class="mode-seg selected" data-mode="normal">Onboard (0x00)</button>
@@ -1051,10 +1051,10 @@
           <header class="ws-page-head">
             <div>
               <h1>Active workspace devices</h1>
-              <p class="ws-meta">Devices currently loaded in your workspace or paired via WebHID (`0x1532`)</p>
+              <p class="ws-meta">Devices currently loaded in your workspace or paired via WebHID/WebUSB (`0x1532`)</p>
             </div>
             <div style="display:flex;gap:8px;">
-              <button id="btnShelfPairWebHid" type="button" class="ws-btn is-primary is-sm">⚡ Pair USB / Dongle via WebHID</button>
+              <button id="btnShelfPairWebHid" type="button" class="ws-btn is-primary is-sm">⚡ Pair USB / Dongle via WebHID/WebUSB</button>
             </div>
           </header>
           <div id="devicesShelfGrid" class="ws-shelf-grid"></div>
@@ -1297,7 +1297,7 @@
               <div class="setting-heading">
                 <div>
                   <h2>Datenschutzerklärung · Privacy Policy (DSGVO / GDPR)</h2>
-                  <p>100% Client-Side Execution · Zero Telemetry · Zero Cookies · Local WebHID</p>
+                  <p>100% Client-Side Execution · Zero Telemetry · Zero Cookies · Local WebHID/WebUSB</p>
                 </div>
                 <span class="ws-badge is-ok">Zero Cloud</span>
               </div>
@@ -1309,9 +1309,9 @@
                 </p>
                 <p>
                   <strong>1. Keine Datenübertragung an Server (Zero-Exfiltration CSP):</strong> Alle Konfigurationsfunktionen und USB-Gerätezugriffe
-                  erfolgen ausschließlich lokal in Ihrem Webbrowser über die WebHID-Schnittstelle (<code>navigator.hid</code>). Durch die technische
+                  erfolgen ausschließlich lokal in Ihrem Webbrowser über die WebHID- oder WebUSB-Schnittstelle (<code>navigator.hid</code> / <code>navigator.usb</code>). Durch die technische
                   Content-Security-Policy (<code>connect-src 'none'</code>) ist jegliche Netzwerkübertragung Ihrer Gerätedaten, Seriennummern oder
-                  Profile an unsere oder fremde Server technisch ausgeschlossen. Die WebHID-Freigabe erteilen Sie ausdrücklich im Browser.
+                  Profile an unsere oder fremde Server technisch ausgeschlossen. Die WebHID-/WebUSB-Freigabe erteilen Sie ausdrücklich im Browser.
                 </p>
                 <p>
                   <strong>2. Lokale Speicherung (localStorage):</strong> Ihre gewählten Einstellungen (Theme, Onboard-Slot-Vorschau) werden
