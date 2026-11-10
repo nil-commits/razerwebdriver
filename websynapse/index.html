@@ -589,24 +589,50 @@
                   <output id="valBrightness" class="val-pill">100%</output>
                 </div>
 
-                <div class="preset-group" id="effectGrid">
-                  <button type="button" class="preset-btn active" data-effect="static">Static</button>
-                  <button type="button" class="preset-btn" data-effect="spectrum">Spectrum</button>
-                  <button type="button" class="preset-btn" data-effect="wave">Wave</button>
-                  <button type="button" class="preset-btn" data-effect="breathing">Breathing</button>
-                  <button type="button" class="preset-btn" data-effect="reactive">Reactive</button>
-                  <button type="button" class="preset-btn" data-effect="starlight">Starlight</button>
-                  <button type="button" class="preset-btn" data-effect="off">Off</button>
+                <div id="effectGrid" style="display:grid;gap:10px;">
+                  <div style="display:grid;gap:5px;">
+                    <span class="ws-label">Razer Synapse quick effects</span>
+                    <div class="preset-group">
+                      <button type="button" class="preset-btn active" data-effect="static">Static</button>
+                      <button type="button" class="preset-btn" data-effect="breathing">Breathing</button>
+                      <button type="button" class="preset-btn" data-effect="breathingDual">Breathing Dual</button>
+                      <button type="button" class="preset-btn" data-effect="spectrum">Spectrum Cycling</button>
+                      <button type="button" class="preset-btn" data-effect="wave">Wave</button>
+                      <button type="button" class="preset-btn" data-effect="reactive">Reactive</button>
+                      <button type="button" class="preset-btn" data-effect="ripple">Ripple</button>
+                      <button type="button" class="preset-btn" data-effect="starlight">Starlight</button>
+                      <button type="button" class="preset-btn" data-effect="fire">Fire</button>
+                      <button type="button" class="preset-btn" data-effect="wheel">Wheel</button>
+                      <button type="button" class="preset-btn" data-effect="off">Off</button>
+                    </div>
+                  </div>
+                  <div style="display:grid;gap:5px;">
+                    <span class="ws-label">Extra studio effects</span>
+                    <div class="preset-group">
+                      <button type="button" class="preset-btn" data-effect="rain">Matrix Rain</button>
+                      <button type="button" class="preset-btn" data-effect="scanner">Cyber Scanner</button>
+                      <button type="button" class="preset-btn" data-effect="aurora">Northern Aurora</button>
+                      <button type="button" class="preset-btn" data-effect="gradient">Dual Gradient</button>
+                      <button type="button" class="preset-btn" data-effect="disco">Party Strobe</button>
+                    </div>
+                  </div>
                 </div>
 
                 <div class="swatch-row" id="swatchRow">
-                  <button type="button" class="swatch active" data-color="#00e676" style="--sw:#00e676"></button>
-                  <button type="button" class="swatch" data-color="#00d2ff" style="--sw:#00d2ff"></button>
-                  <button type="button" class="swatch" data-color="#a78bfa" style="--sw:#a78bfa"></button>
-                  <button type="button" class="swatch" data-color="#ff3b30" style="--sw:#ff3b30"></button>
-                  <button type="button" class="swatch" data-color="#ffcc00" style="--sw:#ffcc00"></button>
-                  <button type="button" class="swatch" data-color="#ffffff" style="--sw:#ffffff"></button>
-                  <input type="color" id="inpChromaColor" value="#00e676" style="width:28px;height:28px;cursor:pointer;" />
+                  <button type="button" class="swatch active" data-color="#00e676" style="--sw:#00e676" title="Razer Green"></button>
+                  <button type="button" class="swatch" data-color="#00d2ff" style="--sw:#00d2ff" title="Cyber Cyan"></button>
+                  <button type="button" class="swatch" data-color="#a78bfa" style="--sw:#a78bfa" title="Ultraviolet"></button>
+                  <button type="button" class="swatch" data-color="#ff3b30" style="--sw:#ff3b30" title="Crimson Red"></button>
+                  <button type="button" class="swatch" data-color="#ffcc00" style="--sw:#ffcc00" title="Optical Amber"></button>
+                  <button type="button" class="swatch" data-color="#ffffff" style="--sw:#ffffff" title="Mercury White"></button>
+                  <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text-3);margin-left:4px;" title="Primary Color">
+                    <span>1st</span>
+                    <input type="color" id="inpChromaColor" value="#00e676" style="width:28px;height:28px;cursor:pointer;" />
+                  </label>
+                  <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text-3);" title="Secondary Color (Breathing Dual, Starlight, Aurora, Gradient, Scanner)">
+                    <span>2nd</span>
+                    <input type="color" id="inpChromaColor2" value="#00d2ff" style="width:28px;height:28px;cursor:pointer;" />
+                  </label>
                 </div>
 
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">

@@ -16,7 +16,24 @@
   const MAX_PROFILE_KEY_CHARS = 65536; // 64 KB max RZW1: key string
   const MAX_PACKET_LOG_ENTRIES = 200;
   const ALLOWED_POLLING_RATES = new Set([125, 250, 500, 1000, 2000, 4000, 8000]);
-  const ALLOWED_CHROMA_EFFECTS = new Set(["off", "static", "breathing", "breathingDual", "spectrum", "wave", "reactive", "starlight"]);
+  const ALLOWED_CHROMA_EFFECTS = new Set([
+    "off",
+    "static",
+    "breathing",
+    "breathingDual",
+    "spectrum",
+    "wave",
+    "reactive",
+    "ripple",
+    "starlight",
+    "fire",
+    "wheel",
+    "rain",
+    "scanner",
+    "aurora",
+    "gradient",
+    "disco",
+  ]);
   const ALLOWED_COMMAND_CLASSES = new Set([0x00, 0x02, 0x03, 0x04, 0x05, 0x07, 0x08, 0x0b, 0x0c, 0x0d, 0x0f, 0x17, 0x18]);
   const ALLOWED_CLASS_00_IDS = new Set([0x04, 0x05, 0x40, 0x81, 0x82, 0x84, 0x86, 0x87, 0xc0]);
 
@@ -301,6 +318,13 @@
 
     if (cat === "mouse") {
       const names = ["Default 1600 DPI", "Low Sens 800 DPI", "Esports 4K Hz", "Speed 3200 DPI", "Custom Slot 5"];
+      const mouseSlotLighting = {
+        1: { effect: "wave", color1: "#00e676", color2: "#00d2ff", brightness: 100, speed: 2, waveDirection: 1 },
+        2: { effect: "static", color1: "#ff3b30", color2: "#ffcc00", brightness: 100, speed: 2, waveDirection: 1 },
+        3: { effect: "static", color1: "#00e676", color2: "#00d2ff", brightness: 100, speed: 2, waveDirection: 1 },
+        4: { effect: "breathing", color1: "#007aff", color2: "#00d2ff", brightness: 100, speed: 2, waveDirection: 1 },
+        5: { effect: "spectrum", color1: "#d946ef", color2: "#00d2ff", brightness: 100, speed: 2, waveDirection: 1 },
+      };
       return {
         slot: slotId,
         name: names[slotId - 1] || `Slot ${slotId}`,
@@ -319,7 +343,7 @@
         sensorAngle: 0,
         dynamicSensitivity: 0,
         powerSaving: { idleMinutes: 5, lowPowerPercent: 15 },
-        lighting: { effect: "static", color1: "#00e676", brightness: 100, speed: 2, waveDirection: 1 },
+        lighting: { ...(mouseSlotLighting[slotId] || mouseSlotLighting[1]) },
         buttonBindings: { standard: {}, hypershift: {} },
       };
     }
@@ -399,12 +423,60 @@
     }
 
     const presets = {
-      1: { name: "Default 1.2mm", act: 1.2, rt: false, down: 0.3, up: 0.3, snap: false },
-      2: { name: "Esports 0.4mm RT", act: 0.4, rt: true, down: 0.15, up: 0.15, snap: true },
-      3: { name: "Tactical FPS 0.8mm", act: 0.8, rt: true, down: 0.25, up: 0.25, snap: true },
-      4: { name: "MOBA / RTS 1.0mm", act: 1.0, rt: true, down: 0.3, up: 0.3, snap: false },
-      5: { name: "Typing 2.0mm", act: 2.0, rt: false, down: 0.5, up: 0.5, snap: false },
-      6: { name: "Custom Analog", act: 1.2, rt: true, down: 0.3, up: 0.3, snap: false },
+      1: {
+        name: "Default 1.2mm",
+        act: 1.2,
+        rt: false,
+        down: 0.3,
+        up: 0.3,
+        snap: false,
+        lighting: { effect: "wave", color1: "#00e676", color2: "#00d2ff", brightness: 100, speed: 2, waveDirection: 1 },
+      },
+      2: {
+        name: "Esports 0.4mm RT",
+        act: 0.4,
+        rt: true,
+        down: 0.15,
+        up: 0.15,
+        snap: true,
+        lighting: { effect: "static", color1: "#ff3b30", color2: "#ffcc00", brightness: 100, speed: 2, waveDirection: 1 },
+      },
+      3: {
+        name: "Tactical FPS 0.8mm",
+        act: 0.8,
+        rt: true,
+        down: 0.25,
+        up: 0.25,
+        snap: true,
+        lighting: { effect: "reactive", color1: "#00e676", color2: "#00d2ff", brightness: 100, speed: 2, waveDirection: 1 },
+      },
+      4: {
+        name: "MOBA / RTS 1.0mm",
+        act: 1.0,
+        rt: true,
+        down: 0.3,
+        up: 0.3,
+        snap: false,
+        lighting: { effect: "breathing", color1: "#007aff", color2: "#00d2ff", brightness: 100, speed: 2, waveDirection: 1 },
+      },
+      5: {
+        name: "Typing 2.0mm",
+        act: 2.0,
+        rt: false,
+        down: 0.5,
+        up: 0.5,
+        snap: false,
+        lighting: { effect: "starlight", color1: "#00d2ff", color2: "#a78bfa", brightness: 100, speed: 2, waveDirection: 1 },
+      },
+      6: {
+        name: "Custom Analog",
+        act: 1.2,
+        rt: true,
+        down: 0.3,
+        up: 0.3,
+        snap: false,
+        lighting: { effect: "fire", color1: "#ff3b30", color2: "#ffcc00", brightness: 100, speed: 2, waveDirection: 1 },
+      },
     };
     const p = presets[slotId] || presets[1];
     return {
@@ -422,7 +494,7 @@
       snapKeyB: "D",
       gamingMode: { enabled: false, disableWin: true, disableAltTab: false, disableAltF4: false },
       pollingHz: 1000,
-      lighting: { effect: "static", color1: "#00e676", brightness: 100, speed: 2, waveDirection: 1 },
+      lighting: { ...p.lighting },
       keyBindings: { standard: {}, hypershift: {} },
     };
   }
@@ -556,6 +628,8 @@
   const webHidMutexByPid = new Map(); // pid -> Promise
   const lampArrayCountByPid = new Map(); // pid -> number of physical LEDs (e.g. 87)
   const lampArrayTimerByPid = new Map(); // pid -> intervalId for animated LampArray effects
+  const lampArrayGenByPid = new Map(); // pid -> monotonic generation counter to cancel stale effect frames
+  const lampArrayMutexByPid = new Map(); // pid -> Promise serializing Report ID 4/6 transfers
 
   function hasAnyRazerDevice() {
     return webHidHandlesByPid.size > 0;
@@ -664,12 +738,33 @@
               if (numPid > 0) cleanProfiles[numPid] = sanitizeDeviceProfile(v, numPid);
             }
           }
+          const migratedV2 = Boolean(parsed.slotLightingMigratedV2);
+          if (!migratedV2) {
+            for (const [pidStr, prof] of Object.entries(cleanProfiles)) {
+              const numPid = Number(pidStr);
+              const slots = prof?.slots || {};
+              for (const [sStr, sObj] of Object.entries(slots)) {
+                const sId = Number(sStr);
+                if (
+                  sId >= 2 &&
+                  sObj?.lighting &&
+                  sObj.lighting.effect === "static" &&
+                  (sObj.lighting.color1 || "").toLowerCase() === "#00e676"
+                ) {
+                  const defSlot = buildDefaultSlot(numPid, sId);
+                  sObj.lighting = { ...defSlot.lighting };
+                }
+              }
+            }
+          }
           driverState = {
             selectedPid: clampNum(parsed.selectedPid, 1, 65535, 679),
             deviceMode: parsed.deviceMode === "driver" ? "driver" : "normal",
+            slotLightingMigratedV2: true,
             profilesByPid: { ...driverState.profilesByPid, ...cleanProfiles },
           };
           selectedPid = Number(driverState.selectedPid || 679);
+          if (!migratedV2) persistDriverState();
         }
       }
       const rawPrefs = localStorage.getItem(STORAGE_KEY_PREFS);
@@ -949,6 +1044,9 @@
 
   async function applyLampArrayEffect(pidKey) {
     const numPid = Number(pidKey);
+    const gen = (lampArrayGenByPid.get(numPid) || 0) + 1;
+    lampArrayGenByPid.set(numPid, gen);
+
     const prevTimer = lampArrayTimerByPid.get(numPid);
     if (prevTimer) {
       clearInterval(prevTimer);
@@ -964,6 +1062,7 @@
       if (!lampDev.opened) {
         await lampDev.open();
       }
+      if (lampArrayGenByPid.get(numPid) !== gen) return false;
 
       let lampCount = lampArrayCountByPid.get(numPid) || 0;
       if (!lampCount) {
@@ -988,7 +1087,14 @@
 
       const devProf = driverState.profilesByPid?.[numPid] || buildDefaultDeviceProfile(numPid);
       const slot = devProf.slots?.[devProf.activeSlot || 1] || {};
-      const light = slot.lighting || { effect: "static", color1: "#00e676", brightness: 100, speed: 2, waveDirection: 1 };
+      const light = slot.lighting || {
+        effect: "static",
+        color1: "#00e676",
+        color2: "#00d2ff",
+        brightness: 100,
+        speed: 2,
+        waveDirection: 1,
+      };
       const effect = light.effect || "static";
       const brScale = Math.max(0, Math.min(1, Number(light.brightness ?? 100) / 100));
       const hex = sanitizeHexColor(light.color1, "#00e676").slice(1);
@@ -996,62 +1102,118 @@
       const baseG = parseInt(hex.slice(2, 4), 16) || 230;
       const baseB = parseInt(hex.slice(4, 6), 16) || 118;
 
+      const hex2 = sanitizeHexColor(light.color2, "#00d2ff").slice(1);
+      const secR = parseInt(hex2.slice(0, 2), 16) || 0;
+      const secG = parseInt(hex2.slice(2, 4), 16) || 210;
+      const secB = parseInt(hex2.slice(4, 6), 16) || 255;
+
+      // Serialize LampArray feature report batches per device so profile switches never collide on MI_04
+      const runExclusiveLampBatch = async (fn) => {
+        if (lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
+        const prev = lampArrayMutexByPid.get(numPid) || Promise.resolve();
+        let release;
+        const next = new Promise((r) => {
+          release = r;
+        });
+        lampArrayMutexByPid.set(numPid, prev.then(() => next));
+        await prev;
+        try {
+          if (lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
+          await fn();
+        } finally {
+          release();
+        }
+      };
+
       // Report ID 6: LampArrayControlReport -> AutonomousMode = 0 (Host control)
-      await lampDev.sendFeatureReport(6, new Uint8Array([0]));
+      await runExclusiveLampBatch(async () => {
+        await lampDev.sendFeatureReport(6, new Uint8Array([0]));
+      });
+      if (lampArrayGenByPid.get(numPid) !== gen) return false;
 
       // Send a subset of lamps via Report ID 4 (8 lamps per 50-byte packet, LampUpdateComplete=1 on final packet)
       const sendLampSubset = async (entries) => {
         if (!entries || entries.length === 0) return;
-        const packets = [];
-        for (let baseIdx = 0; baseIdx < entries.length; baseIdx += 8) {
-          const count = Math.min(8, entries.length - baseIdx);
-          const isLast = baseIdx + 8 >= entries.length;
-          const rep4 = new Uint8Array(50);
-          rep4[0] = count;
-          rep4[1] = isLast ? 1 : 0;
-          for (let i = 0; i < count; i++) {
-            const item = entries[baseIdx + i];
-            const lampId = item.id;
-            rep4[2 + i * 2] = lampId & 0xff;
-            rep4[2 + i * 2 + 1] = (lampId >> 8) & 0xff;
-            const colOff = 18 + i * 4;
-            rep4[colOff] = Math.round(item.r * brScale) & 0xff;
-            rep4[colOff + 1] = Math.round(item.g * brScale) & 0xff;
-            rep4[colOff + 2] = Math.round(item.b * brScale) & 0xff;
-            rep4[colOff + 3] = (item.i ?? 255) & 0xff;
+        await runExclusiveLampBatch(async () => {
+          for (let baseIdx = 0; baseIdx < entries.length; baseIdx += 8) {
+            if (lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
+            const count = Math.min(8, entries.length - baseIdx);
+            const isLast = baseIdx + 8 >= entries.length;
+            const rep4 = new Uint8Array(50);
+            rep4[0] = count;
+            rep4[1] = isLast ? 1 : 0;
+            for (let i = 0; i < count; i++) {
+              const item = entries[baseIdx + i];
+              const lampId = item.id;
+              rep4[2 + i * 2] = lampId & 0xff;
+              rep4[2 + i * 2 + 1] = (lampId >> 8) & 0xff;
+              const colOff = 18 + i * 4;
+              rep4[colOff] = Math.round(item.r * brScale) & 0xff;
+              rep4[colOff + 1] = Math.round(item.g * brScale) & 0xff;
+              rep4[colOff + 2] = Math.round(item.b * brScale) & 0xff;
+              rep4[colOff + 3] = (item.i ?? 255) & 0xff;
+            }
+            await lampDev.sendFeatureReport(4, rep4);
           }
-          packets.push(rep4);
-        }
-        await Promise.all(packets.map((pkt) => lampDev.sendFeatureReport(4, pkt)));
+        });
       };
 
-      // Send uniform color across all lamps (ordered Left-to-Right and dispatched concurrently)
+      // Send uniform color across all lamps (ordered Left-to-Right)
       const sendAllLampsColor = async (r, g, b, intensity = 255) => {
         const sr = Math.round(r * brScale) & 0xff;
         const sg = Math.round(g * brScale) & 0xff;
         const sb = Math.round(b * brScale) & 0xff;
         const si = intensity & 0xff;
         const ids = layout.sortedIdsByX;
-        const packets = [];
-        for (let baseIdx = 0; baseIdx < ids.length; baseIdx += 8) {
-          const count = Math.min(8, ids.length - baseIdx);
-          const isLast = baseIdx + 8 >= ids.length;
-          const rep4 = new Uint8Array(50);
-          rep4[0] = count;
-          rep4[1] = isLast ? 1 : 0;
-          for (let i = 0; i < count; i++) {
-            const lampId = ids[baseIdx + i];
-            rep4[2 + i * 2] = lampId & 0xff;
-            rep4[2 + i * 2 + 1] = (lampId >> 8) & 0xff;
-            const colOff = 18 + i * 4;
-            rep4[colOff] = sr;
-            rep4[colOff + 1] = sg;
-            rep4[colOff + 2] = sb;
-            rep4[colOff + 3] = si;
+        await runExclusiveLampBatch(async () => {
+          for (let baseIdx = 0; baseIdx < ids.length; baseIdx += 8) {
+            if (lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
+            const count = Math.min(8, ids.length - baseIdx);
+            const isLast = baseIdx + 8 >= ids.length;
+            const rep4 = new Uint8Array(50);
+            rep4[0] = count;
+            rep4[1] = isLast ? 1 : 0;
+            for (let i = 0; i < count; i++) {
+              const lampId = ids[baseIdx + i];
+              rep4[2 + i * 2] = lampId & 0xff;
+              rep4[2 + i * 2 + 1] = (lampId >> 8) & 0xff;
+              const colOff = 18 + i * 4;
+              rep4[colOff] = sr;
+              rep4[colOff + 1] = sg;
+              rep4[colOff + 2] = sb;
+              rep4[colOff + 3] = si;
+            }
+            await lampDev.sendFeatureReport(4, rep4);
           }
-          packets.push(rep4);
-        }
-        await Promise.all(packets.map((pkt) => lampDev.sendFeatureReport(4, pkt)));
+        });
+      };
+
+      // Send a full 87-lamp frame computed by a per-lamp callback (lampMeta => [r, g, b])
+      const sendComputedFrame = async (computeRgbFn) => {
+        const ids = layout.sortedIdsByX;
+        await runExclusiveLampBatch(async () => {
+          for (let baseIdx = 0; baseIdx < ids.length; baseIdx += 8) {
+            if (lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
+            const count = Math.min(8, ids.length - baseIdx);
+            const isLast = baseIdx + 8 >= ids.length;
+            const rep4 = new Uint8Array(50);
+            rep4[0] = count;
+            rep4[1] = isLast ? 1 : 0;
+            for (let i = 0; i < count; i++) {
+              const lampId = ids[baseIdx + i];
+              const lampMeta = layout.lamps[lampId] || { id: lampId, x: 16, y: 14, nx: 0, ny: 0 };
+              const [r, g, b] = computeRgbFn(lampMeta);
+              rep4[2 + i * 2] = lampId & 0xff;
+              rep4[2 + i * 2 + 1] = (lampId >> 8) & 0xff;
+              const colOff = 18 + i * 4;
+              rep4[colOff] = Math.round(r * brScale) & 0xff;
+              rep4[colOff + 1] = Math.round(g * brScale) & 0xff;
+              rep4[colOff + 2] = Math.round(b * brScale) & 0xff;
+              rep4[colOff + 3] = 255;
+            }
+            await lampDev.sendFeatureReport(4, rep4);
+          }
+        });
       };
 
       if (effect === "off" || brScale <= 0) {
@@ -1069,8 +1231,21 @@
       const t0 = performance.now();
       let busy = false;
 
-      // REACTIVE: All keys start dark (0,0,0); pressing any physical key or clicking a UI keycap
-      // immediately lights up that key and smoothly fades it back to black upon release.
+      // GRADIENT (Extra Studio Effect): Dual-color horizontal linear gradient (color1 <-> color2)
+      if (effect === "gradient") {
+        await sendComputedFrame((l) => {
+          const t = dirSign === 1 ? l.nx : 1 - l.nx;
+          return [
+            Math.round(baseR * (1 - t) + secR * t),
+            Math.round(baseG * (1 - t) + secG * t),
+            Math.round(baseB * (1 - t) + secB * t),
+          ];
+        });
+        return true;
+      }
+
+      // REACTIVE (Razer Synapse Quick Effect): All keys start dark (0,0,0); pressing any physical key
+      // or clicking a UI keycap immediately lights up that key and smoothly fades it back to black upon release.
       if (effect === "reactive") {
         ensureReactiveKeyListeners();
         await sendAllLampsColor(0, 0, 0, 0);
@@ -1079,7 +1254,7 @@
         const activeLamps = new Map(); // lampId -> { held: boolean, releasedAt: number, lastLevel: number }
 
         const triggerLampsDown = (lampIds) => {
-          if (!lampIds || lampIds.length === 0) return;
+          if (!lampIds || lampIds.length === 0 || lampArrayGenByPid.get(numPid) !== gen) return;
           const immediateBatch = [];
           for (const id of lampIds) {
             const prev = activeLamps.get(id);
@@ -1104,7 +1279,7 @@
         };
 
         const triggerLampsUp = (lampIds) => {
-          if (!lampIds || lampIds.length === 0) return;
+          if (!lampIds || lampIds.length === 0 || lampArrayGenByPid.get(numPid) !== gen) return;
           const now = performance.now();
           for (const id of lampIds) {
             const entry = activeLamps.get(id);
@@ -1151,6 +1326,10 @@
         });
 
         const timer = setInterval(async () => {
+          if (lampArrayGenByPid.get(numPid) !== gen) {
+            clearInterval(timer);
+            return;
+          }
           if (busy || !lampDev.opened || activeLamps.size === 0) return;
           busy = true;
           try {
@@ -1198,11 +1377,104 @@
         return true;
       }
 
-      // SPECTRUM: Smooth 360-degree rainbow color cycle across all keys simultaneously
+      // RIPPLE (Razer Synapse Quick Effect): Pressing any key emits an expanding circular ring of light
+      // radiating outward across the 2D (x, y) millimeter coordinates of the keyboard.
+      if (effect === "ripple") {
+        ensureReactiveKeyListeners();
+        await sendAllLampsColor(0, 0, 0, 0);
+
+        const mmPerMs = speedMult === 1 ? 0.3 : speedMult === 3 ? 0.68 : 0.46;
+        const ringWidthMm = 40;
+        const maxRadiusMm = 410;
+        const ripples = [{ x: 165, y: 65, bornAt: performance.now() }]; // Initial preview ripple from keyboard center
+        let hadActiveRippleLastFrame = true;
+
+        const spawnRippleFromIds = (lampIds) => {
+          if (!lampIds || lampIds.length === 0 || lampArrayGenByPid.get(numPid) !== gen) return;
+          const lamp = layout.lamps[lampIds[0]];
+          if (!lamp) return;
+          const now = performance.now();
+          if (ripples.length >= 8) ripples.shift();
+          ripples.push({ x: lamp.x, y: lamp.y, bornAt: now });
+          if (lamp.label) {
+            const keyEl = document.querySelector(`.keycap[data-key="${CSS.escape(lamp.label)}"]`);
+            if (keyEl) {
+              keyEl.classList.add("is-reactive-lit");
+              setTimeout(() => keyEl.classList.remove("is-reactive-lit"), 220);
+            }
+          }
+        };
+
+        reactiveTriggerByPid.set(numPid, {
+          onKeyDown(code) {
+            const ids = layout.byCode.get(code);
+            if (ids) spawnRippleFromIds(ids);
+          },
+          onKeyUp() {},
+          onLabelTrigger(label) {
+            const ids = layout.byLabel.get(label);
+            if (ids) spawnRippleFromIds(ids);
+          },
+          onReleaseAll() {},
+        });
+
+        const timer = setInterval(async () => {
+          if (lampArrayGenByPid.get(numPid) !== gen) {
+            clearInterval(timer);
+            return;
+          }
+          if (busy || !lampDev.opened) return;
+          if (ripples.length === 0 && !hadActiveRippleLastFrame) return;
+          busy = true;
+          try {
+            const now = performance.now();
+            for (let i = ripples.length - 1; i >= 0; i--) {
+              if ((now - ripples[i].bornAt) * mmPerMs > maxRadiusMm) {
+                ripples.splice(i, 1);
+              }
+            }
+            if (ripples.length === 0) {
+              hadActiveRippleLastFrame = false;
+              await sendAllLampsColor(0, 0, 0, 0);
+            } else {
+              hadActiveRippleLastFrame = true;
+              await sendComputedFrame((l) => {
+                let env = 0;
+                for (let i = 0; i < ripples.length; i++) {
+                  const rip = ripples[i];
+                  const radius = (now - rip.bornAt) * mmPerMs;
+                  const dist = Math.hypot(l.x - rip.x, l.y - rip.y);
+                  const delta = Math.abs(dist - radius);
+                  if (delta < ringWidthMm) {
+                    const wave = Math.cos((delta / ringWidthMm) * (Math.PI / 2));
+                    const atten = Math.max(0, 1 - radius / maxRadiusMm);
+                    env += wave * wave * atten;
+                  }
+                }
+                const c = Math.min(1, env);
+                return [Math.round(baseR * c), Math.round(baseG * c), Math.round(baseB * c)];
+              });
+            }
+          } catch {
+            clearInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 36);
+
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      // SPECTRUM CYCLING (Razer Synapse Quick Effect): Smooth 360-degree rainbow color cycle across all keys simultaneously
       if (effect === "spectrum") {
         await sendAllLampsColor(baseR, baseG, baseB, 255);
         const degPerMs = (speedMult === 1 ? 18 : speedMult === 3 ? 52 : 32) / 1000;
         const timer = setInterval(async () => {
+          if (lampArrayGenByPid.get(numPid) !== gen) {
+            clearInterval(timer);
+            return;
+          }
           if (busy || !lampDev.opened) return;
           busy = true;
           try {
@@ -1219,26 +1491,29 @@
         return true;
       }
 
-      // BREATHING: Smooth gamma-corrected inhale/exhale with natural dark pause between breaths
+      // BREATHING & BREATHING DUAL (Razer Synapse Quick Effect): Smooth gamma-corrected inhale/exhale with dark pause
       if (effect === "breathing" || effect === "breathingDual") {
         const cycleDurationMs = speedMult === 1 ? 4200 : speedMult === 3 ? 1800 : 2800;
         const timer = setInterval(async () => {
+          if (lampArrayGenByPid.get(numPid) !== gen) {
+            clearInterval(timer);
+            return;
+          }
           if (busy || !lampDev.opened) return;
           busy = true;
           try {
             const elapsed = performance.now() - t0;
             const cycleCount = Math.floor(elapsed / cycleDurationMs);
             const cyclePos = (elapsed % cycleDurationMs) / cycleDurationMs;
-            // 0..0.80 = smooth breath in & out; 0.80..1.0 = brief dark pause at 0%
             let env = 0;
             if (cyclePos < 0.8) {
               const s = Math.sin((cyclePos / 0.8) * Math.PI);
               env = Math.pow(Math.max(0, s), 2.2);
             }
             const useSecondColor = effect === "breathingDual" && cycleCount % 2 === 1;
-            const r = useSecondColor ? 255 - baseR : baseR;
-            const g = useSecondColor ? baseB : baseG;
-            const b = useSecondColor ? baseG : baseB;
+            const r = useSecondColor ? secR : baseR;
+            const g = useSecondColor ? secG : baseG;
+            const b = useSecondColor ? secB : baseB;
             await sendAllLampsColor(
               Math.round(r * env),
               Math.round(g * env),
@@ -1255,46 +1530,26 @@
         return true;
       }
 
-      // WAVE: Horizontal rainbow wave moving Left-to-Right (dir=1) or Right-to-Left (dir=2)
-      // using each key's physical X coordinate (nx in 0..1)
+      // WAVE (Razer Synapse Quick Effect): Horizontal rainbow wave moving Left-to-Right (dir=1) or Right-to-Left (dir=2)
       if (effect === "wave") {
         const degPerMs = (speedMult === 1 ? 65 : speedMult === 3 ? 190 : 120) / 1000;
-        const ids = layout.sortedIdsByX;
-        const sendWaveFrame = async (phaseDeg) => {
-          const packets = [];
-          for (let baseIdx = 0; baseIdx < ids.length; baseIdx += 8) {
-            const count = Math.min(8, ids.length - baseIdx);
-            const isLast = baseIdx + 8 >= ids.length;
-            const rep4 = new Uint8Array(50);
-            rep4[0] = count;
-            rep4[1] = isLast ? 1 : 0;
-            for (let i = 0; i < count; i++) {
-              const lampId = ids[baseIdx + i];
-              const lampMeta = layout.lamps[lampId];
-              const nx = lampMeta ? lampMeta.nx : (lampId % 16) / 15;
-              // Subtract dirSign * phaseDeg so dirSign = +1 flows Left -> Right and dirSign = -1 flows Right -> Left
-              const hue = (nx * 360 - dirSign * phaseDeg + 36000) % 360;
-              const [r, g, b] = hsvToRgb(hue, 1, 1);
-              rep4[2 + i * 2] = lampId & 0xff;
-              rep4[2 + i * 2 + 1] = (lampId >> 8) & 0xff;
-              const colOff = 18 + i * 4;
-              rep4[colOff] = Math.round(r * brScale) & 0xff;
-              rep4[colOff + 1] = Math.round(g * brScale) & 0xff;
-              rep4[colOff + 2] = Math.round(b * brScale) & 0xff;
-              rep4[colOff + 3] = 255;
-            }
-            packets.push(rep4);
-          }
-          await Promise.all(packets.map((pkt) => lampDev.sendFeatureReport(4, pkt)));
-        };
-
-        await sendWaveFrame(0);
+        await sendComputedFrame((l) => {
+          const hue = (l.nx * 360 + 36000) % 360;
+          return hsvToRgb(hue, 1, 1);
+        });
         const timer = setInterval(async () => {
+          if (lampArrayGenByPid.get(numPid) !== gen) {
+            clearInterval(timer);
+            return;
+          }
           if (busy || !lampDev.opened) return;
           busy = true;
           try {
             const phaseDeg = (performance.now() - t0) * degPerMs;
-            await sendWaveFrame(phaseDeg);
+            await sendComputedFrame((l) => {
+              const hue = (l.nx * 360 - dirSign * phaseDeg + 36000) % 360;
+              return hsvToRgb(hue, 1, 1);
+            });
           } catch {
             clearInterval(timer);
           } finally {
@@ -1305,14 +1560,85 @@
         return true;
       }
 
-      // STARLIGHT: Dark matrix where random individual keys ignite, twinkle up to peak brightness, and fade out to black
+      // WHEEL (Razer Synapse Quick Effect): 360-degree rainbow color wheel rotating around keyboard center (175mm, 65mm)
+      if (effect === "wheel") {
+        const degPerMs = (speedMult === 1 ? 55 : speedMult === 3 ? 165 : 105) / 1000;
+        const centerX = 175;
+        const centerY = 65;
+        await sendComputedFrame((l) => {
+          const angleDeg = (Math.atan2(l.y - centerY, l.x - centerX) * 180) / Math.PI;
+          const hue = (angleDeg + 36000) % 360;
+          return hsvToRgb(hue, 1, 1);
+        });
+        const timer = setInterval(async () => {
+          if (lampArrayGenByPid.get(numPid) !== gen) {
+            clearInterval(timer);
+            return;
+          }
+          if (busy || !lampDev.opened) return;
+          busy = true;
+          try {
+            const phaseDeg = (performance.now() - t0) * degPerMs;
+            await sendComputedFrame((l) => {
+              const angleDeg = (Math.atan2(l.y - centerY, l.x - centerX) * 180) / Math.PI;
+              const hue = (angleDeg - dirSign * phaseDeg + 36000) % 360;
+              return hsvToRgb(hue, 1, 1);
+            });
+          } catch {
+            clearInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 42);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      // FIRE (Razer Synapse Quick Effect): Warm rising flames (deep crimson at bottom row -> orange -> bright yellow tips at top)
+      if (effect === "fire") {
+        const spd = (speedMult === 1 ? 2.4 : speedMult === 3 ? 6.2 : 4.0) / 1000;
+        const timer = setInterval(async () => {
+          if (lampArrayGenByPid.get(numPid) !== gen) {
+            clearInterval(timer);
+            return;
+          }
+          if (busy || !lampDev.opened) return;
+          busy = true;
+          try {
+            const t = (performance.now() - t0) * spd;
+            await sendComputedFrame((l) => {
+              const turb =
+                0.5 +
+                0.28 * Math.sin(t * 2.1 + l.x * 0.085 + l.y * 0.03) +
+                0.22 * Math.cos(t * 3.4 - l.x * 0.14 + l.id * 0.37);
+              const heat = Math.max(0, Math.min(1, l.ny * 0.68 + turb * 0.58 - 0.12));
+              const r = Math.min(255, Math.round(heat * 360));
+              const g = Math.max(0, Math.min(255, Math.round((heat - 0.28) * 290)));
+              const b = Math.max(0, Math.min(255, Math.round((heat - 0.82) * 380)));
+              return [r, g, b];
+            });
+          } catch {
+            clearInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 42);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      // STARLIGHT (Razer Synapse Quick Effect): Dark matrix where random individual keys twinkle in and out
       if (effect === "starlight") {
         await sendAllLampsColor(0, 0, 0, 0);
-        const stars = new Map(); // lampId -> { bornAt, durationMs }
+        const stars = new Map(); // lampId -> { bornAt, durationMs, useSec }
         const maxActiveStars = speedMult === 1 ? 8 : speedMult === 3 ? 22 : 14;
         const spawnProb = speedMult === 1 ? 0.35 : speedMult === 3 ? 0.85 : 0.6;
 
         const timer = setInterval(async () => {
+          if (lampArrayGenByPid.get(numPid) !== gen) {
+            clearInterval(timer);
+            return;
+          }
           if (busy || !lampDev.opened) return;
           busy = true;
           try {
@@ -1323,7 +1649,7 @@
                 const randId = Math.floor(Math.random() * lampCount);
                 if (!stars.has(randId)) {
                   const dur = (speedMult === 1 ? 1500 : speedMult === 3 ? 650 : 1050) * (0.75 + Math.random() * 0.5);
-                  stars.set(randId, { bornAt: now, durationMs: dur });
+                  stars.set(randId, { bornAt: now, durationMs: dur, useSec: Math.random() < 0.35 });
                 }
               }
             }
@@ -1337,11 +1663,14 @@
               } else {
                 const s = Math.sin((age / st.durationMs) * Math.PI);
                 const env = Math.pow(Math.max(0, s), 1.8);
+                const cr = st.useSec ? secR : baseR;
+                const cg = st.useSec ? secG : baseG;
+                const cb = st.useSec ? secB : baseB;
                 updates.push({
                   id,
-                  r: Math.round(baseR * env),
-                  g: Math.round(baseG * env),
-                  b: Math.round(baseB * env),
+                  r: Math.round(cr * env),
+                  g: Math.round(cg * env),
+                  b: Math.round(cb * env),
                   i: 255,
                 });
               }
@@ -1356,6 +1685,169 @@
             busy = false;
           }
         }, 42);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      // MATRIX RAIN (Extra Studio Effect): Digital raindrops falling down keyboard columns (top y=14mm -> bottom y=115mm)
+      if (effect === "rain") {
+        await sendAllLampsColor(0, 0, 0, 0);
+        const dropCount = speedMult === 1 ? 7 : speedMult === 3 ? 14 : 10;
+        const speedScale = speedMult === 1 ? 0.08 : speedMult === 3 ? 0.22 : 0.14;
+        const drops = Array.from({ length: dropCount }, (_, idx) => ({
+          x: 16 + ((idx * 37) % 334),
+          y: -Math.random() * 120,
+          v: speedScale * (0.8 + Math.random() * 0.45),
+        }));
+        let lastTick = performance.now();
+
+        const timer = setInterval(async () => {
+          if (lampArrayGenByPid.get(numPid) !== gen) {
+            clearInterval(timer);
+            return;
+          }
+          if (busy || !lampDev.opened) return;
+          busy = true;
+          try {
+            const now = performance.now();
+            const dt = Math.min(100, now - lastTick);
+            lastTick = now;
+            for (const d of drops) {
+              d.y += d.v * dt;
+              if (d.y > 165) {
+                d.y = -15 - Math.random() * 35;
+                d.x = 16 + Math.random() * 334;
+                d.v = speedScale * (0.8 + Math.random() * 0.45);
+              }
+            }
+
+            await sendComputedFrame((l) => {
+              let headEnv = 0;
+              let tailEnv = 0;
+              for (let i = 0; i < drops.length; i++) {
+                const d = drops[i];
+                const dx = Math.abs(l.x - d.x);
+                if (dx < 14) {
+                  const dy = d.y - l.y;
+                  if (dy >= -6 && dy <= 10) {
+                    headEnv = Math.max(headEnv, 1 - Math.abs(dy) / 10);
+                  } else if (dy > 10 && dy <= 58) {
+                    tailEnv = Math.max(tailEnv, Math.pow(1 - (dy - 10) / 48, 1.8));
+                  }
+                }
+              }
+              if (headEnv > 0.25) {
+                const w = headEnv * 0.55;
+                return [
+                  Math.min(255, Math.round(baseR + (255 - baseR) * w)),
+                  Math.min(255, Math.round(baseG + (255 - baseG) * w)),
+                  Math.min(255, Math.round(baseB + (255 - baseB) * w)),
+                ];
+              }
+              return [
+                Math.round(baseR * tailEnv),
+                Math.round(baseG * tailEnv),
+                Math.round(baseB * tailEnv),
+              ];
+            });
+          } catch {
+            clearInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 42);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      // CYBER SCANNER (Extra Studio Effect): KITT / Cylon horizontal laser bar sweeping Left <-> Right with glowing tail
+      if (effect === "scanner") {
+        const radPerMs = (speedMult === 1 ? 1.5 : speedMult === 3 ? 4.2 : 2.6) / 1000;
+        const timer = setInterval(async () => {
+          if (lampArrayGenByPid.get(numPid) !== gen) {
+            clearInterval(timer);
+            return;
+          }
+          if (busy || !lampDev.opened) return;
+          busy = true;
+          try {
+            const phase = (performance.now() - t0) * radPerMs;
+            const pos = 0.5 + 0.5 * Math.sin(phase);
+            await sendComputedFrame((l) => {
+              const dist = Math.abs(l.nx - pos);
+              if (dist > 0.26) return [0, 0, 0];
+              const env = Math.pow(1 - dist / 0.26, 2.2);
+              return [
+                Math.round((baseR * env + secR * (1 - env) * 0.35) * env),
+                Math.round((baseG * env + secG * (1 - env) * 0.35) * env),
+                Math.round((baseB * env + secB * (1 - env) * 0.35) * env),
+              ];
+            });
+          } catch {
+            clearInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 38);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      // NORTHERN AURORA (Extra Studio Effect): Organic 2D plasma waves blending Primary (color1) and Secondary (color2)
+      if (effect === "aurora") {
+        const spd = (speedMult === 1 ? 1.4 : speedMult === 3 ? 3.8 : 2.4) / 1000;
+        const timer = setInterval(async () => {
+          if (lampArrayGenByPid.get(numPid) !== gen) {
+            clearInterval(timer);
+            return;
+          }
+          if (busy || !lampDev.opened) return;
+          busy = true;
+          try {
+            const t = (performance.now() - t0) * spd;
+            await sendComputedFrame((l) => {
+              const w1 = 0.5 + 0.5 * Math.sin(l.nx * 4.2 - dirSign * t * 1.6 + Math.sin(l.ny * 3.1 + t));
+              const w2 = 0.45 + 0.55 * Math.cos(l.ny * 3.4 - t * 1.1 + l.nx * 2.0);
+              return [
+                Math.round((baseR * w1 + secR * (1 - w1)) * w2),
+                Math.round((baseG * w1 + secG * (1 - w1)) * w2),
+                Math.round((baseB * w1 + secB * (1 - w1)) * w2),
+              ];
+            });
+          } catch {
+            clearInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 42);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      // PARTY STROBE / DISCO (Extra Studio Effect): Multi-zone energetic color bursts across key clusters
+      if (effect === "disco") {
+        const intervalMs = speedMult === 1 ? 140 : speedMult === 3 ? 55 : 85;
+        const timer = setInterval(async () => {
+          if (lampArrayGenByPid.get(numPid) !== gen) {
+            clearInterval(timer);
+            return;
+          }
+          if (busy || !lampDev.opened) return;
+          busy = true;
+          try {
+            const seed = Math.floor((performance.now() - t0) / intervalMs);
+            await sendComputedFrame((l) => {
+              const cluster = Math.floor(l.nx * 6) + Math.floor(l.ny * 3) * 6;
+              const hash = ((cluster * 73 + seed * 131 + l.id * 17) % 360 + 360) % 360;
+              const pop = ((cluster + seed) % 3 === 0) ? 1 : 0.28;
+              return hsvToRgb(hash, 0.95, pop);
+            });
+          } catch {
+            clearInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, intervalMs);
         lampArrayTimerByPid.set(numPid, timer);
         return true;
       }
@@ -1626,7 +2118,7 @@
     return { rx91, parsedRx };
   }
 
-  async function sendRawWebHid90(pidKey, packet90) {
+  async function sendRawWebHid90(pidKey, packet90, options = {}) {
     const prevLock = webHidMutexByPid.get(pidKey) || Promise.resolve();
     let releaseLock;
     const nextLock = new Promise((r) => {
@@ -1653,7 +2145,7 @@
       // 1. If the command updates Chroma RGB or Brightness and the device exposes USB HID LampArray (0x0059),
       // apply the lighting directly to the physical hardware LEDs via WebHID LampArray (Report IDs 4/5/6).
       let lampApplied = false;
-      if (isLightingCmd && findLampArrayDevice(pidKey)) {
+      if (isLightingCmd && !options.skipLampArray && findLampArrayDevice(pidKey)) {
         lampApplied = await applyLampArrayEffect(pidKey);
       }
 
@@ -1879,7 +2371,7 @@
           args: altArgs,
           transactionId: body90[1] || 0x1f,
         });
-        await sendRawWebHid90(Number(selectedPid), altPkt).catch(() => null);
+        await sendRawWebHid90(Number(selectedPid), altPkt, { skipLampArray: true }).catch(() => null);
       }
 
       const status = data.parsedRx?.statusName || "OK";
@@ -2617,6 +3109,36 @@
     const cat = meta.category || "keyboard";
     await sendPacket90(Protocol25.Builders.setActiveProfileSlot(slotId), `Active Profile Slot → S${slotId}`, null, null, true);
 
+    // Apply Chroma lighting FIRST so switching slots (S1..S6) visibly changes the keyboard/mouse LEDs immediately
+    if (slotData.lighting && meta.isChroma !== false) {
+      const hex = (slotData.lighting.color1 || "#00e676").replace("#", "");
+      const num = parseInt(hex, 16) || 0x00e676;
+      const hex2 = (slotData.lighting.color2 || "#00d2ff").replace("#", "");
+      const num2 = parseInt(hex2, 16) || 0x00d2ff;
+      await sendRawWebHid90(
+        Number(selectedPid),
+        Protocol25.Builders.setBrightness(Math.round(((slotData.lighting.brightness ?? 100) / 100) * 255)),
+        { skipLampArray: true }
+      );
+      await sendPacket90(
+        Protocol25.Builders.setChromaEffect({
+          effect: slotData.lighting.effect || "static",
+          r: (num >> 16) & 0xff,
+          g: (num >> 8) & 0xff,
+          b: num & 0xff,
+          r2: (num2 >> 16) & 0xff,
+          g2: (num2 >> 8) & 0xff,
+          b2: num2 & 0xff,
+          speed: slotData.lighting.speed || 2,
+          direction: slotData.lighting.waveDirection || 1,
+        }),
+        `Slot S${slotId} Chroma (${slotData.lighting.effect || "static"})`,
+        null,
+        null,
+        true
+      );
+    }
+
     if (cat === "keyboard-analog" || cat === "keyboard") {
       if (cat === "keyboard-analog") {
         await sendPacket90(
@@ -2633,6 +3155,31 @@
           null,
           true
         );
+        // Also flash any per-key actuation overrides for this slot
+        if (slotData.perKeyOverrides && typeof slotData.perKeyOverrides === "object") {
+          for (const [kLabel, ov] of Object.entries(slotData.perKeyOverrides)) {
+            if (!ov) continue;
+            const kId = Protocol25.keyLabelToMatrixId(kLabel);
+            await sendRawWebHid90(
+              Number(selectedPid),
+              Protocol25.Builders.setAnalogActuation({
+                slotId,
+                actuationMm: ov.act ?? slotData.actuationMm ?? 1.2,
+                keyIds: [kId],
+              })
+            );
+            await sendRawWebHid90(
+              Number(selectedPid),
+              Protocol25.Builders.setAnalogRapidTrigger({
+                slotId,
+                rtEnabled: ov.rt !== undefined ? !!ov.rt : !!slotData.rtEnabled,
+                rtDownMm: ov.down ?? slotData.rtDownMm ?? 0.3,
+                rtUpMm: ov.up ?? slotData.rtUpMm ?? 0.3,
+                keyIds: [kId],
+              })
+            );
+          }
+        }
       }
       await sendPacket90(
         Protocol25.Builders.setSnapTap({
@@ -2718,32 +3265,6 @@
         true
       );
     }
-
-    if (slotData.lighting && meta.isChroma !== false) {
-      const hex = (slotData.lighting.color1 || "#00e676").replace("#", "");
-      const num = parseInt(hex, 16) || 0x00e676;
-      await sendPacket90(
-        Protocol25.Builders.setBrightness(Math.round(((slotData.lighting.brightness ?? 100) / 100) * 255)),
-        `Slot S${slotId} Brightness`,
-        null,
-        null,
-        true
-      );
-      await sendPacket90(
-        Protocol25.Builders.setChromaEffect({
-          effect: slotData.lighting.effect || "static",
-          r: (num >> 16) & 0xff,
-          g: (num >> 8) & 0xff,
-          b: num & 0xff,
-          speed: slotData.lighting.speed || 2,
-          direction: slotData.lighting.waveDirection || 1,
-        }),
-        `Slot S${slotId} Chroma`,
-        null,
-        null,
-        true
-      );
-    }
   }
 
   async function switchProfileSlot(slotId) {
@@ -2765,9 +3286,9 @@
       updateProfileKeyBox();
 
       const sData = getActiveSlotData();
-      await flashFullSlotToHardware(slotId, sData);
-      showToast(`Switched to Onboard Slot ${slotId} (${sData.name})`);
+      showToast(`Switched to Onboard Slot S${slotId} (${sData.name})`);
       void playUiTone("info");
+      await flashFullSlotToHardware(slotId, sData);
     } catch (err) {
       showToast(`Slot switch error: ${err.message}`, false);
     }
@@ -2795,7 +3316,7 @@
     const container = document.getElementById("keyboardMatrix");
     if (!container) return;
     const slot = getActiveSlotData();
-    const light = slot.lighting || { effect: "static", color1: "#00e676", brightness: 100 };
+    const light = slot.lighting || { effect: "static", color1: "#00e676", color2: "#00d2ff", brightness: 100 };
     const eff = light.effect || "static";
     const brPct = Math.max(0, Math.min(100, Number(light.brightness ?? 100)));
     const hex = light.color1 || "#00e676";
@@ -2803,14 +3324,20 @@
     const r = (num >> 16) & 0xff;
     const g = (num >> 8) & 0xff;
     const b = num & 0xff;
+    const hex2 = light.color2 || "#00d2ff";
+    const num2 = parseInt(hex2.replace("#", ""), 16) || 0x00d2ff;
+    const r2 = (num2 >> 16) & 0xff;
+    const g2 = (num2 >> 8) & 0xff;
+    const b2 = num2 & 0xff;
     const scale = eff === "off" ? 0 : brPct / 100;
 
     container.dataset.chromaEffect = eff;
+    container.style.setProperty("--key-color-2", `rgba(${r2}, ${g2}, ${b2}, ${Math.max(0.35, scale).toFixed(2)})`);
     if (eff === "off" || scale <= 0.01) {
       container.style.setProperty("--key-color", "#6e7785");
       container.style.setProperty("--key-glow", "transparent");
       container.style.setProperty("--kbd-glow", "transparent");
-    } else if (eff === "reactive") {
+    } else if (eff === "reactive" || eff === "ripple") {
       container.style.setProperty("--key-color", `rgba(${r}, ${g}, ${b}, 0.28)`);
       container.style.setProperty("--key-glow", "transparent");
       container.style.setProperty("--kbd-glow", "transparent");
@@ -2832,7 +3359,7 @@
 
     if (!container.dataset.built) {
       container.innerHTML = "";
-      TKL_ROWS.forEach((row) => {
+      TKL_ROWS.forEach((row, rowIdx) => {
         const rowEl = document.createElement("div");
         rowEl.className = "kbd-row";
         row.forEach((k, colIdx) => {
@@ -2846,6 +3373,7 @@
           keyEl.type = "button";
           keyEl.className = "keycap";
           keyEl.style.setProperty("--col-idx", String(colIdx));
+          keyEl.style.setProperty("--row-idx", String(rowIdx));
           if (k.w && k.w !== 1) keyEl.style.width = `${Math.round(k.w * 44 + (k.w - 1) * 5)}px`;
           if (k.hidden) {
             keyEl.style.visibility = "hidden";
@@ -3110,6 +3638,8 @@
     }
     const inpColor = document.getElementById("inpChromaColor");
     if (inpColor) inpColor.value = light.color1 || "#00e676";
+    const inpColor2 = document.getElementById("inpChromaColor2");
+    if (inpColor2) inpColor2.value = light.color2 || "#00d2ff";
     document.querySelectorAll("#effectGrid .preset-btn").forEach((b) => {
       b.classList.toggle("active", b.dataset.effect === (light.effect || "static"));
     });
@@ -4070,19 +4600,28 @@
     });
 
     // Chroma Lighting
-    const sendChroma = (effect, hexColor) => {
+    const sendChroma = (effect, hexColor, hexColor2) => {
       const slot = getActiveSlotData();
-      if (!slot.lighting) slot.lighting = { effect: "static", color1: "#00e676", brightness: 100, speed: 2, waveDirection: 1 };
+      if (!slot.lighting) {
+        slot.lighting = { effect: "static", color1: "#00e676", color2: "#00d2ff", brightness: 100, speed: 2, waveDirection: 1 };
+      }
       slot.lighting.effect = effect;
-      slot.lighting.color1 = hexColor;
-      if (slot.lighting.brightness === undefined) slot.lighting.brightness = Number(document.getElementById("rngBrightness")?.value ?? 100);
+      slot.lighting.color1 = hexColor || slot.lighting.color1 || "#00e676";
+      slot.lighting.color2 = hexColor2 || document.getElementById("inpChromaColor2")?.value || slot.lighting.color2 || "#00d2ff";
+      if (slot.lighting.brightness === undefined) {
+        slot.lighting.brightness = Number(document.getElementById("rngBrightness")?.value ?? 100);
+      }
       updateChromaVisuals();
-      const num = parseInt(hexColor.replace("#", ""), 16) || 0x00e676;
+      const num = parseInt(slot.lighting.color1.replace("#", ""), 16) || 0x00e676;
+      const num2 = parseInt(slot.lighting.color2.replace("#", ""), 16) || 0x00d2ff;
       const pkt = Protocol25.Builders.setChromaEffect({
         effect,
         r: (num >> 16) & 0xff,
         g: (num >> 8) & 0xff,
         b: num & 0xff,
+        r2: (num2 >> 16) & 0xff,
+        g2: (num2 >> 8) & 0xff,
+        b2: num2 & 0xff,
         speed: slot.lighting.speed || 2,
         direction: slot.lighting.waveDirection || 1,
       });
@@ -4097,7 +4636,11 @@
         if (!slot.lighting) slot.lighting = {};
         slot.lighting.waveDirection = Number(btn.dataset.chromaDir) || 1;
         const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || slot.lighting.effect || "wave";
-        sendChroma(activeEff, document.getElementById("inpChromaColor")?.value || slot.lighting.color1 || "#00e676");
+        sendChroma(
+          activeEff,
+          document.getElementById("inpChromaColor")?.value || slot.lighting.color1 || "#00e676",
+          document.getElementById("inpChromaColor2")?.value || slot.lighting.color2 || "#00d2ff"
+        );
       });
     });
 
@@ -4109,7 +4652,11 @@
         if (!slot.lighting) slot.lighting = {};
         slot.lighting.speed = Number(btn.dataset.chromaSpeed) || 2;
         const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || slot.lighting.effect || "static";
-        sendChroma(activeEff, document.getElementById("inpChromaColor")?.value || slot.lighting.color1 || "#00e676");
+        sendChroma(
+          activeEff,
+          document.getElementById("inpChromaColor")?.value || slot.lighting.color1 || "#00e676",
+          document.getElementById("inpChromaColor2")?.value || slot.lighting.color2 || "#00d2ff"
+        );
       });
     });
 
@@ -4117,7 +4664,11 @@
       btn.addEventListener("click", () => {
         document.querySelectorAll("#effectGrid .preset-btn").forEach((b) => b.classList.remove("active"));
         btn.classList.add("active");
-        sendChroma(btn.dataset.effect, document.getElementById("inpChromaColor").value);
+        sendChroma(
+          btn.dataset.effect,
+          document.getElementById("inpChromaColor")?.value || "#00e676",
+          document.getElementById("inpChromaColor2")?.value || "#00d2ff"
+        );
       });
     });
 
@@ -4128,7 +4679,7 @@
         const c = sw.dataset.color;
         document.getElementById("inpChromaColor").value = c;
         const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
-        sendChroma(activeEff, c);
+        sendChroma(activeEff, c, document.getElementById("inpChromaColor2")?.value || "#00d2ff");
       });
     });
 
@@ -4145,14 +4696,34 @@
       clearTimeout(chromaColorTimer);
       chromaColorTimer = setTimeout(() => {
         const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
-        sendChroma(activeEff, c);
+        sendChroma(activeEff, c, document.getElementById("inpChromaColor2")?.value || slot.lighting.color2 || "#00d2ff");
       }, 45);
     });
 
     document.getElementById("inpChromaColor")?.addEventListener("change", (ev) => {
       clearTimeout(chromaColorTimer);
       const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
-      sendChroma(activeEff, ev.target.value);
+      sendChroma(activeEff, ev.target.value, document.getElementById("inpChromaColor2")?.value || "#00d2ff");
+    });
+
+    let chromaColor2Timer = null;
+    document.getElementById("inpChromaColor2")?.addEventListener("input", (ev) => {
+      const c2 = ev.target.value;
+      const slot = getActiveSlotData();
+      if (!slot.lighting) slot.lighting = {};
+      slot.lighting.color2 = c2;
+      updateChromaVisuals();
+      clearTimeout(chromaColor2Timer);
+      chromaColor2Timer = setTimeout(() => {
+        const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
+        sendChroma(activeEff, document.getElementById("inpChromaColor")?.value || slot.lighting.color1 || "#00e676", c2);
+      }, 45);
+    });
+
+    document.getElementById("inpChromaColor2")?.addEventListener("change", (ev) => {
+      clearTimeout(chromaColor2Timer);
+      const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
+      sendChroma(activeEff, document.getElementById("inpChromaColor")?.value || "#00e676", ev.target.value);
     });
 
     const rngBr = document.getElementById("rngBrightness");

@@ -1115,8 +1115,37 @@
         case "reactive":
           args = [varStore, ledId, 0x05, 0x00, speed & 0xff, 0x01, r & 0xff, g & 0xff, b & 0xff];
           break;
+        case "ripple":
+          args = [varStore, ledId, 0x06, 0x01, speed & 0xff, 0x01, r & 0xff, g & 0xff, b & 0xff];
+          break;
         case "starlight":
           args = [varStore, ledId, 0x07, 0x01, speed & 0xff, 0x01, r & 0xff, g & 0xff, b & 0xff];
+          break;
+        case "fire":
+          args = [varStore, ledId, 0x09, 0x00, speed & 0xff, 0x00];
+          break;
+        case "wheel":
+          args = [varStore, ledId, 0x0a, direction & 0xff, speed & 0xff, 0x00];
+          break;
+        case "rain":
+        case "scanner":
+        case "aurora":
+        case "gradient":
+        case "disco":
+          args = [
+            varStore,
+            ledId,
+            0x02,
+            0x02,
+            0x00,
+            0x02,
+            r & 0xff,
+            g & 0xff,
+            b & 0xff,
+            r2 & 0xff,
+            g2 & 0xff,
+            b2 & 0xff,
+          ];
           break;
         default:
           args = [varStore, ledId, 0x01, 0x00, 0x00, 0x01, r & 0xff, g & 0xff, b & 0xff];

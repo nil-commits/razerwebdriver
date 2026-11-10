@@ -715,7 +715,7 @@
     const container = document.getElementById("keyboardMatrix");
     if (!container) return;
     const slot = getActiveSlotData();
-    const light = slot.lighting || { effect: "static", color1: "#00e676", brightness: 100 };
+    const light = slot.lighting || { effect: "static", color1: "#00e676", color2: "#00d2ff", brightness: 100 };
     const eff = light.effect || "static";
     const brPct = Math.max(0, Math.min(100, Number(light.brightness ?? 100)));
     const hex = light.color1 || "#00e676";
@@ -723,13 +723,25 @@
     const r = (num >> 16) & 0xff;
     const g = (num >> 8) & 0xff;
     const b = num & 0xff;
+    const hex2 = light.color2 || "#00d2ff";
+    const num2 = parseInt(hex2.replace("#", ""), 16) || 0x00d2ff;
+    const r2 = (num2 >> 16) & 0xff;
+    const g2 = (num2 >> 8) & 0xff;
+    const b2 = num2 & 0xff;
     const scale = eff === "off" ? 0 : brPct / 100;
 
     container.dataset.chromaEffect = eff;
+    container.style.setProperty("--key-color-2", `rgba(${r2}, ${g2}, ${b2}, ${Math.max(0.35, scale).toFixed(2)})`);
     if (eff === "off" || scale <= 0.01) {
       container.style.setProperty("--key-color", "#6e7785");
       container.style.setProperty("--key-glow", "transparent");
       container.style.setProperty("--kbd-glow", "transparent");
+    } else if (eff === "reactive" || eff === "ripple") {
+      container.style.setProperty("--key-color", `rgba(${r}, ${g}, ${b}, 0.28)`);
+      container.style.setProperty("--key-glow", "transparent");
+      container.style.setProperty("--kbd-glow", "transparent");
+      container.style.setProperty("--reactive-color", `rgba(${r}, ${g}, ${b}, 1)`);
+      container.style.setProperty("--reactive-glow", `rgba(${r}, ${g}, ${b}, 0.55)`);
     } else {
       const keyAlpha = Math.max(0.35, scale).toFixed(2);
       const glowAlpha = (0.24 * scale).toFixed(2);
@@ -746,7 +758,7 @@
 
     if (!container.dataset.built) {
       container.innerHTML = "";
-      TKL_ROWS.forEach((row) => {
+      TKL_ROWS.forEach((row, rowIdx) => {
         const rowEl = document.createElement("div");
         rowEl.className = "kbd-row";
         row.forEach((k, colIdx) => {
@@ -760,6 +772,7 @@
           keyEl.type = "button";
           keyEl.className = "keycap";
           keyEl.style.setProperty("--col-idx", String(colIdx));
+          keyEl.style.setProperty("--row-idx", String(rowIdx));
           if (k.w && k.w !== 1) keyEl.style.width = `${Math.round(k.w * 44 + (k.w - 1) * 5)}px`;
           if (k.hidden) {
             keyEl.style.visibility = "hidden";
@@ -978,6 +991,8 @@
         document.getElementById("valBrightnessOut").textContent = `${rngBr.value}%`;
       }
       document.getElementById("inpChromaColor").value = light.color1 || "#00e676";
+      const inpColor2 = document.getElementById("inpChromaColor2");
+      if (inpColor2) inpColor2.value = light.color2 || "#00d2ff";
       document.querySelectorAll("#effectGrid .preset-btn").forEach((b) => {
         b.classList.toggle("active", b.dataset.effect === (light.effect || "static"));
       });
@@ -1702,19 +1717,28 @@
     });
 
     // Chroma Lighting
-    const sendChroma = (effect, hexColor) => {
+    const sendChroma = (effect, hexColor, hexColor2) => {
       const slot = getActiveSlotData();
-      if (!slot.lighting) slot.lighting = { effect: "static", color1: "#00e676", brightness: 100, speed: 2, waveDirection: 1 };
+      if (!slot.lighting) {
+        slot.lighting = { effect: "static", color1: "#00e676", color2: "#00d2ff", brightness: 100, speed: 2, waveDirection: 1 };
+      }
       slot.lighting.effect = effect;
-      slot.lighting.color1 = hexColor;
-      if (slot.lighting.brightness === undefined) slot.lighting.brightness = Number(document.getElementById("rngBrightness")?.value ?? 100);
+      slot.lighting.color1 = hexColor || slot.lighting.color1 || "#00e676";
+      slot.lighting.color2 = hexColor2 || document.getElementById("inpChromaColor2")?.value || slot.lighting.color2 || "#00d2ff";
+      if (slot.lighting.brightness === undefined) {
+        slot.lighting.brightness = Number(document.getElementById("rngBrightness")?.value ?? 100);
+      }
       updateChromaVisuals();
-      const num = parseInt(hexColor.replace("#", ""), 16) || 0x00e676;
+      const num = parseInt(slot.lighting.color1.replace("#", ""), 16) || 0x00e676;
+      const num2 = parseInt(slot.lighting.color2.replace("#", ""), 16) || 0x00d2ff;
       const pkt = Protocol25.Builders.setChromaEffect({
         effect,
         r: (num >> 16) & 0xff,
         g: (num >> 8) & 0xff,
         b: num & 0xff,
+        r2: (num2 >> 16) & 0xff,
+        g2: (num2 >> 8) & 0xff,
+        b2: num2 & 0xff,
         speed: slot.lighting.speed || 2,
         direction: slot.lighting.waveDirection || 1,
       });
@@ -1729,7 +1753,11 @@
         if (!slot.lighting) slot.lighting = {};
         slot.lighting.waveDirection = Number(btn.dataset.chromaDir) || 1;
         const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || slot.lighting.effect || "wave";
-        sendChroma(activeEff, document.getElementById("inpChromaColor")?.value || slot.lighting.color1 || "#00e676");
+        sendChroma(
+          activeEff,
+          document.getElementById("inpChromaColor")?.value || slot.lighting.color1 || "#00e676",
+          document.getElementById("inpChromaColor2")?.value || slot.lighting.color2 || "#00d2ff"
+        );
       });
     });
 
@@ -1741,7 +1769,11 @@
         if (!slot.lighting) slot.lighting = {};
         slot.lighting.speed = Number(btn.dataset.chromaSpeed) || 2;
         const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || slot.lighting.effect || "static";
-        sendChroma(activeEff, document.getElementById("inpChromaColor")?.value || slot.lighting.color1 || "#00e676");
+        sendChroma(
+          activeEff,
+          document.getElementById("inpChromaColor")?.value || slot.lighting.color1 || "#00e676",
+          document.getElementById("inpChromaColor2")?.value || slot.lighting.color2 || "#00d2ff"
+        );
       });
     });
 
@@ -1749,7 +1781,11 @@
       btn.addEventListener("click", () => {
         document.querySelectorAll("#effectGrid .preset-btn").forEach((b) => b.classList.remove("active"));
         btn.classList.add("active");
-        sendChroma(btn.dataset.effect, document.getElementById("inpChromaColor").value);
+        sendChroma(
+          btn.dataset.effect,
+          document.getElementById("inpChromaColor")?.value || "#00e676",
+          document.getElementById("inpChromaColor2")?.value || "#00d2ff"
+        );
       });
     });
 
@@ -1760,7 +1796,7 @@
         const c = sw.dataset.color;
         document.getElementById("inpChromaColor").value = c;
         const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
-        sendChroma(activeEff, c);
+        sendChroma(activeEff, c, document.getElementById("inpChromaColor2")?.value || "#00d2ff");
       });
     });
 
@@ -1777,14 +1813,34 @@
       clearTimeout(chromaColorTimer);
       chromaColorTimer = setTimeout(() => {
         const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
-        sendChroma(activeEff, c);
+        sendChroma(activeEff, c, document.getElementById("inpChromaColor2")?.value || slot.lighting.color2 || "#00d2ff");
       }, 45);
     });
 
     document.getElementById("inpChromaColor")?.addEventListener("change", (ev) => {
       clearTimeout(chromaColorTimer);
       const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
-      sendChroma(activeEff, ev.target.value);
+      sendChroma(activeEff, ev.target.value, document.getElementById("inpChromaColor2")?.value || "#00d2ff");
+    });
+
+    let chromaColor2Timer = null;
+    document.getElementById("inpChromaColor2")?.addEventListener("input", (ev) => {
+      const c2 = ev.target.value;
+      const slot = getActiveSlotData();
+      if (!slot.lighting) slot.lighting = {};
+      slot.lighting.color2 = c2;
+      updateChromaVisuals();
+      clearTimeout(chromaColor2Timer);
+      chromaColor2Timer = setTimeout(() => {
+        const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
+        sendChroma(activeEff, document.getElementById("inpChromaColor")?.value || slot.lighting.color1 || "#00e676", c2);
+      }, 45);
+    });
+
+    document.getElementById("inpChromaColor2")?.addEventListener("change", (ev) => {
+      clearTimeout(chromaColor2Timer);
+      const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
+      sendChroma(activeEff, document.getElementById("inpChromaColor")?.value || "#00e676", ev.target.value);
     });
 
     const rngBr = document.getElementById("rngBrightness");
