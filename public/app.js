@@ -1732,6 +1732,7 @@
       const num = parseInt(slot.lighting.color1.replace("#", ""), 16) || 0x00e676;
       const num2 = parseInt(slot.lighting.color2.replace("#", ""), 16) || 0x00d2ff;
       const pkt = Protocol25.Builders.setChromaEffect({
+        varStore: getActiveDeviceProfileObj().activeSlot || 1,
         effect,
         r: (num >> 16) & 0xff,
         g: (num >> 8) & 0xff,

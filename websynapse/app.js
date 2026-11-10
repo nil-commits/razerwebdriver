@@ -954,6 +954,187 @@
   const lampLayoutCacheByPid = new Map();
   const reactiveTriggerByPid = new Map();
   let reactiveKeyListenersBound = false;
+  let isPageUnloading = false;
+
+  // ==========================================================================
+  // Unthrottled Background Chroma Timer Worker + Web Lock Keep-Alive
+  // Prevents Chromium from throttling RGB animations to 1 FPS when websynap.se
+  // is minimized or in a background tab while gaming.
+  // ==========================================================================
+  let chromaTimerWorker = null;
+  let nextLampTimerId = 1;
+  const lampTimerCallbacks = new Map();
+  let chromaWakeLockRelease = null;
+
+  function ensureChromaWakeLock() {
+    if (chromaWakeLockRelease || !navigator.locks || typeof navigator.locks.request !== "function") return;
+    try {
+      navigator.locks
+        .request("websynapse_chroma_engine_active", () => new Promise((resolve) => {
+          chromaWakeLockRelease = resolve;
+        }))
+        .catch(() => {
+          chromaWakeLockRelease = null;
+        });
+    } catch {
+      // ignore if Web Locks API is unavailable
+    }
+  }
+
+  function releaseChromaWakeLockIfIdle() {
+    if (lampTimerCallbacks.size === 0 && typeof chromaWakeLockRelease === "function") {
+      const rel = chromaWakeLockRelease;
+      chromaWakeLockRelease = null;
+      try {
+        rel();
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  function getChromaTimerWorker() {
+    if (chromaTimerWorker !== null) return chromaTimerWorker;
+    try {
+      const w = new Worker("./timer-worker.js");
+      w.addEventListener("message", (ev) => {
+        const id = ev.data?.id;
+        const cb = lampTimerCallbacks.get(id);
+        if (typeof cb === "function") cb();
+      });
+      w.addEventListener("error", () => {
+        chromaTimerWorker = false;
+      });
+      chromaTimerWorker = w;
+    } catch {
+      chromaTimerWorker = false;
+    }
+    return chromaTimerWorker;
+  }
+
+  function setLampInterval(fn, intervalMs) {
+    ensureChromaWakeLock();
+    const worker = getChromaTimerWorker();
+    if (worker) {
+      const id = nextLampTimerId++;
+      lampTimerCallbacks.set(id, fn);
+      worker.postMessage({ cmd: "start", id, intervalMs });
+      return { isWorker: true, id };
+    }
+    const nativeId = setInterval(fn, intervalMs);
+    return { isWorker: false, id: nativeId };
+  }
+
+  function clearLampInterval(handle) {
+    if (!handle) return;
+    if (typeof handle === "object" && handle.isWorker) {
+      lampTimerCallbacks.delete(handle.id);
+      if (chromaTimerWorker) {
+        try {
+          chromaTimerWorker.postMessage({ cmd: "stop", id: handle.id });
+        } catch {
+          // ignore
+        }
+      }
+      releaseChromaWakeLockIfIdle();
+    } else {
+      clearInterval(typeof handle === "object" ? handle.id : handle);
+    }
+  }
+
+  // ==========================================================================
+  // Hardware Autonomous Handoff on Tab Close / Unload / Freeze
+  // Matches Electron Razer Synapse's setDeviceToDefaultOnExit():
+  // When websynap.se is closed while an animated or interactive effect is active,
+  // immediately switch USB HID LampArray Report ID 6 back to AutonomousMode = 1
+  // ([0x01]) and drain the USB control pipe so the keyboard's onboard MCU
+  // continues animating autonomously instead of freezing on the last frame.
+  // ==========================================================================
+  let lifecycleExitListenersBound = false;
+
+  function releaseAllLampArraysToAutonomous(shouldSpinDrain = true) {
+    isPageUnloading = true;
+
+    // 1. Stop all active software frame timers and invalidate in-flight frame loops
+    for (const [pid, timer] of lampArrayTimerByPid.entries()) {
+      clearLampInterval(timer);
+      lampArrayGenByPid.set(pid, (lampArrayGenByPid.get(pid) || 0) + 1);
+    }
+    lampArrayTimerByPid.clear();
+
+    // 2. Synchronously queue Report ID 6 = [1] (AutonomousMode = 1) over Mojo IPC
+    // for every connected LampArray device running a dynamic/animated effect.
+    let dispatchedAny = false;
+    for (const [pid, list] of webHidHandlesByPid.entries()) {
+      const lampDev = (list || []).find((d) => deviceHasLampArray(d));
+      if (!lampDev || !lampDev.opened) continue;
+
+      const devProf = driverState.profilesByPid?.[pid];
+      const slot = devProf?.slots?.[devProf?.activeSlot || 1];
+      const eff = slot?.lighting?.effect || "wave";
+      const br = Number(slot?.lighting?.brightness ?? 100);
+      // Static, Gradient, and Off are non-animated frames: keeping AutonomousMode = 0
+      // preserves the exact static RGB colors in hardware LED RAM after tab close.
+      const isStaticFrameEffect = eff === "static" || eff === "gradient" || eff === "off" || br <= 0;
+      if (isStaticFrameEffect) continue;
+
+      try {
+        // Close any interrupted multi-packet Report ID 4 frame with LampUpdateComplete = 1
+        const finishRep4 = new Uint8Array(50);
+        finishRep4[0] = 1;
+        finishRep4[1] = 1;
+        void lampDev.sendFeatureReport(4, finishRep4).catch(() => {});
+        // Switch hardware back to AutonomousMode = 1 (Onboard MCU effect engine)
+        void lampDev.sendFeatureReport(6, new Uint8Array([1])).catch(() => {});
+        void lampDev.sendFeatureReport(6, new Uint8Array([1])).catch(() => {});
+        dispatchedAny = true;
+      } catch {
+        // ignore unload errors
+      }
+    }
+
+    // 3. Hold the synchronous unload handler for 42ms so Chromium's browser process IO thread
+    // completes the IOCTL_HID_SET_FEATURE (Report ID 6 = [1]) USB control transfer before
+    // RenderFrameHost teardown closes HidConnectionWin.
+    if (shouldSpinDrain && dispatchedAny) {
+      const drainUntil = performance.now() + 42;
+      while (performance.now() < drainUntil) {
+        // synchronous USB control pipe drain
+      }
+    }
+  }
+
+  function ensureLifecycleExitListeners() {
+    if (lifecycleExitListenersBound) return;
+    lifecycleExitListenersBound = true;
+
+    window.addEventListener("beforeunload", () => {
+      releaseAllLampArraysToAutonomous(true);
+    });
+    window.addEventListener("pagehide", () => {
+      releaseAllLampArraysToAutonomous(true);
+    });
+    window.addEventListener("unload", () => {
+      releaseAllLampArraysToAutonomous(true);
+    });
+    document.addEventListener("freeze", () => {
+      releaseAllLampArraysToAutonomous(false);
+    });
+    document.addEventListener("resume", () => {
+      isPageUnloading = false;
+      if (findLampArrayDevice(selectedPid)) {
+        void applyLampArrayEffect(selectedPid);
+      }
+    });
+    window.addEventListener("pageshow", (ev) => {
+      if (ev.persisted || isPageUnloading) {
+        isPageUnloading = false;
+        if (findLampArrayDevice(selectedPid)) {
+          void applyLampArrayEffect(selectedPid);
+        }
+      }
+    });
+  }
 
   function ensureReactiveKeyListeners() {
     if (reactiveKeyListenersBound) return;
@@ -1043,13 +1224,16 @@
   }
 
   async function applyLampArrayEffect(pidKey) {
+    ensureLifecycleExitListeners();
+    isPageUnloading = false;
+
     const numPid = Number(pidKey);
     const gen = (lampArrayGenByPid.get(numPid) || 0) + 1;
     lampArrayGenByPid.set(numPid, gen);
 
     const prevTimer = lampArrayTimerByPid.get(numPid);
     if (prevTimer) {
-      clearInterval(prevTimer);
+      clearLampInterval(prevTimer);
       lampArrayTimerByPid.delete(numPid);
     }
     reactiveTriggerByPid.delete(numPid);
@@ -1062,7 +1246,7 @@
       if (!lampDev.opened) {
         await lampDev.open();
       }
-      if (lampArrayGenByPid.get(numPid) !== gen) return false;
+      if (lampArrayGenByPid.get(numPid) !== gen || isPageUnloading) return false;
 
       let lampCount = lampArrayCountByPid.get(numPid) || 0;
       if (!lampCount) {
@@ -1109,7 +1293,7 @@
 
       // Serialize LampArray feature report batches per device so profile switches never collide on MI_04
       const runExclusiveLampBatch = async (fn) => {
-        if (lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
+        if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
         const prev = lampArrayMutexByPid.get(numPid) || Promise.resolve();
         let release;
         const next = new Promise((r) => {
@@ -1118,7 +1302,7 @@
         lampArrayMutexByPid.set(numPid, prev.then(() => next));
         await prev;
         try {
-          if (lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
           await fn();
         } finally {
           release();
@@ -1129,14 +1313,14 @@
       await runExclusiveLampBatch(async () => {
         await lampDev.sendFeatureReport(6, new Uint8Array([0]));
       });
-      if (lampArrayGenByPid.get(numPid) !== gen) return false;
+      if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) return false;
 
       // Send a subset of lamps via Report ID 4 (8 lamps per 50-byte packet, LampUpdateComplete=1 on final packet)
       const sendLampSubset = async (entries) => {
-        if (!entries || entries.length === 0) return;
+        if (!entries || entries.length === 0 || isPageUnloading) return;
         await runExclusiveLampBatch(async () => {
           for (let baseIdx = 0; baseIdx < entries.length; baseIdx += 8) {
-            if (lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
+            if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
             const count = Math.min(8, entries.length - baseIdx);
             const isLast = baseIdx + 8 >= entries.length;
             const rep4 = new Uint8Array(50);
@@ -1160,6 +1344,7 @@
 
       // Send uniform color across all lamps (ordered Left-to-Right)
       const sendAllLampsColor = async (r, g, b, intensity = 255) => {
+        if (isPageUnloading) return;
         const sr = Math.round(r * brScale) & 0xff;
         const sg = Math.round(g * brScale) & 0xff;
         const sb = Math.round(b * brScale) & 0xff;
@@ -1167,7 +1352,7 @@
         const ids = layout.sortedIdsByX;
         await runExclusiveLampBatch(async () => {
           for (let baseIdx = 0; baseIdx < ids.length; baseIdx += 8) {
-            if (lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
+            if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
             const count = Math.min(8, ids.length - baseIdx);
             const isLast = baseIdx + 8 >= ids.length;
             const rep4 = new Uint8Array(50);
@@ -1190,10 +1375,11 @@
 
       // Send a full 87-lamp frame computed by a per-lamp callback (lampMeta => [r, g, b])
       const sendComputedFrame = async (computeRgbFn) => {
+        if (isPageUnloading) return;
         const ids = layout.sortedIdsByX;
         await runExclusiveLampBatch(async () => {
           for (let baseIdx = 0; baseIdx < ids.length; baseIdx += 8) {
-            if (lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
+            if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
             const count = Math.min(8, ids.length - baseIdx);
             const isLast = baseIdx + 8 >= ids.length;
             const rep4 = new Uint8Array(50);
@@ -1254,7 +1440,7 @@
         const activeLamps = new Map(); // lampId -> { held: boolean, releasedAt: number, lastLevel: number }
 
         const triggerLampsDown = (lampIds) => {
-          if (!lampIds || lampIds.length === 0 || lampArrayGenByPid.get(numPid) !== gen) return;
+          if (isPageUnloading || !lampIds || lampIds.length === 0 || lampArrayGenByPid.get(numPid) !== gen) return;
           const immediateBatch = [];
           for (const id of lampIds) {
             const prev = activeLamps.get(id);
@@ -1268,7 +1454,7 @@
               if (keyEl) keyEl.classList.add("is-reactive-lit");
             }
           }
-          if (immediateBatch.length > 0 && lampDev.opened && !busy) {
+          if (immediateBatch.length > 0 && lampDev.opened && !busy && !isPageUnloading) {
             busy = true;
             sendLampSubset(immediateBatch)
               .catch(() => {})
@@ -1279,7 +1465,7 @@
         };
 
         const triggerLampsUp = (lampIds) => {
-          if (!lampIds || lampIds.length === 0 || lampArrayGenByPid.get(numPid) !== gen) return;
+          if (isPageUnloading || !lampIds || lampIds.length === 0 || lampArrayGenByPid.get(numPid) !== gen) return;
           const now = performance.now();
           for (const id of lampIds) {
             const entry = activeLamps.get(id);
@@ -1325,9 +1511,9 @@
           },
         });
 
-        const timer = setInterval(async () => {
-          if (lampArrayGenByPid.get(numPid) !== gen) {
-            clearInterval(timer);
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
             return;
           }
           if (busy || !lampDev.opened || activeLamps.size === 0) return;
@@ -1367,7 +1553,7 @@
               await sendLampSubset(updates);
             }
           } catch {
-            clearInterval(timer);
+            clearLampInterval(timer);
           } finally {
             busy = false;
           }
@@ -1390,7 +1576,7 @@
         let hadActiveRippleLastFrame = true;
 
         const spawnRippleFromIds = (lampIds) => {
-          if (!lampIds || lampIds.length === 0 || lampArrayGenByPid.get(numPid) !== gen) return;
+          if (isPageUnloading || !lampIds || lampIds.length === 0 || lampArrayGenByPid.get(numPid) !== gen) return;
           const lamp = layout.lamps[lampIds[0]];
           if (!lamp) return;
           const now = performance.now();
@@ -1418,9 +1604,9 @@
           onReleaseAll() {},
         });
 
-        const timer = setInterval(async () => {
-          if (lampArrayGenByPid.get(numPid) !== gen) {
-            clearInterval(timer);
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
             return;
           }
           if (busy || !lampDev.opened) return;
@@ -1456,7 +1642,7 @@
               });
             }
           } catch {
-            clearInterval(timer);
+            clearLampInterval(timer);
           } finally {
             busy = false;
           }
@@ -1470,9 +1656,9 @@
       if (effect === "spectrum") {
         await sendAllLampsColor(baseR, baseG, baseB, 255);
         const degPerMs = (speedMult === 1 ? 18 : speedMult === 3 ? 52 : 32) / 1000;
-        const timer = setInterval(async () => {
-          if (lampArrayGenByPid.get(numPid) !== gen) {
-            clearInterval(timer);
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
             return;
           }
           if (busy || !lampDev.opened) return;
@@ -1482,7 +1668,7 @@
             const [r, g, b] = hsvToRgb(hue, 1, 1);
             await sendAllLampsColor(r, g, b, 255);
           } catch {
-            clearInterval(timer);
+            clearLampInterval(timer);
           } finally {
             busy = false;
           }
@@ -1494,9 +1680,9 @@
       // BREATHING & BREATHING DUAL (Razer Synapse Quick Effect): Smooth gamma-corrected inhale/exhale with dark pause
       if (effect === "breathing" || effect === "breathingDual") {
         const cycleDurationMs = speedMult === 1 ? 4200 : speedMult === 3 ? 1800 : 2800;
-        const timer = setInterval(async () => {
-          if (lampArrayGenByPid.get(numPid) !== gen) {
-            clearInterval(timer);
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
             return;
           }
           if (busy || !lampDev.opened) return;
@@ -1521,7 +1707,7 @@
               255
             );
           } catch {
-            clearInterval(timer);
+            clearLampInterval(timer);
           } finally {
             busy = false;
           }
@@ -1537,9 +1723,9 @@
           const hue = (l.nx * 360 + 36000) % 360;
           return hsvToRgb(hue, 1, 1);
         });
-        const timer = setInterval(async () => {
-          if (lampArrayGenByPid.get(numPid) !== gen) {
-            clearInterval(timer);
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
             return;
           }
           if (busy || !lampDev.opened) return;
@@ -1551,7 +1737,7 @@
               return hsvToRgb(hue, 1, 1);
             });
           } catch {
-            clearInterval(timer);
+            clearLampInterval(timer);
           } finally {
             busy = false;
           }
@@ -1570,9 +1756,9 @@
           const hue = (angleDeg + 36000) % 360;
           return hsvToRgb(hue, 1, 1);
         });
-        const timer = setInterval(async () => {
-          if (lampArrayGenByPid.get(numPid) !== gen) {
-            clearInterval(timer);
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
             return;
           }
           if (busy || !lampDev.opened) return;
@@ -1585,7 +1771,7 @@
               return hsvToRgb(hue, 1, 1);
             });
           } catch {
-            clearInterval(timer);
+            clearLampInterval(timer);
           } finally {
             busy = false;
           }
@@ -1597,9 +1783,9 @@
       // FIRE (Razer Synapse Quick Effect): Warm rising flames (deep crimson at bottom row -> orange -> bright yellow tips at top)
       if (effect === "fire") {
         const spd = (speedMult === 1 ? 2.4 : speedMult === 3 ? 6.2 : 4.0) / 1000;
-        const timer = setInterval(async () => {
-          if (lampArrayGenByPid.get(numPid) !== gen) {
-            clearInterval(timer);
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
             return;
           }
           if (busy || !lampDev.opened) return;
@@ -1618,7 +1804,7 @@
               return [r, g, b];
             });
           } catch {
-            clearInterval(timer);
+            clearLampInterval(timer);
           } finally {
             busy = false;
           }
@@ -1634,9 +1820,9 @@
         const maxActiveStars = speedMult === 1 ? 8 : speedMult === 3 ? 22 : 14;
         const spawnProb = speedMult === 1 ? 0.35 : speedMult === 3 ? 0.85 : 0.6;
 
-        const timer = setInterval(async () => {
-          if (lampArrayGenByPid.get(numPid) !== gen) {
-            clearInterval(timer);
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
             return;
           }
           if (busy || !lampDev.opened) return;
@@ -1680,7 +1866,7 @@
               await sendLampSubset(updates);
             }
           } catch {
-            clearInterval(timer);
+            clearLampInterval(timer);
           } finally {
             busy = false;
           }
@@ -1701,9 +1887,9 @@
         }));
         let lastTick = performance.now();
 
-        const timer = setInterval(async () => {
-          if (lampArrayGenByPid.get(numPid) !== gen) {
-            clearInterval(timer);
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
             return;
           }
           if (busy || !lampDev.opened) return;
@@ -1751,7 +1937,7 @@
               ];
             });
           } catch {
-            clearInterval(timer);
+            clearLampInterval(timer);
           } finally {
             busy = false;
           }
@@ -1763,9 +1949,9 @@
       // CYBER SCANNER (Extra Studio Effect): KITT / Cylon horizontal laser bar sweeping Left <-> Right with glowing tail
       if (effect === "scanner") {
         const radPerMs = (speedMult === 1 ? 1.5 : speedMult === 3 ? 4.2 : 2.6) / 1000;
-        const timer = setInterval(async () => {
-          if (lampArrayGenByPid.get(numPid) !== gen) {
-            clearInterval(timer);
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
             return;
           }
           if (busy || !lampDev.opened) return;
@@ -1784,7 +1970,7 @@
               ];
             });
           } catch {
-            clearInterval(timer);
+            clearLampInterval(timer);
           } finally {
             busy = false;
           }
@@ -1796,9 +1982,9 @@
       // NORTHERN AURORA (Extra Studio Effect): Organic 2D plasma waves blending Primary (color1) and Secondary (color2)
       if (effect === "aurora") {
         const spd = (speedMult === 1 ? 1.4 : speedMult === 3 ? 3.8 : 2.4) / 1000;
-        const timer = setInterval(async () => {
-          if (lampArrayGenByPid.get(numPid) !== gen) {
-            clearInterval(timer);
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
             return;
           }
           if (busy || !lampDev.opened) return;
@@ -1815,7 +2001,7 @@
               ];
             });
           } catch {
-            clearInterval(timer);
+            clearLampInterval(timer);
           } finally {
             busy = false;
           }
@@ -1827,9 +2013,9 @@
       // PARTY STROBE / DISCO (Extra Studio Effect): Multi-zone energetic color bursts across key clusters
       if (effect === "disco") {
         const intervalMs = speedMult === 1 ? 140 : speedMult === 3 ? 55 : 85;
-        const timer = setInterval(async () => {
-          if (lampArrayGenByPid.get(numPid) !== gen) {
-            clearInterval(timer);
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
             return;
           }
           if (busy || !lampDev.opened) return;
@@ -1843,7 +2029,7 @@
               return hsvToRgb(hash, 0.95, pop);
             });
           } catch {
-            clearInterval(timer);
+            clearLampInterval(timer);
           } finally {
             busy = false;
           }
@@ -4615,6 +4801,7 @@
       const num = parseInt(slot.lighting.color1.replace("#", ""), 16) || 0x00e676;
       const num2 = parseInt(slot.lighting.color2.replace("#", ""), 16) || 0x00d2ff;
       const pkt = Protocol25.Builders.setChromaEffect({
+        varStore: getActiveDeviceProfileObj().activeSlot || 1,
         effect,
         r: (num >> 16) & 0xff,
         g: (num >> 8) & 0xff,

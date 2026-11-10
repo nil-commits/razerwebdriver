@@ -1116,16 +1116,16 @@
           args = [varStore, ledId, 0x05, 0x00, speed & 0xff, 0x01, r & 0xff, g & 0xff, b & 0xff];
           break;
         case "ripple":
-          args = [varStore, ledId, 0x06, 0x01, speed & 0xff, 0x01, r & 0xff, g & 0xff, b & 0xff];
+          args = [varStore, ledId, 0x06, 0x00, 0x28, 0x01, r & 0xff, g & 0xff, b & 0xff];
           break;
         case "starlight":
           args = [varStore, ledId, 0x07, 0x01, speed & 0xff, 0x01, r & 0xff, g & 0xff, b & 0xff];
           break;
         case "fire":
-          args = [varStore, ledId, 0x09, 0x00, speed & 0xff, 0x00];
+          args = [varStore, ledId, 0x09, 0x00, 0x5a, 0x01, 0xff, 0x00, 0x00];
           break;
         case "wheel":
-          args = [varStore, ledId, 0x0a, direction & 0xff, speed & 0xff, 0x00];
+          args = [varStore, ledId, 0x0c, direction & 0xff, 0x28, 0x00];
           break;
         case "rain":
         case "scanner":
