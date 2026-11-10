@@ -1015,6 +1015,15 @@
   };
   let reactiveKeyListenersBound = false;
   let isPageUnloading = false;
+  // PIDs whose LampArray (usage page 0x59) this page switched to host control (AutonomousMode = 0)
+  const lampHostControlPids = new Set();
+  // PIDs this page explicitly put into Driver Mode (0x00/0x04 mode 0x03)
+  const driverModeActivePids = new Set();
+  // Verified Protocol 25 control interface per PID (the HIDDevice that answered a 0x00/0x81 probe)
+  const protocolDeviceByPid = new Map();
+  const protocolProbeByPid = new Map();
+  const protocolProbeErrorByPid = new Map();
+  const protocolProbeFailedListByPid = new Map();
 
   // ==========================================================================
   // Unthrottled Background Chroma Timer Worker + Web Lock Keep-Alive
@@ -1122,6 +1131,9 @@
       lampArrayTimerByPid.delete(numPid);
     }
     reactiveTriggerByPid.delete(numPid);
+    // Only hand LampArray back if this page actually took host control, so we never
+    // poke the lighting engine of a keyboard that is already running autonomously.
+    if (!lampHostControlPids.has(numPid)) return;
     const lampDev = findLampArrayDevice(numPid);
     if (!lampDev) return;
     try {
@@ -1129,12 +1141,13 @@
         await lampDev.open();
       }
       await lampDev.sendFeatureReport(6, new Uint8Array([1]));
+      lampHostControlPids.delete(numPid);
     } catch {
       // ignore if LampArray is unavailable
     }
   }
 
-  function releaseAllLampArraysToAutonomous(shouldSpinDrain = true) {
+  function releaseAllLampArraysToAutonomous(shouldSpinDrain = true, includeDeviceMode = true) {
     isPageUnloading = true;
 
     // 1. Stop all active software frame timers and invalidate in-flight frame loops
@@ -1144,28 +1157,26 @@
     }
     lampArrayTimerByPid.clear();
 
-    // 2. Synchronously queue Report ID 6 = [1] (AutonomousMode = 1) over Mojo IPC
-    // for every connected LampArray device and setDeviceMode(0, 0) + setActiveProfileSlot(activeSlotId)
-    // on every open Protocol 25 interface, matching Razer Synapse 4's A.jf.onunload -> setDeviceMode(0, 0)
-    // so onboard slot settings stay persistent and lighting animations NEVER freeze on tab close.
+    // 2. Hand the keyboard back exactly as Synapse 4 does on exit (A.jf.onunload -> setDeviceMode(0, 0)),
+    // but ONLY for state this page actually changed. Everything configured through Protocol 25 already
+    // lives in the keyboard's onboard memory, so nothing has to be re-sent here. In particular we no
+    // longer push setActiveProfileSlot() on close: that switched the keyboard to whatever slot the
+    // browser had cached and made it visibly re-initialise when the tab was closed.
     let dispatchedAny = false;
     for (const [pid, list] of webHidHandlesByPid.entries()) {
-      const devProf = driverState.profilesByPid?.[pid];
-      const activeSlotId = clampNum(devProf?.activeSlot || 1, 1, 6, 1);
-
-      const protoDevs = (list || []).filter((d) => d.opened && deviceHasProtocol25FeatureReport(d));
-      for (const pDev of protoDevs) {
+      const pDev = protocolDeviceByPid.get(Number(pid));
+      if (includeDeviceMode && pDev && pDev.opened && driverModeActivePids.has(Number(pid))) {
         try {
           const modePkt = Uint8Array.from(Protocol25.Builders.setDeviceMode(0x00, 0x00));
-          const slotPkt = Uint8Array.from(Protocol25.Builders.setActiveProfileSlot(activeSlotId));
           void pDev.sendFeatureReport(0x00, modePkt).catch(() => {});
-          void pDev.sendFeatureReport(0x00, slotPkt).catch(() => {});
+          driverModeActivePids.delete(Number(pid));
           dispatchedAny = true;
         } catch {
           // ignore
         }
       }
 
+      if (!lampHostControlPids.has(Number(pid))) continue;
       const lampDev = (list || []).find((d) => deviceHasLampArray(d));
       if (!lampDev || !lampDev.opened) continue;
 
@@ -1175,9 +1186,9 @@
         finishRep4[0] = 1;
         finishRep4[1] = 1;
         void lampDev.sendFeatureReport(4, finishRep4).catch(() => {});
-        // Always switch hardware back to AutonomousMode = 1 (Onboard MCU NVRAM effect engine)
+        // Switch hardware back to AutonomousMode = 1 (onboard effect engine)
         void lampDev.sendFeatureReport(6, new Uint8Array([1])).catch(() => {});
-        void lampDev.sendFeatureReport(6, new Uint8Array([1])).catch(() => {});
+        lampHostControlPids.delete(Number(pid));
         dispatchedAny = true;
       } catch {
         // ignore unload errors
@@ -1209,37 +1220,21 @@
       releaseAllLampArraysToAutonomous(true);
     });
     document.addEventListener("freeze", () => {
-      releaseAllLampArraysToAutonomous(false);
+      releaseAllLampArraysToAutonomous(false, false);
     });
-    document.addEventListener("resume", () => {
+    // On resume / back-forward-cache restore only a *software* effect (rain, aurora, …) needs the
+    // browser again; hardware effects are already running from the keyboard's onboard memory.
+    const resumeSoftwareEffect = () => {
       isPageUnloading = false;
-      if (findLampArrayDevice(selectedPid)) {
-        const eff = getActiveSlotData()?.lighting?.effect || "static";
-        const hasProto25 = (webHidHandlesByPid.get(Number(selectedPid)) || []).some((d) =>
-          deviceHasProtocol25FeatureReport(d)
-        );
-        if (hasProto25 && HARDWARE_NATIVE_CHROMA_EFFECTS.has(eff)) {
-          void releaseLampArrayToHardwareAutonomous(selectedPid);
-        } else {
-          void applyLampArrayEffect(selectedPid);
-        }
+      if (!findLampArrayDevice(selectedPid)) return;
+      const eff = getActiveSlotData()?.lighting?.effect || "static";
+      if (!HARDWARE_NATIVE_CHROMA_EFFECTS.has(eff)) {
+        void applyLampArrayEffect(selectedPid);
       }
-    });
+    };
+    document.addEventListener("resume", resumeSoftwareEffect);
     window.addEventListener("pageshow", (ev) => {
-      if (ev.persisted || isPageUnloading) {
-        isPageUnloading = false;
-        if (findLampArrayDevice(selectedPid)) {
-          const eff = getActiveSlotData()?.lighting?.effect || "static";
-          const hasProto25 = (webHidHandlesByPid.get(Number(selectedPid)) || []).some((d) =>
-            deviceHasProtocol25FeatureReport(d)
-          );
-          if (hasProto25 && HARDWARE_NATIVE_CHROMA_EFFECTS.has(eff)) {
-            void releaseLampArrayToHardwareAutonomous(selectedPid);
-          } else {
-            void applyLampArrayEffect(selectedPid);
-          }
-        }
-      }
+      if (ev.persisted || isPageUnloading) resumeSoftwareEffect();
     });
   }
 
@@ -1419,6 +1414,7 @@
       // Report ID 6: LampArrayControlReport -> AutonomousMode = 0 (Host control)
       await runExclusiveLampBatch(async () => {
         await lampDev.sendFeatureReport(6, new Uint8Array([0]));
+        lampHostControlPids.add(numPid);
       });
       if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) return false;
 
@@ -2297,8 +2293,17 @@
         .map((d) => escapeHtml(d.productName))
         .join(" + ");
       if (bannerText) {
-        if (anyHasFeatureReport0 || anyHasWebUsb) {
-          bannerText.innerHTML = `<strong>Direct Hardware Flash Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Live 90-byte Protocol 25 Onboard Slot (S1–S6) NVRAM Flash &amp; Chroma RGB active with <b>${safeNames}</b>.`;
+        const selPid = Number(selectedPid);
+        const verified = protocolDeviceByPid.has(selPid);
+        const probeErr = protocolProbeErrorByPid.get(selPid);
+        if (verified) {
+          bannerText.innerHTML = `<strong>Keyboard control interface verified (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Protocol 25 replies OK. Slot switching, actuation and lighting are written to the onboard memory of <b>${safeNames}</b> and stay after you close this tab.`;
+        } else if (probeErr) {
+          if (connDot) connDot.className = "ws-dot is-warn";
+          if (bannerDot) bannerDot.className = "ws-dot is-warn";
+          bannerText.innerHTML = `<strong>Connected — but the keyboard's onboard memory is not reachable</strong>: ${escapeHtml(probeErr)} Until then lighting is only a live preview and nothing is saved to <b>${safeNames}</b>.`;
+        } else if (anyHasFeatureReport0 || anyHasWebUsb) {
+          bannerText.innerHTML = `<strong>USB Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — checking the Protocol 25 control interface of <b>${safeNames}</b>…`;
         } else if (anyHasLampArray) {
           bannerText.innerHTML = `<strong>USB Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Direct USB LampArray Chroma RGB &amp; Cloud Profile Studio active for <b>${safeNames}</b>.`;
         } else {
@@ -2407,22 +2412,18 @@
         renderProfileSlotBar();
         syncControlsFromSlot();
         renderOverviewPanels();
-        if (!initialHardwareSlotSynced && uiPrefs.instantFlash !== false) {
+        if (!initialHardwareSlotSynced) {
+          // Read the keyboard's real active slot + settings instead of overwriting the
+          // keyboard with whatever this browser happened to have cached.
           initialHardwareSlotSynced = true;
-          const activeSlot = getActiveDeviceProfileObj().activeSlot || 1;
-          void flashFullSlotToHardware(activeSlot, getActiveSlotData());
-        } else if (findLampArrayDevice(selectedPid)) {
-          const eff = getActiveSlotData()?.lighting?.effect || "static";
-          const hasProto25 = (webHidHandlesByPid.get(Number(selectedPid)) || []).some((d) =>
-            deviceHasProtocol25FeatureReport(d)
-          );
-          if (hasProto25 && HARDWARE_NATIVE_CHROMA_EFFECTS.has(eff)) {
-            void releaseLampArrayToHardwareAutonomous(selectedPid);
-          } else {
-            void applyLampArrayEffect(selectedPid);
-          }
+          void syncActiveSlotFromHardware({ quiet: true });
         }
+        // NOTE: we no longer grab LampArray host control just because the page (re)connected.
+        // Doing so replaced the keyboard's onboard lighting with browser-driven frames that
+        // vanished (and visibly re-initialised the LEDs) as soon as the tab was closed.
       } else {
+        initialHardwareSlotSynced = false;
+        protocolDeviceByPid.clear();
         const bar = document.getElementById("profileSlotBar");
         if (bar) bar.innerHTML = "";
       }
@@ -2452,6 +2453,9 @@
         });
         if (uDev) picked = [uDev];
       }
+      initialHardwareSlotSynced = true; // the explicit sync below replaces the automatic one
+      protocolDeviceByPid.clear(); // re-probe: the user may have granted additional interfaces
+      protocolProbeFailedListByPid.clear();
       await refreshAuthorizedWebHidDevices();
       if (picked && picked.length > 0) {
         const pid = Number(picked[0].productId);
@@ -2465,15 +2469,16 @@
         const safeName = sanitizePlainText(picked[0].productName, 64, `PID 0x${pid.toString(16).toUpperCase()}`);
         showToast(`Paired ${safeName}`);
         void playUiTone("success");
-        const activeSlot = getActiveDeviceProfileObj().activeSlot || 1;
-        await flashFullSlotToHardware(activeSlot, getActiveSlotData());
-        const fwRes = await sendPacket90(Protocol25.Builders.getFirmwareVersion(), "Query Firmware (0x00/0x81)", null, null, true);
-        if (fwRes?.parsedRx?.args) {
-          const [maj, min] = fwRes.parsedRx.args;
-          const fw = `v${Number(maj) || 1}.${String(Number(min) || 0).padStart(2, "0")}`;
+        // Read (never overwrite) the keyboard's active slot and its stored settings
+        await syncActiveSlotFromHardware();
+        const fw = await queryProtocol25(pid, Protocol25.Builders.getFirmwareVersion());
+        if (fw?.args) {
+          const [maj, min] = fw.args;
           const fwBadge = document.getElementById("fwBadge");
-          if (fwBadge) fwBadge.textContent = fw;
+          if (fwBadge) fwBadge.textContent = `v${Number(maj)}.${String(Number(min) || 0).padStart(2, "0")}`;
         }
+      } else {
+        initialHardwareSlotSynced = false;
       }
     } catch (err) {
       if (err?.name !== "NotAllowedError") {
@@ -2488,43 +2493,143 @@
       .join(" ");
   }
 
-  function synthesizeCloudAckFrame(pidKey, body90, statusLabel = "0x02 OK") {
-    const rx90 = [...body90];
-    rx90[0] = 0x02; // Status: 0x02 SUCCESS
-    const cmdClass = rx90[6] & 0xff;
-    const cmdId = rx90[7] & 0xff;
-    const devProf = driverState.profilesByPid?.[pidKey] || buildDefaultDeviceProfile(pidKey);
-    const activeSlot = devProf.activeSlot || 1;
-    const slot = devProf.slots?.[activeSlot] || {};
+  // ==========================================================================
+  // Protocol 25 transport (verified against a Huntsman V3 Pro TKL, PID 0x02A7, FW 1.04)
+  // ==========================================================================
+  const P25_STATUS_NAMES = { 0x00: "NEW", 0x01: "BUSY", 0x02: "OK", 0x03: "FAIL", 0x04: "TIMEOUT", 0x05: "NOT SUPPORTED" };
+  const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
 
-    if (cmdClass === 0x00 && cmdId === 0x81) {
-      // Firmware version query (0x00 / 0x81)
-      rx90[8] = 0x01;
-      rx90[9] = pidKey === 193 ? 11 : 4;
-      rx90[10] = 0x00;
-    } else if (cmdClass === 0x00 && cmdId === 0x84) {
-      // Device mode query (0x00 / 0x84)
-      rx90[8] = driverState.deviceMode === "driver" ? 0x03 : 0x00;
-      rx90[9] = 0x00;
-    } else if (cmdClass === 0x05 && cmdId === 0x84) {
-      // Active profile slot query (0x05 / 0x84)
-      rx90[8] = activeSlot & 0xff;
-    } else if (cmdClass === 0x0f && cmdId === 0x84) {
-      // Brightness query (0x0F / 0x84)
-      const brPct = Number(slot.lighting?.brightness ?? 100);
-      rx90[10] = Math.round((brPct / 100) * 255) & 0xff;
-    } else if (cmdClass === 0x07 && cmdId === 0x80) {
-      // Wireless battery query (0x07 / 0x80)
-      rx90[8] = 0x00;
-      rx90[9] = 240; // ~94%
+  function describeCollections(dev) {
+    return (dev?.collections || [])
+      .map((c) => `0x${(c.usagePage || 0).toString(16).padStart(4, "0")}:0x${(c.usage || 0).toString(16).padStart(4, "0")}`)
+      .join("+");
+  }
+
+  async function readFeatureReport91(dev) {
+    const view = await dev.receiveFeatureReport(0x00);
+    const raw = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+    if (raw.length === 91) return Array.from(raw);
+    if (raw.length === 90) return [0x00, ...Array.from(raw)];
+    const padded = new Array(91).fill(0);
+    for (let i = 0; i < Math.min(91, raw.length); i++) padded[i] = raw[i];
+    return padded;
+  }
+
+  // One request/response exchange on a Protocol 25 interface. Never re-sends the command
+  // (re-sending onboard-memory writes is what the old code did when it saw status 0x00).
+  async function transferProtocol25(dev, body90, { timeoutMs = 1200 } = {}) {
+    if (!dev.opened) await dev.open();
+    const cmdClass = body90[6] & 0xff;
+    const cmdId = body90[7] & 0xff;
+    await dev.sendFeatureReport(0x00, Uint8Array.from(body90));
+    const started = performance.now();
+    let rx91 = null;
+    let parsedRx = null;
+    let waitMs = 4;
+    while (performance.now() - started < timeoutMs) {
+      await sleepMs(waitMs);
+      waitMs = Math.min(25, waitMs * 2);
+      rx91 = await readFeatureReport91(dev);
+      parsedRx = Protocol25.parsePacket(rx91);
+      const echoes = parsedRx.valid && parsedRx.commandClass === cmdClass && parsedRx.commandId === cmdId;
+      // 0x00 = reply not ready yet, 0x01 = busy writing onboard flash
+      if (echoes && parsedRx.status !== 0x00 && parsedRx.status !== 0x01) break;
     }
-
-    rx90[88] = Protocol25.computeCrc(rx90);
-    rx90[89] = 0x00;
-    const rx91 = [0x00, ...rx90];
-    const parsedRx = Protocol25.parsePacket(rx91);
-    parsedRx.statusName = statusLabel;
+    if (parsedRx) {
+      parsedRx.statusName = P25_STATUS_NAMES[parsedRx.status] || parsedRx.statusName;
+      if (parsedRx.commandClass !== cmdClass || parsedRx.commandId !== cmdId) {
+        parsedRx.status = 0x04;
+        parsedRx.statusName = "NO MATCHING REPLY";
+      }
+    }
     return { rx91, parsedRx };
+  }
+
+  // Find (once) the HID interface that really speaks Protocol 25 by sending a harmless
+  // Get Firmware Version (0x00/0x81) and checking the echoed reply.
+  async function resolveProtocol25Device(pidKey) {
+    const numPid = Number(pidKey);
+    const list = webHidHandlesByPid.get(numPid) || [];
+    const cached = protocolDeviceByPid.get(numPid);
+    if (cached && list.includes(cached)) return cached;
+    protocolDeviceByPid.delete(numPid);
+    // Don't re-probe on every click when nothing changed since the last failed probe
+    if (protocolProbeFailedListByPid.get(numPid) === list) return null;
+    if (protocolProbeByPid.has(numPid)) return protocolProbeByPid.get(numPid);
+
+    const probe = (async () => {
+      const meta = Protocol25.KNOWN_DEVICES[numPid] || {};
+      const tid = meta.defaultTransactionId || 0x1f;
+      const candidates = list
+        .filter((d) => d.vendorId === Protocol25.RAZER_VENDOR_ID)
+        .filter((d) => (d.collections || []).some((c) => c.usagePage !== 0x0059 && c.usagePage < 0xff00))
+        .sort((a, b) => Number(deviceHasProtocol25FeatureReport(b)) - Number(deviceHasProtocol25FeatureReport(a)));
+      const tried = [];
+      for (const d of candidates) {
+        try {
+          const pkt = Protocol25.Builders.getFirmwareVersion(tid);
+          const body90 = validateOutgoingPacket90(pkt.length === 91 ? pkt.slice(1) : [...pkt]);
+          const { parsedRx } = await transferProtocol25(d, body90, { timeoutMs: 600 });
+          if (parsedRx?.status === 0x02 && parsedRx.commandClass === 0x00 && parsedRx.commandId === 0x81) {
+            protocolDeviceByPid.set(numPid, d);
+            protocolProbeErrorByPid.delete(numPid);
+            protocolProbeFailedListByPid.delete(numPid);
+            const [maj, min] = parsedRx.args || [];
+            console.info(
+              `[websynap.se] Protocol 25 control interface for PID 0x${numPid.toString(16)}: ${describeCollections(d)} (FW v${maj}.${String(min ?? 0).padStart(2, "0")})`
+            );
+            return d;
+          }
+          tried.push(`${describeCollections(d)} → ${parsedRx?.statusName || "no reply"}`);
+        } catch (err) {
+          tried.push(`${describeCollections(d)} → ${err?.message || err}`);
+        }
+      }
+      const authorized = list.map(describeCollections).join(", ") || "none";
+      const hasControlCandidate = list.some((d) => deviceHasProtocol25FeatureReport(d));
+      const msg = hasControlCandidate
+        ? "the keyboard's control interface did not respond. Close Razer Synapse or other RGB tools, unplug/replug the keyboard and click “Connect Razer Device” again."
+        : "the keyboard's control interface (Protocol 25, USB interface 3) is not among the devices this site was allowed to access. Click “Connect Razer Device” and select the keyboard again.";
+      protocolProbeErrorByPid.set(numPid, msg);
+      protocolProbeFailedListByPid.set(numPid, list);
+      console.warn(
+        `[websynap.se] PID 0x${numPid.toString(16)}: ${msg}\n  authorized HID interfaces: ${authorized}\n  probe results: ${tried.join("; ") || "(no candidates)"}`
+      );
+      return null;
+    })();
+    protocolProbeByPid.set(numPid, probe);
+    try {
+      return await probe;
+    } finally {
+      protocolProbeByPid.delete(numPid);
+    }
+  }
+
+  // Direct query helper used for read-back (bypasses the UI/log pipeline)
+  async function queryProtocol25(pidKey, packet) {
+    const dev = await resolveProtocol25Device(pidKey);
+    if (!dev) return null;
+    const meta = Protocol25.KNOWN_DEVICES[Number(pidKey)] || {};
+    const raw90 = packet.length === 91 ? [...packet.slice(1)] : [...packet];
+    if (meta.defaultTransactionId && raw90[1] === 0x1f && meta.defaultTransactionId !== 0x1f) {
+      raw90[1] = meta.defaultTransactionId;
+    }
+    const body90 = validateOutgoingPacket90(raw90);
+    const prevLock = webHidMutexByPid.get(Number(pidKey)) || Promise.resolve();
+    let releaseLock;
+    const nextLock = new Promise((r) => {
+      releaseLock = r;
+    });
+    webHidMutexByPid.set(Number(pidKey), prevLock.then(() => nextLock));
+    await prevLock;
+    try {
+      const { parsedRx } = await transferProtocol25(dev, body90);
+      return parsedRx?.status === 0x02 ? parsedRx : null;
+    } catch {
+      return null;
+    } finally {
+      releaseLock();
+    }
   }
 
   async function sendRawWebHid90(pidKey, packet90, options = {}) {
@@ -2551,78 +2656,58 @@
       const isLightingCmd =
         cmdClass === 0x0f || (cmdClass === 0x03 && (cmdId === 0x01 || cmdId === 0x02 || cmdId === 0x03 || cmdId === 0x0a));
 
-      // 1. Try collections that expose Protocol 25 Feature Report ID 0x00 in their WebHID descriptor
-      const allCandidates = webHidHandlesByPid.get(pidKey) || [];
-      const report0Candidates = allCandidates.filter((d) => deviceHasProtocol25FeatureReport(d));
-
-      for (const dev of report0Candidates) {
+      // 1. Protocol 25 over WebHID: use the interface that actually answered the 0x00/0x81 probe
+      // (Huntsman V3 Pro TKL on Windows: MI_03, UsagePage 0x000C / Usage 0x0001, 91-byte Feature report).
+      // The old code sprayed packets at every collection and silently "succeeded" on the wrong one.
+      const dev = await resolveProtocol25Device(pidKey);
+      if (dev) {
+        let rx91;
+        let parsedRx;
         try {
-          if (dev.vendorId !== Protocol25.RAZER_VENDOR_ID) {
-            throw new Error("Blocked non-Razer USB VID");
-          }
-          if (!dev.opened) {
-            await dev.open();
-          }
-          if (isLightingCmd && findLampArrayDevice(pidKey) && Protocol25.Builders?.setForceChromaCtrl) {
-            const unlockPkt = Protocol25.Builders.setForceChromaCtrl(false, body90[1] || 0x1f);
-            await dev.sendFeatureReport(0x00, Uint8Array.from(unlockPkt)).catch(() => {});
-            await new Promise((r) => setTimeout(r, 10));
-          }
-          const txBuf = Uint8Array.from(body90);
-          await dev.sendFeatureReport(0x00, txBuf);
-          await new Promise((r) => setTimeout(r, 12));
-
-          const readReport91 = async () => {
-            const view = await dev.receiveFeatureReport(0x00);
-            const raw = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
-            if (raw.length === 91) return Array.from(raw);
-            if (raw.length === 90) return [0x00, ...Array.from(raw)];
-            const padded = new Array(91).fill(0);
-            for (let i = 0; i < Math.min(91, raw.length); i++) padded[i] = raw[i];
-            return padded;
-          };
-
-          let rx91 = await readReport91();
-          let parsedRx = Protocol25.parsePacket(rx91);
-
-          // Poll receiveFeatureReport when MCU returns 0x01 BUSY during onboard flash writes
-          for (let poll = 0; poll < 8 && (parsedRx.status === 0x01 || parsedRx.status === 0x00); poll++) {
-            await new Promise((r) => setTimeout(r, 20));
-            if (parsedRx.status === 0x00) {
-              await dev.sendFeatureReport(0x00, txBuf);
-              await new Promise((r) => setTimeout(r, 15));
-            }
-            rx91 = await readReport91();
-            parsedRx = Protocol25.parsePacket(rx91);
-          }
-
-          if (cmdClass === 0x0f && (cmdId === 0x02 || cmdId === 0x04)) {
-            onboardChromaFlashedByPid.set(Number(pidKey), true);
-          }
-          if (isLightingCmd && !options.skipLampArray && findLampArrayDevice(pidKey)) {
-            const activeEffect = getActiveSlotData()?.lighting?.effect || "static";
-            if (HARDWARE_NATIVE_CHROMA_EFFECTS.has(activeEffect)) {
-              await releaseLampArrayToHardwareAutonomous(pidKey);
-            } else {
-              await applyLampArrayEffect(pidKey);
-            }
-          }
-
-          const logItem = {
-            productId: pidKey,
-            txHex: toHex(report91),
-            rxHex: toHex(rx91),
-            parsedTx: {
-              ...parsedTx,
-              commandClassHex: `0x${parsedTx.commandClass.toString(16).padStart(2, "0").toUpperCase()}`,
-              commandIdHex: `0x${parsedTx.commandId.toString(16).padStart(2, "0").toUpperCase()}`,
-            },
-            parsedRx,
-          };
-          return { ok: true, mode: "webhid", tx: report91, rx: rx91, parsedRx, logItem };
-        } catch {
-          // Continue to next candidate or WebUSB control transfer
+          ({ rx91, parsedRx } = await transferProtocol25(dev, body90));
+        } catch (err) {
+          protocolDeviceByPid.delete(Number(pidKey));
+          throw new Error(`USB transfer failed: ${err?.message || err}`);
         }
+        const okStatus = parsedRx.status === 0x02;
+
+        if (okStatus && cmdClass === 0x0f && (cmdId === 0x02 || cmdId === 0x04)) {
+          onboardChromaFlashedByPid.set(Number(pidKey), true);
+        }
+        if (okStatus && isLightingCmd && !options.skipLampArray && findLampArrayDevice(pidKey)) {
+          const activeEffect = getActiveSlotData()?.lighting?.effect || "static";
+          if (HARDWARE_NATIVE_CHROMA_EFFECTS.has(activeEffect)) {
+            // Make sure the onboard effect we just stored is what the keyboard shows
+            await releaseLampArrayToHardwareAutonomous(pidKey);
+          } else {
+            // Software-only animation (rain, aurora, ...) — live while the tab is open
+            await applyLampArrayEffect(pidKey);
+          }
+        }
+
+        const logItem = {
+          productId: pidKey,
+          txHex: toHex(report91),
+          rxHex: toHex(rx91),
+          parsedTx: {
+            ...parsedTx,
+            commandClassHex: `0x${parsedTx.commandClass.toString(16).padStart(2, "0").toUpperCase()}`,
+            commandIdHex: `0x${parsedTx.commandId.toString(16).padStart(2, "0").toUpperCase()}`,
+          },
+          parsedRx,
+        };
+        if (!okStatus) {
+          return {
+            ok: false,
+            mode: "webhid",
+            tx: report91,
+            rx: rx91,
+            parsedRx,
+            logItem,
+            error: `Keyboard rejected command (${parsedRx.statusName || "status 0x" + (parsedRx.status ?? 0).toString(16)})`,
+          };
+        }
+        return { ok: true, mode: "webhid", tx: report91, rx: rx91, parsedRx, logItem };
       }
 
       // 2. Try WebUSB Class Control Transfer (HID SET_REPORT 0x09 / GET_REPORT 0x01, wValue=0x0300)
@@ -2638,16 +2723,6 @@
           }
           const claimIf = Number(meta.interface ?? (meta.category === "keyboard-analog" || meta.category === "keyboard" ? 3 : 0));
           await usbDev.claimInterface(claimIf).catch(() => {});
-          if (isLightingCmd && findLampArrayDevice(pidKey) && Protocol25.Builders?.setForceChromaCtrl) {
-            const unlockPkt = Protocol25.Builders.setForceChromaCtrl(false, body90[1] || 0x1f);
-            await usbDev
-              .controlTransferOut(
-                { requestType: "class", recipient: "interface", request: 0x09, value: 0x0300, index: claimIf },
-                Uint8Array.from(unlockPkt)
-              )
-              .catch(() => {});
-            await new Promise((r) => setTimeout(r, 10));
-          }
           const txBuf = Uint8Array.from(body90);
           const outRes = await usbDev.controlTransferOut(
             { requestType: "class", recipient: "interface", request: 0x09, value: 0x0300, index: claimIf },
@@ -2704,38 +2779,53 @@
               },
               parsedRx,
             };
+            if (parsedRx.status !== 0x02) {
+              return {
+                ok: false,
+                mode: "webusb",
+                tx: report91,
+                rx: rx91,
+                parsedRx,
+                logItem,
+                error: `Keyboard rejected command (${parsedRx.statusName || "no reply"})`,
+              };
+            }
             return { ok: true, mode: "webusb", tx: report91, rx: rx91, parsedRx, logItem };
           }
         } catch {
-          // Fall through to WebHID LampArray + Cloud Profile Studio
+          // Fall through
         }
       }
 
-      // 3. Apply WebHID LampArray (mi_04) directly in the browser and return a clean ACK frame.
+      // 3. No Protocol 25 control interface answered. Do NOT pretend the command succeeded (the old
+      // "0x02 SYNCED" fake ACK hid the fact that slots/actuation/lighting never reached the keyboard).
+      // Lighting can still be previewed live through LampArray, but it is not stored on the keyboard.
       let lampApplied = false;
       if (isLightingCmd && !options.skipLampArray && findLampArrayDevice(pidKey)) {
         lampApplied = await applyLampArrayEffect(pidKey);
       }
-      const statusLabel = lampApplied ? "0x02 LAMPARRAY OK" : "0x02 SYNCED";
-      const { rx91, parsedRx } = synthesizeCloudAckFrame(pidKey, body90, statusLabel);
-      const logItem = {
-        productId: pidKey,
-        txHex: toHex(report91),
-        rxHex: toHex(rx91),
-        parsedTx: {
-          ...parsedTx,
-          commandClassHex: `0x${parsedTx.commandClass.toString(16).padStart(2, "0").toUpperCase()}`,
-          commandIdHex: `0x${parsedTx.commandId.toString(16).padStart(2, "0").toUpperCase()}`,
-        },
-        parsedRx,
-      };
+      const reason =
+        protocolProbeErrorByPid.get(Number(pidKey)) ||
+        "the keyboard's control interface (Protocol 25) is not accessible from this browser";
       return {
-        ok: true,
-        mode: lampApplied ? "webhid-lamparray" : "webhid-cloud",
+        ok: lampApplied,
+        liveOnly: lampApplied,
+        mode: lampApplied ? "webhid-lamparray" : "unavailable",
         tx: report91,
-        rx: rx91,
-        parsedRx,
-        logItem,
+        rx: null,
+        parsedRx: null,
+        logItem: {
+          productId: pidKey,
+          txHex: toHex(report91),
+          rxHex: "(no reply — not sent to onboard memory)",
+          parsedTx: {
+            ...parsedTx,
+            commandClassHex: `0x${parsedTx.commandClass.toString(16).padStart(2, "0").toUpperCase()}`,
+            commandIdHex: `0x${parsedTx.commandId.toString(16).padStart(2, "0").toUpperCase()}`,
+          },
+          parsedRx: { statusName: lampApplied ? "LIVE PREVIEW ONLY" : "NOT SENT" },
+        },
+        error: lampApplied ? `Live preview only — not saved: ${reason}` : `Not applied: ${reason}`,
       };
     } finally {
       releaseLock();
@@ -2816,6 +2906,15 @@
     try {
       const data = await sendRawWebHid90(Number(selectedPid), packet90, { slotPatch, statePatch });
       if (data.logItem) prependPacketLog(data.logItem);
+      if (!data.ok) {
+        showToast(`${label} → ${data.error || "failed"}`, false);
+        void playUiTone("error");
+        return data;
+      }
+      if (data.liveOnly) {
+        showToast(`${label} → ${data.error}`, false);
+        return data;
+      }
 
       // If this was a Huntsman V3 Pro TKL Actuation command (0x02/0x19),
       // also dispatch the remaining key chunks + Rapid Trigger (0x02/0x1A) + Continuous RT (0x02/0x20)
@@ -2834,45 +2933,25 @@
             ? Array.from(selectedKeys).map((k) => Protocol25.keyLabelToMatrixId(k))
             : ALL_TKL_ANALOG_KEY_IDS;
 
+        const followUps = [];
         for (let i = 15; i < targetKeys.length; i += 15) {
-          const chunk = targetKeys.slice(i, i + 15);
-          await sendRawWebHid90(
-            Number(selectedPid),
-            Protocol25.Builders.setAnalogActuation({ slotId, actuationMm: actMm, keyIds: chunk })
-          );
+          followUps.push(Protocol25.Builders.setAnalogActuation({ slotId, actuationMm: actMm, keyIds: targetKeys.slice(i, i + 15) }));
         }
         for (let i = 0; i < targetKeys.length; i += 13) {
-          const chunk = targetKeys.slice(i, i + 13);
-          await sendRawWebHid90(
-            Number(selectedPid),
-            Protocol25.Builders.setAnalogRapidTrigger({
-              slotId,
-              rtEnabled,
-              rtDownMm,
-              rtUpMm,
-              keyIds: chunk,
-            })
+          followUps.push(
+            Protocol25.Builders.setAnalogRapidTrigger({ slotId, rtEnabled, rtDownMm, rtUpMm, keyIds: targetKeys.slice(i, i + 13) })
           );
         }
-        await sendRawWebHid90(
-          Number(selectedPid),
-          Protocol25.Builders.setContinuousRapidTrigger({ slotId, continuousRt })
-        );
-      } else if ((data.mode === "webhid" || data.mode === "webusb") && body90[6] === 0x0f && (body90[7] === 0x02 || body90[7] === 0x04)) {
-        // Sync both live (0x00) and persistent onboard slot (1..6) Chroma matrix registers
-        const activeSlotId = clampNum(getActiveDeviceProfileObj().activeSlot || 1, 1, 6, 1);
-        const altProfile = body90[8] === 0x00 ? activeSlotId : 0x00;
-        const altArgs = body90.slice(8, 8 + (body90[5] || 9));
-        altArgs[0] = altProfile;
-        altArgs[1] = 0x00;
-        const altPkt = Protocol25.buildPacket({
-          commandClass: 0x0f,
-          commandId: body90[7],
-          dataSize: body90[5],
-          args: altArgs,
-          transactionId: body90[1] || 0x1f,
-        });
-        await sendRawWebHid90(Number(selectedPid), altPkt, { skipLampArray: true }).catch(() => null);
+        followUps.push(Protocol25.Builders.setContinuousRapidTrigger({ slotId, continuousRt }));
+        let failed = 0;
+        for (const pkt of followUps) {
+          const r = await sendRawWebHid90(Number(selectedPid), pkt).catch(() => null);
+          if (!r?.ok) failed++;
+        }
+        if (failed) {
+          showToast(`${label} → ${failed} of ${followUps.length + 1} actuation packets were rejected`, false);
+          return data;
+        }
       }
 
       const status = data.parsedRx?.statusName || "OK";
@@ -2883,6 +2962,7 @@
     } catch (err) {
       showToast(`Error: ${err.message}`, false);
       void playUiTone("error");
+      return { ok: false, error: err.message };
     }
   }
 
@@ -3610,44 +3690,20 @@
     const cat = meta.category || "keyboard";
     const numSlot = clampNum(slotId, 1, 6, 1);
 
-    // Release LampArray (mi_04) to AutonomousMode = 1 before switching hardware slots so the keyboard's
-    // physical profile slot display and onboard Chroma engine are never suppressed by Host LampArray mode.
+    // Release LampArray (mi_04) back to AutonomousMode = 1 (only if this page took host control) so the
+    // onboard Chroma engine shows what we are about to store.
     const slotEff = slotData?.lighting?.effect || "static";
     if (HARDWARE_NATIVE_CHROMA_EFFECTS.has(slotEff)) {
       await releaseLampArrayToHardwareAutonomous(selectedPid);
     }
 
-    // Ensure the keyboard/device is in Onboard Memory Mode (0x00, 0x00) so the physical slot indicator LED (S1..S6)
-    // immediately reflects the active hardware slot and persists settings in NVRAM when the browser tab closes.
-    driverState.deviceMode = "normal";
-    document.querySelectorAll("#deviceModeGroup .mode-seg").forEach((b) => {
-      b.classList.toggle("selected", b.dataset.mode === "normal");
-    });
-    await sendRawWebHid90(Number(selectedPid), Protocol25.Builders.setDeviceMode(0x00, 0x00), {
-      skipLampArray: true,
-      statePatch: { deviceMode: "normal" },
-    }).catch(() => null);
+    // NOTE: no setDeviceMode / setActiveProfileSlot / setTriggerFirmwareEffects here any more.
+    // Every packet below already carries the target slot (profile id), so the data lands in that
+    // slot's onboard memory without re-switching the keyboard. (0x0F/0x17 is Synapse's
+    // "preset profile effect", not a slot indicator, and polling-rate writes can make the
+    // keyboard re-enumerate — both were removed from the bulk flash.)
 
-    await sendPacket90(
-      Protocol25.Builders.setActiveProfileSlot(numSlot),
-      `Active Profile Slot → S${numSlot}`,
-      null,
-      null,
-      true
-    );
-
-    // Carry over Razer Synapse 4's setTriggerFirmwareEffects (0x0F / 0x17, size 0x50)
-    // from rzDevice25.js & 6737.js (xi: setPresetProfileEffect) to illuminate the slot display
-    if ((cat === "keyboard-analog" || cat === "keyboard") && Protocol25.Builders.setTriggerFirmwareEffects) {
-      await sendRawWebHid90(
-        Number(selectedPid),
-        Protocol25.Builders.setTriggerFirmwareEffects({ effectId: 1, profileId: numSlot }),
-        { skipLampArray: true }
-      ).catch(() => null);
-    }
-
-    // Apply Chroma lighting so switching slots (S1..S6) visibly changes the keyboard/mouse LEDs immediately
-    // and writes directly to varStore = numSlot (1..6) as well as live register 0x00
+    // Apply Chroma lighting to the slot's onboard storage (profile id = numSlot)
     if (slotData.lighting && meta.isChroma !== false) {
       const hex = (slotData.lighting.color1 || "#00e676").replace("#", "");
       const num = parseInt(hex, 16) || 0x00e676;
@@ -3679,13 +3735,6 @@
         null,
         true
       );
-      if ((cat === "keyboard-analog" || cat === "keyboard") && Protocol25.Builders.setTriggerFirmwareEffects) {
-        await sendRawWebHid90(
-          Number(selectedPid),
-          Protocol25.Builders.setTriggerFirmwareEffects({ effectId: 1, profileId: numSlot }),
-          { skipLampArray: true }
-        ).catch(() => null);
-      }
     }
 
     if (cat === "keyboard-analog" || cat === "keyboard") {
@@ -3746,9 +3795,8 @@
       if (slotData.gamingMode) {
         await sendPacket90(Protocol25.Builders.setGamingMode(slotData.gamingMode), `Slot S${slotId} Gaming Mode`, null, null, true);
       }
-      if (slotData.pollingHz) {
-        await sendPacket90(Protocol25.Builders.setPollingRate(slotData.pollingHz), `Slot S${slotId} Polling Rate`, null, null, true);
-      }
+      // Keyboard polling rate is only written when the user changes it (Performance tab):
+      // re-writing it on every flash can make the keyboard drop off the USB bus and reconnect.
     } else if (cat === "mouse") {
       if (slotData.dpiStages) {
         await sendPacket90(
@@ -3817,16 +3865,184 @@
     }
   }
 
+  // --------------------------------------------------------------------------
+  // Hardware read-back: make the UI reflect what is really stored in an onboard slot
+  // (formats verified on Huntsman V3 Pro TKL: 0x0F/0x82, 0x0F/0x84, 0x02/0x99, 0x02/0x9A, 0x02/0xA1, 0x02/0xA0)
+  // --------------------------------------------------------------------------
+  const P25_MM_UNITS = 16380;
+  let razerKeyIdToLabelCache = null;
+  function razerKeyIdToLabel(id) {
+    if (!razerKeyIdToLabelCache) {
+      razerKeyIdToLabelCache = new Map();
+      const labels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").concat(["SPACE", "LSHIFT", "LCTRL", "LALT", "TAB", "CAPS"]);
+      for (const l of labels) {
+        const k = Protocol25.keyLabelToMatrixId(l);
+        if (!razerKeyIdToLabelCache.has(k)) razerKeyIdToLabelCache.set(k, l);
+      }
+    }
+    return razerKeyIdToLabelCache.get(Number(id)) || null;
+  }
+
+  const rgbToHex = (r, g, b) => `#${[r, g, b].map((v) => (Number(v) & 0xff).toString(16).padStart(2, "0")).join("")}`;
+
+  function decodeHardwareLighting(args, prev = {}) {
+    if (!args || args.length < 3) return null;
+    const [, , effectId, p1, p2, nColors] = args;
+    const c1 = nColors >= 1 ? rgbToHex(args[6], args[7], args[8]) : prev.color1;
+    const c2 = nColors >= 2 ? rgbToHex(args[9], args[10], args[11]) : prev.color2;
+    const out = { ...prev };
+    switch (effectId) {
+      case 0x00: out.effect = "off"; break;
+      case 0x01: out.effect = "static"; out.color1 = c1; break;
+      case 0x02:
+        out.effect = p1 === 0x02 && nColors >= 2 ? "breathingDual" : "breathing";
+        out.color1 = c1;
+        if (c2) out.color2 = c2;
+        break;
+      case 0x03: out.effect = "spectrum"; break;
+      case 0x04: out.effect = "wave"; out.waveDirection = p1 === 2 ? 2 : 1; break;
+      case 0x05: out.effect = "reactive"; out.speed = p2 || out.speed || 2; out.color1 = c1; break;
+      case 0x06: out.effect = "ripple"; out.color1 = c1; break;
+      case 0x07: out.effect = "starlight"; out.speed = p2 || out.speed || 2; out.color1 = c1; break;
+      case 0x09: out.effect = "fire"; break;
+      case 0x0a: out.effect = "wheel"; out.waveDirection = p1 === 2 ? 2 : 1; break;
+      default: return null;
+    }
+    return out;
+  }
+
+  async function pullSlotFromHardware(slotId) {
+    const pid = Number(selectedPid);
+    const cat = getDeviceMeta(pid).category || "keyboard";
+    const n = clampNum(slotId, 1, 6, 1);
+    const devProf = getActiveDeviceProfileObj();
+    if (!devProf.slots[n]) devProf.slots[n] = buildDefaultSlot(pid, n);
+    const slot = devProf.slots[n];
+    let gotAny = false;
+
+    const fx = await queryProtocol25(
+      pid,
+      Protocol25.buildPacket({ commandClass: 0x0f, commandId: 0x82, dataSize: 0x50, args: [n, 0x00] })
+    );
+    const decoded = decodeHardwareLighting(fx?.args, slot.lighting || {});
+    if (decoded) {
+      slot.lighting = decoded;
+      gotAny = true;
+    }
+    const br = await queryProtocol25(pid, Protocol25.Builders.getBrightness(0x00, n));
+    if (br?.args?.length >= 3) {
+      slot.lighting = { ...(slot.lighting || {}), brightness: Math.round((br.args[2] / 255) * 100) };
+      gotAny = true;
+    }
+
+    if (cat === "keyboard-analog") {
+      const keyA = Protocol25.keyLabelToMatrixId("A");
+      const act = await queryProtocol25(
+        pid,
+        Protocol25.buildPacket({ commandClass: 0x02, commandId: 0x99, dataSize: 0x07, args: [0x00, n, keyA] })
+      );
+      if (act?.args?.length >= 7) {
+        const make = (act.args[5] << 8) | act.args[6];
+        if (make > 0) slot.actuationMm = Math.round((make / P25_MM_UNITS) * 10) / 10;
+        gotAny = true;
+      }
+      const rt = await queryProtocol25(
+        pid,
+        Protocol25.buildPacket({ commandClass: 0x02, commandId: 0x9a, dataSize: 0x08, args: [0x00, n, keyA] })
+      );
+      if (rt?.args?.length >= 8) {
+        slot.rtEnabled = rt.args[3] === 0x01;
+        const up = (rt.args[4] << 8) | rt.args[5];
+        const down = (rt.args[6] << 8) | rt.args[7];
+        if (up > 0) slot.rtUpMm = Math.round((up / P25_MM_UNITS) * 100) / 100;
+        if (down > 0) slot.rtDownMm = Math.round((down / P25_MM_UNITS) * 100) / 100;
+      }
+      const crt = await queryProtocol25(pid, Protocol25.Builders.getContinuousRapidTrigger({ varStore: n }));
+      if (crt?.args?.length >= 2) slot.continuousRt = crt.args[1] === 0x01;
+      const snap = await queryProtocol25(pid, Protocol25.Builders.getSnapTap({ varStore: n }));
+      if (snap?.args?.length >= 4) {
+        slot.snapTapEnabled = snap.args[1] === 0x01;
+        slot.snapKeyA = razerKeyIdToLabel(snap.args[2]) || slot.snapKeyA || "A";
+        slot.snapKeyB = razerKeyIdToLabel(snap.args[3]) || slot.snapKeyB || "D";
+      }
+    }
+    if (gotAny) persistDriverState();
+    return gotAny;
+  }
+
+  // Adopt the slot the keyboard is actually on (instead of pushing the browser's cached slot onto it)
+  async function syncActiveSlotFromHardware({ quiet = false } = {}) {
+    const pid = Number(selectedPid);
+    const dev = await resolveProtocol25Device(pid);
+    if (!dev) {
+      if (!quiet) {
+        showToast(`Keyboard control interface unavailable: ${protocolProbeErrorByPid.get(pid) || "unknown error"}`, false);
+      }
+      updateWebHidStatusUI();
+      return false;
+    }
+    const res = await queryProtocol25(pid, Protocol25.Builders.getActiveProfileSlot());
+    const hwSlot = res?.args?.[0];
+    const modeRes = await queryProtocol25(pid, Protocol25.Builders.getDeviceMode());
+    if (modeRes?.args) {
+      driverState.deviceMode = modeRes.args[0] === 0x03 ? "driver" : "normal";
+      document.querySelectorAll("#deviceModeGroup .mode-seg").forEach((b) => {
+        b.classList.toggle("selected", b.dataset.mode === driverState.deviceMode);
+      });
+    }
+    const devProf = getActiveDeviceProfileObj();
+    const maxSlots = getDeviceMeta(pid).maxSlots || 6;
+    if (hwSlot >= 1 && hwSlot <= maxSlots) {
+      devProf.activeSlot = hwSlot;
+    }
+    await pullSlotFromHardware(devProf.activeSlot || 1);
+    persistDriverState();
+    renderProfileSlotBar();
+    syncControlsFromSlot();
+    renderOverviewPanels();
+    updateProfileKeyBox();
+    updateWebHidStatusUI();
+    if (!quiet) showToast(`Connected · keyboard is on onboard slot S${devProf.activeSlot || 1}`);
+    return true;
+  }
+
   async function switchProfileSlot(slotId) {
     selectedKeys.clear();
     syncToolbarSelectionChips("all");
 
+    const numSlot = clampNum(slotId, 1, 6, 1);
+    const devProf = getActiveDeviceProfileObj();
+    const prevSlot = devProf.activeSlot || 1;
     try {
-      const devProf = getActiveDeviceProfileObj();
-      devProf.activeSlot = Number(slotId);
-      if (!devProf.slots[slotId]) {
-        devProf.slots[slotId] = buildDefaultSlot(selectedPid, slotId);
+      // 1. Switch the keyboard's onboard profile (Synapse 4: setActiveProfileID -> 0x05/0x04 [slot])
+      const res = await sendRawWebHid90(Number(selectedPid), Protocol25.Builders.setActiveProfileSlot(numSlot), {
+        skipLampArray: true,
+      });
+      if (res?.logItem) prependPacketLog(res.logItem);
+      if (!res?.ok) {
+        showToast(`Slot switch failed → ${res?.error || "no reply"}`, false);
+        void playUiTone("error");
+        return;
       }
+      // 2. Verify (0x05/0x84) — the keyboard must report the new slot
+      const check = await queryProtocol25(Number(selectedPid), Protocol25.Builders.getActiveProfileSlot());
+      if (check && check.args?.[0] !== numSlot) {
+        showToast(`Keyboard stayed on slot S${check.args?.[0]} (requested S${numSlot})`, false);
+        devProf.activeSlot = check.args?.[0] || prevSlot;
+        renderProfileSlotBar();
+        return;
+      }
+
+      devProf.activeSlot = numSlot;
+      if (!devProf.slots[numSlot]) devProf.slots[numSlot] = buildDefaultSlot(selectedPid, numSlot);
+
+      // 3. If a live software effect had LampArray host control, give the LEDs back so the
+      //    new slot's onboard lighting is visible.
+      await releaseLampArrayToHardwareAutonomous(selectedPid);
+
+      // 4. Read the slot's stored settings back so the UI shows what the keyboard really has.
+      //    (Nothing is written — switching a slot must not overwrite it.)
+      await pullSlotFromHardware(numSlot);
       persistDriverState();
 
       renderDeviceTabs();
@@ -3837,14 +4053,9 @@
 
       const sData = getActiveSlotData();
       const now = performance.now();
-      slotIndicatorOverlayByPid.set(Number(selectedPid), {
-        slotId: clampNum(slotId, 1, 6, 1),
-        startedAt: now,
-        until: now + 1650,
-      });
-      showToast(`Switched to Onboard Slot S${slotId} (${sData.name})`);
+      slotIndicatorOverlayByPid.set(Number(selectedPid), { slotId: numSlot, startedAt: now, until: now + 1650 });
+      showToast(`Keyboard switched to onboard slot S${numSlot} (${sData.name})`);
       void playUiTone("info");
-      await flashFullSlotToHardware(slotId, sData);
     } catch (err) {
       showToast(`Slot switch error: ${err.message}`, false);
     }
@@ -5565,7 +5776,13 @@
         btn.classList.add("selected");
         const m = btn.dataset.mode;
         const pkt = Protocol25.Builders.setDeviceMode(m === "driver" ? 0x03 : 0x00, 0x00);
-        sendPacket90(pkt, `Device Mode → ${m.toUpperCase()}`, null, { deviceMode: m });
+        const pidAtClick = Number(selectedPid);
+        void sendPacket90(pkt, `Device Mode → ${m.toUpperCase()}`, null, { deviceMode: m }).then((res) => {
+          if (!res?.ok) return;
+          // Remember that we changed it so we can hand the keyboard back in Normal mode on tab close
+          if (m === "driver") driverModeActivePids.add(pidAtClick);
+          else driverModeActivePids.delete(pidAtClick);
+        });
       });
     });
 
@@ -6065,6 +6282,9 @@
   // ==========================================================================
   async function init() {
     loadStoredState();
+    // Don't trust a cached "driver" flag — the real mode is read from the keyboard on connect.
+    driverState.deviceMode = "normal";
+    ensureLifecycleExitListeners();
     renderChromaBackdrop(true);
     bindEvents();
     renderThemeGallery();
