@@ -62,7 +62,7 @@ server {
 
     # Strict Security Headers
     add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
-    add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; font-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; frame-src 'none'; frame-ancestors 'none'; worker-src 'self' blob:; base-uri 'none'; form-action 'none';" always;
+    add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:5426 http://localhost:5426; font-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; frame-src 'none'; frame-ancestors 'none'; worker-src 'self' blob:; base-uri 'none'; form-action 'none';" always;
     add_header Permissions-Policy "hid=(self), usb=(), serial=(), bluetooth=(), camera=(), microphone=(), geolocation=(), payment=(), accelerometer=(), gyroscope=(), magnetometer=()" always;
     add_header Cross-Origin-Opener-Policy "same-origin" always;
     add_header Cross-Origin-Resource-Policy "same-origin" always;
@@ -78,7 +78,7 @@ server {
         expires 7d;
         add_header Cache-Control "public, max-age=604800, immutable" always;
         add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
-        add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; font-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; frame-src 'none'; frame-ancestors 'none'; worker-src 'self' blob:; base-uri 'none'; form-action 'none';" always;
+        add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:5426 http://localhost:5426; font-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; frame-src 'none'; frame-ancestors 'none'; worker-src 'self' blob:; base-uri 'none'; form-action 'none';" always;
         add_header Permissions-Policy "hid=(self), usb=(), serial=(), bluetooth=(), camera=(), microphone=(), geolocation=(), payment=()" always;
         add_header Cross-Origin-Resource-Policy "same-origin" always;
         add_header X-Content-Type-Options "nosniff" always;

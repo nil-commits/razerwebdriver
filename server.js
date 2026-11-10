@@ -703,6 +703,10 @@ const server = http.createServer(async (req, res) => {
         saveDriverState();
 
         const activeSlotData = devProfiles.slots[slotId];
+        await sendProtocol25Command({
+          productId: pid,
+          packet90: Protocol25.Builders.setDeviceMode(0x00, 0x00),
+        }).catch(() => null);
         const hw = await sendProtocol25Command({
           productId: pid,
           packet90: Protocol25.Builders.setActiveProfileSlot(slotId),
@@ -710,27 +714,35 @@ const server = http.createServer(async (req, res) => {
 
         // Also sync the slot's actuation, Rapid Trigger, Snap Tap, Gaming Mode, and lighting to hardware
         if (!isMouse && activeSlotData) {
-          await sendProtocol25Command({
-            productId: pid,
-            packet90: Protocol25.Builders.setAnalogActuation({
-              slotId,
-              actuationMm: activeSlotData.actuationMm ?? 1.2,
-              rtEnabled: !!activeSlotData.rtEnabled,
-              rtDownMm: activeSlotData.rtDownMm ?? 0.3,
-              rtUpMm: activeSlotData.rtUpMm ?? 0.3,
-              continuousRt: activeSlotData.continuousRt !== false,
-            }),
-          }).catch(() => null);
+          for (let i = 0; i < ALL_TKL_ANALOG_KEY_IDS.length; i += 15) {
+            const chunk = ALL_TKL_ANALOG_KEY_IDS.slice(i, i + 15);
+            await sendProtocol25Command({
+              productId: pid,
+              packet90: Protocol25.Builders.setAnalogActuation({
+                slotId,
+                actuationMm: activeSlotData.actuationMm ?? 1.2,
+                rtEnabled: !!activeSlotData.rtEnabled,
+                rtDownMm: activeSlotData.rtDownMm ?? 0.3,
+                rtUpMm: activeSlotData.rtUpMm ?? 0.3,
+                continuousRt: activeSlotData.continuousRt !== false,
+                keyIds: chunk,
+              }),
+            }).catch(() => null);
+          }
 
-          await sendProtocol25Command({
-            productId: pid,
-            packet90: Protocol25.Builders.setAnalogRapidTrigger({
-              slotId,
-              rtEnabled: !!activeSlotData.rtEnabled,
-              rtDownMm: activeSlotData.rtDownMm ?? 0.3,
-              rtUpMm: activeSlotData.rtUpMm ?? 0.3,
-            }),
-          }).catch(() => null);
+          for (let i = 0; i < ALL_TKL_ANALOG_KEY_IDS.length; i += 13) {
+            const chunk = ALL_TKL_ANALOG_KEY_IDS.slice(i, i + 13);
+            await sendProtocol25Command({
+              productId: pid,
+              packet90: Protocol25.Builders.setAnalogRapidTrigger({
+                slotId,
+                rtEnabled: !!activeSlotData.rtEnabled,
+                rtDownMm: activeSlotData.rtDownMm ?? 0.3,
+                rtUpMm: activeSlotData.rtUpMm ?? 0.3,
+                keyIds: chunk,
+              }),
+            }).catch(() => null);
+          }
 
           await sendProtocol25Command({
             productId: pid,
@@ -740,17 +752,15 @@ const server = http.createServer(async (req, res) => {
             }),
           }).catch(() => null);
 
-          if (activeSlotData.snapTap) {
-            await sendProtocol25Command({
-              productId: pid,
-              packet90: Protocol25.Builders.setSnapTap({
-                slotId,
-                enabled: !!activeSlotData.snapTap.enabled,
-                keyA: activeSlotData.snapTap.keyA ?? 0x04,
-                keyB: activeSlotData.snapTap.keyB ?? 0x07,
-              }),
-            }).catch(() => null);
-          }
+          await sendProtocol25Command({
+            productId: pid,
+            packet90: Protocol25.Builders.setSnapTap({
+              slotId,
+              enabled: !!(activeSlotData.snapTap?.enabled ?? activeSlotData.snapTapEnabled),
+              keyA: activeSlotData.snapTap?.keyA ?? activeSlotData.snapKeyA ?? 0x04,
+              keyB: activeSlotData.snapTap?.keyB ?? activeSlotData.snapKeyB ?? 0x07,
+            }),
+          }).catch(() => null);
 
           if (activeSlotData.gamingMode !== undefined) {
             await sendProtocol25Command({
@@ -762,7 +772,14 @@ const server = http.createServer(async (req, res) => {
           if (activeSlotData.lighting) {
             const hex = (activeSlotData.lighting.color1 || "#00e676").replace("#", "");
             const num = parseInt(hex, 16) || 0x00e676;
-            for (const vs of [0x00, 0x01]) {
+            const hex2 = (activeSlotData.lighting.color2 || "#00d2ff").replace("#", "");
+            const num2 = parseInt(hex2, 16) || 0x00d2ff;
+            const brRaw = Math.round(((activeSlotData.lighting.brightness ?? 100) / 100) * 255);
+            for (const vs of [slotId, 0x00]) {
+              await sendProtocol25Command({
+                productId: pid,
+                packet90: Protocol25.Builders.setBrightness(brRaw, 0x00, vs),
+              }).catch(() => null);
               await sendProtocol25Command({
                 productId: pid,
                 packet90: Protocol25.Builders.setChromaEffect({
@@ -770,6 +787,11 @@ const server = http.createServer(async (req, res) => {
                   r: (num >> 16) & 0xff,
                   g: (num >> 8) & 0xff,
                   b: num & 0xff,
+                  r2: (num2 >> 16) & 0xff,
+                  g2: (num2 >> 8) & 0xff,
+                  b2: num2 & 0xff,
+                  speed: activeSlotData.lighting.speed || 2,
+                  direction: activeSlotData.lighting.waveDirection || 1,
                   varStore: vs,
                   ledId: 0x00,
                 }),
@@ -824,9 +846,24 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { ok: false, error: "packet90 must be a 90 or 91 byte array" });
       }
 
+      const norm90 = packet90.length === 91 ? packet90.slice(1) : packet90;
+      if (norm90[6] === 0x05 && norm90[7] === 0x04) {
+        const targetSlot = Math.max(1, Math.min(6, Number(norm90[8]) || 1));
+        if (driverState.profilesByPid[pid]) {
+          driverState.profilesByPid[pid].activeSlot = targetSlot;
+          saveDriverState();
+        }
+        await sendProtocol25Command({
+          productId: pid,
+          interfaceNum: body.interfaceNum ?? 3,
+          reportId: body.reportId ?? 0,
+          packet90: Protocol25.Builders.setDeviceMode(0x00, 0x00, norm90[1] || 0x1f),
+        }).catch(() => null);
+      }
+
       // Persist slot updates if slotPatch is provided
       if (body.slotPatch && driverState.profilesByPid[pid]) {
-        const activeSlot = driverState.profilesByPid[pid].activeSlot || 1;
+        const activeSlot = Number(body.slotId || driverState.profilesByPid[pid].activeSlot || 1);
         const curr = driverState.profilesByPid[pid].slots[activeSlot] || {};
         driverState.profilesByPid[pid].slots[activeSlot] = {
           ...curr,
@@ -847,10 +884,9 @@ const server = http.createServer(async (req, res) => {
         packet90,
       });
 
-      // For Chroma Matrix (Class 0x0F, Cmd 0x02 or 0x04), ensure both live register (profileId 0x00)
-      // and persistent register (profileId 0x01) on regionId 0x00 are updated so the keyboard LEDs
-      // reflect the change immediately regardless of active profile mode.
-      const norm90 = packet90.length === 91 ? packet90.slice(1) : packet90;
+      // For Chroma Matrix (Class 0x0F, Cmd 0x02 or 0x04), ensure both live register (varStore 0x00)
+      // and persistent onboard slot register (varStore 1..6) on regionId 0x00 are updated so the keyboard LEDs
+      // reflect the change immediately AND persist in the active slot's NVRAM when closed.
       if (norm90[6] === 0x0f && (norm90[7] === 0x02 || norm90[7] === 0x04)) {
         // Ensure ForceChromaCtrl (0x0F / 0x10) is 0x00 so USB HID LampArray (MI_04) is never locked out
         if (Protocol25.Builders?.setForceChromaCtrl) {
@@ -861,23 +897,31 @@ const server = http.createServer(async (req, res) => {
             packet90: Protocol25.Builders.setForceChromaCtrl(false, norm90[1] || 0x1f),
           }).catch(() => null);
         }
-        const altProfile = norm90[8] === 0x00 ? 0x01 : 0x00;
-        const altArgs = norm90.slice(8, 8 + (norm90[5] || 9));
-        altArgs[0] = altProfile;
-        altArgs[1] = 0x00; // regionId 0x00 for PID 679 Huntsman V3 Pro TKL
-        const altPkt = Protocol25.buildPacket({
-          commandClass: 0x0f,
-          commandId: norm90[7],
-          dataSize: norm90[5],
-          args: altArgs,
-          transactionId: norm90[1] || 0x1f,
-        });
-        await sendProtocol25Command({
-          productId: pid,
-          interfaceNum: body.interfaceNum ?? 3,
-          reportId: body.reportId ?? 0,
-          packet90: altPkt,
-        }).catch(() => null);
+        const activeSlot = Math.max(
+          1,
+          Math.min(6, Number(body.slotId || driverState.profilesByPid?.[pid]?.activeSlot || norm90[8] || 1))
+        );
+        const sentVarStore = norm90[8] & 0xff;
+        const mirrorStores = new Set([0x00, activeSlot]);
+        mirrorStores.delete(sentVarStore);
+        for (const vs of mirrorStores) {
+          const altArgs = norm90.slice(8, 8 + (norm90[5] || 9));
+          altArgs[0] = vs & 0xff;
+          altArgs[1] = 0x00; // regionId 0x00 for PID 679 Huntsman V3 Pro TKL
+          const altPkt = Protocol25.buildPacket({
+            commandClass: 0x0f,
+            commandId: norm90[7],
+            dataSize: norm90[5],
+            args: altArgs,
+            transactionId: norm90[1] || 0x1f,
+          });
+          await sendProtocol25Command({
+            productId: pid,
+            interfaceNum: body.interfaceNum ?? 3,
+            reportId: body.reportId ?? 0,
+            packet90: altPkt,
+          }).catch(() => null);
+        }
       } else if (norm90[6] === 0x02 && norm90[7] === 0x19 && body.slotPatch && !body.autoChunked && driverState.profilesByPid[pid]) {
         // When setAnalogActuation (0x02 / 0x19) is sent with slotPatch, also sync remaining 87-key chunks,
         // Multi Rapid Trigger (0x02 / 0x1A), and Continuous Rapid Trigger (0x02 / 0x20) from the active slot.

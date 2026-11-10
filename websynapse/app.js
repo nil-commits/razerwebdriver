@@ -623,8 +623,13 @@
     },
   };
 
-  // WebHID Runtime State (100% Client-Side Zero-Install Browser Execution)
+  // WebHID + Local Hardware Bridge Runtime State
+  const LOCAL_BRIDGE_URL = "http://127.0.0.1:5426";
   const webHidHandlesByPid = new Map(); // pid -> HIDDevice[] (sorted by control interface score)
+  const localBridgeDevicesByPid = new Map(); // pid -> device entry from local native HID bridge (127.0.0.1:5426)
+  const onboardChromaFlashedByPid = new Map(); // pid -> boolean (true when 0x0F/0x02 was written to mi_03 NVRAM)
+  let localBridgeAvailable = false;
+  let initialHardwareSlotSynced = false;
   const webHidMutexByPid = new Map(); // pid -> Promise
   const lampArrayCountByPid = new Map(); // pid -> number of physical LEDs (e.g. 87)
   const lampArrayTimerByPid = new Map(); // pid -> intervalId for animated LampArray effects
@@ -632,12 +637,15 @@
   const lampArrayMutexByPid = new Map(); // pid -> Promise serializing Report ID 4/6 transfers
 
   function hasAnyRazerDevice() {
-    return webHidHandlesByPid.size > 0;
+    return webHidHandlesByPid.size > 0 || localBridgeDevicesByPid.size > 0;
   }
 
   function hasCompatibleDevice() {
     if (!window.isSecureContext || !navigator.hid) return false;
     for (const pid of webHidHandlesByPid.keys()) {
+      if (Protocol25.KNOWN_DEVICES[pid]) return true;
+    }
+    for (const pid of localBridgeDevicesByPid.keys()) {
       if (Protocol25.KNOWN_DEVICES[pid]) return true;
     }
     return false;
@@ -1073,10 +1081,12 @@
       const slot = devProf?.slots?.[devProf?.activeSlot || 1];
       const eff = slot?.lighting?.effect || "wave";
       const br = Number(slot?.lighting?.brightness ?? 100);
-      // Static, Gradient, and Off are non-animated frames: keeping AutonomousMode = 0
-      // preserves the exact static RGB colors in hardware LED RAM after tab close.
+      const wasOnboardFlashed = Boolean(onboardChromaFlashedByPid.get(Number(pid)));
+      // If onboard MCU Chroma (0x0F/0x02) was NOT flashed (e.g. Windows without local bridge),
+      // or if the effect is a static/gradient frame, keep AutonomousMode = 0 so the keyboard's
+      // 87 LEDs retain the exact RGB colors set on websynap.se instead of reverting to an old MCU state.
       const isStaticFrameEffect = eff === "static" || eff === "gradient" || eff === "off" || br <= 0;
-      if (isStaticFrameEffect) continue;
+      if (!wasOnboardFlashed || isStaticFrameEffect) continue;
 
       try {
         // Close any interrupted multi-packet Report ID 4 frame with LampUpdateComplete = 1
@@ -2085,7 +2095,8 @@
       return;
     }
 
-    const liveCount = webHidHandlesByPid.size;
+    const livePids = new Set([...webHidHandlesByPid.keys(), ...localBridgeDevicesByPid.keys()]);
+    const liveCount = livePids.size;
     if (liveCount > 0 && hasCompatibleDevice()) {
       const anyHasFeatureReport0 = Array.from(webHidHandlesByPid.values()).some((list) =>
         list.some((d) => deviceHasProtocol25FeatureReport(d))
@@ -2095,7 +2106,11 @@
       );
 
       if (connDot) connDot.className = "ws-dot is-ok";
-      if (connText) connText.textContent = `WebHID Live (${liveCount} USB)`;
+      if (connText) {
+        connText.textContent = localBridgeAvailable
+          ? `Hardware Flash Live (${liveCount} USB)`
+          : `WebHID Live (${liveCount} USB)`;
+      }
       if (fwBadge && (fwBadge.textContent === "Click to Pair" || fwBadge.textContent === "WebHID")) {
         fwBadge.textContent = "0x02 READY";
       }
@@ -2105,8 +2120,8 @@
         .map((d) => escapeHtml(d.productName))
         .join(" + ");
       if (bannerText) {
-        if (anyHasFeatureReport0) {
-          bannerText.innerHTML = `<strong>WebHID Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Live 90-byte Protocol 25 USB communication active with <b>${safeNames}</b>.`;
+        if (anyHasFeatureReport0 || localBridgeAvailable) {
+          bannerText.innerHTML = `<strong>Direct Hardware Flash Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Live 90-byte Protocol 25 Onboard Slot (S1–S6) NVRAM Flash &amp; Chroma RGB active with <b>${safeNames}</b>.`;
         } else if (anyHasLampArray) {
           bannerText.innerHTML = `<strong>WebHID Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Direct USB LampArray Chroma RGB &amp; Cloud Profile Studio active for <b>${safeNames}</b>.`;
         } else {
@@ -2137,6 +2152,39 @@
     }
   }
 
+  async function probeLocalHardwareBridge() {
+    localBridgeDevicesByPid.clear();
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), 650) : null;
+    try {
+      const res = await fetch(`${LOCAL_BRIDGE_URL}/api/devices`, {
+        method: "GET",
+        signal: ctrl ? ctrl.signal : undefined,
+      });
+      if (!res.ok) {
+        localBridgeAvailable = false;
+        return;
+      }
+      const data = await res.json();
+      if (data && data.ok && Array.isArray(data.devices)) {
+        localBridgeAvailable = true;
+        for (const d of data.devices) {
+          const pid = Number(d.productId);
+          const hasInterfaces = Array.isArray(d.hidInterfaces) ? d.hidInterfaces.length > 0 : Boolean(d.connectedLive);
+          if (pid > 0 && hasInterfaces) {
+            localBridgeDevicesByPid.set(pid, d);
+          }
+        }
+      } else {
+        localBridgeAvailable = false;
+      }
+    } catch {
+      localBridgeAvailable = false;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   async function refreshAuthorizedWebHidDevices() {
     try {
       webHidHandlesByPid.clear();
@@ -2153,13 +2201,16 @@
         }
       }
 
-      const activeLivePids = new Set([...webHidHandlesByPid.keys()]);
+      await probeLocalHardwareBridge();
+
+      const activeLivePids = new Set([...webHidHandlesByPid.keys(), ...localBridgeDevicesByPid.keys()]);
 
       for (const pid of activeLivePids) {
         const meta = Protocol25.KNOWN_DEVICES[pid] || {};
         const webHidList = webHidHandlesByPid.get(pid) || [];
+        const bridgeDev = localBridgeDevicesByPid.get(pid);
         const sample = webHidList[0];
-        const rawName = sample?.productName || "";
+        const rawName = sample?.productName || bridgeDev?.productName || "";
         const category = classifyDeviceCategory(pid, rawName, sample?.collections || []);
         const isMouse = category === "mouse";
         const safeSampleName = sanitizePlainText(rawName, 64, "");
@@ -2203,7 +2254,11 @@
         renderProfileSlotBar();
         syncControlsFromSlot();
         renderOverviewPanels();
-        if (findLampArrayDevice(selectedPid)) {
+        if (!initialHardwareSlotSynced && uiPrefs.instantFlash !== false) {
+          initialHardwareSlotSynced = true;
+          const activeSlot = getActiveDeviceProfileObj().activeSlot || 1;
+          void flashFullSlotToHardware(activeSlot, getActiveSlotData());
+        } else if (findLampArrayDevice(selectedPid)) {
           void applyLampArrayEffect(selectedPid);
         }
       } else {
@@ -2241,9 +2296,8 @@
         const safeName = sanitizePlainText(picked[0].productName, 64, `PID 0x${pid.toString(16).toUpperCase()}`);
         showToast(`Paired ${safeName}`);
         void playUiTone("success");
-        if (findLampArrayDevice(pid)) {
-          void applyLampArrayEffect(pid);
-        }
+        const activeSlot = getActiveDeviceProfileObj().activeSlot || 1;
+        await flashFullSlotToHardware(activeSlot, getActiveSlotData());
         const fwRes = await sendPacket90(Protocol25.Builders.getFirmwareVersion(), "Query Firmware (0x00/0x81)", null, null, true);
         if (fwRes?.parsedRx?.args) {
           const [maj, min] = fwRes.parsedRx.args;
@@ -2328,14 +2382,7 @@
       const isLightingCmd =
         cmdClass === 0x0f || (cmdClass === 0x03 && (cmdId === 0x01 || cmdId === 0x02 || cmdId === 0x03 || cmdId === 0x0a));
 
-      // 1. If the command updates Chroma RGB or Brightness and the device exposes USB HID LampArray (0x0059),
-      // apply the lighting directly to the physical hardware LEDs via WebHID LampArray (Report IDs 4/5/6).
-      let lampApplied = false;
-      if (isLightingCmd && !options.skipLampArray && findLampArrayDevice(pidKey)) {
-        lampApplied = await applyLampArrayEffect(pidKey);
-      }
-
-      // 2. Try collections that expose Protocol 25 Feature Report ID 0x00 in their WebHID descriptor
+      // 1. Try collections that expose Protocol 25 Feature Report ID 0x00 in their WebHID descriptor
       const allCandidates = webHidHandlesByPid.get(pidKey) || [];
       const report0Candidates = allCandidates.filter((d) => deviceHasProtocol25FeatureReport(d));
 
@@ -2347,8 +2394,6 @@
           if (!dev.opened) {
             await dev.open();
           }
-          // If this is a lighting command and the device also exposes LampArray (0x0059),
-          // ensure ForceChromaCtrl (0x0F / 0x10) is set to 0x00 so LampArray is unlocked in firmware.
           if (isLightingCmd && findLampArrayDevice(pidKey) && Protocol25.Builders?.setForceChromaCtrl) {
             const unlockPkt = Protocol25.Builders.setForceChromaCtrl(false, body90[1] || 0x1f);
             await dev.sendFeatureReport(0x00, Uint8Array.from(unlockPkt)).catch(() => {});
@@ -2382,6 +2427,13 @@
             parsedRx = Protocol25.parsePacket(rx91);
           }
 
+          if (cmdClass === 0x0f && (cmdId === 0x02 || cmdId === 0x04)) {
+            onboardChromaFlashedByPid.set(Number(pidKey), true);
+          }
+          if (isLightingCmd && !options.skipLampArray && findLampArrayDevice(pidKey)) {
+            await applyLampArrayEffect(pidKey);
+          }
+
           const logItem = {
             productId: pidKey,
             txHex: toHex(report91),
@@ -2395,13 +2447,72 @@
           };
           return { ok: true, mode: "webhid", tx: report91, rx: rx91, parsedRx, logItem };
         } catch {
-          // Continue to next candidate or cloud profile synthesis
+          // Continue to next candidate or local native HID bridge
         }
       }
 
-      // 3. When Windows hidparse.sys strips Razer's Constant Feature Report (0x00) in Chromium,
-      // return a clean ACK frame (with live LampArray status when applicable) so zero-install
-      // cloud configuration, profile keys (RZW1:), and LampArray RGB work seamlessly without errors.
+      // 2. On Windows, hidparse.sys marks Razer's mi_03 Report ID 0x00 as Feature (Constant) (0xB1 0x01),
+      // which Chromium's HidConnection::WriteFeatureReport blocks. Forward 90-byte Protocol 25 commands
+      // to the local native HID bridge (http://127.0.0.1:5426/api/send-packet) so onboard slot switching
+      // (S1..S6 physical LED display) and persistent NVRAM flashing work identically to localhost!
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), 900) : null;
+      try {
+        const activeSlot = driverState.profilesByPid?.[pidKey]?.activeSlot || 1;
+        const bridgeRes = await fetch(`${LOCAL_BRIDGE_URL}/api/send-packet`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            productId: Number(pidKey),
+            packet90: body90,
+            slotId: activeSlot,
+            slotPatch: options.slotPatch || null,
+            statePatch: options.statePatch || null,
+            autoChunked: true,
+          }),
+          signal: ctrl ? ctrl.signal : undefined,
+        });
+        if (bridgeRes.ok) {
+          const bridgeData = await bridgeRes.json();
+          if (bridgeData && bridgeData.ok && bridgeData.mode === "native-hid") {
+            if (!localBridgeAvailable) {
+              localBridgeAvailable = true;
+              updateWebHidStatusUI();
+            }
+            if (cmdClass === 0x0f && (cmdId === 0x02 || cmdId === 0x04)) {
+              onboardChromaFlashedByPid.set(Number(pidKey), true);
+            }
+            if (isLightingCmd && !options.skipLampArray && findLampArrayDevice(pidKey)) {
+              await applyLampArrayEffect(pidKey);
+            }
+            const rx91 = Array.isArray(bridgeData.rx) ? bridgeData.rx : report91;
+            const parsedRx = bridgeData.parsedRx || Protocol25.parsePacket(rx91);
+            const logItem = bridgeData.logItem || {
+              productId: pidKey,
+              txHex: toHex(report91),
+              rxHex: toHex(rx91),
+              parsedTx: {
+                ...parsedTx,
+                commandClassHex: `0x${parsedTx.commandClass.toString(16).padStart(2, "0").toUpperCase()}`,
+                commandIdHex: `0x${parsedTx.commandId.toString(16).padStart(2, "0").toUpperCase()}`,
+              },
+              parsedRx,
+            };
+            return { ok: true, mode: "native-hid", tx: report91, rx: rx91, parsedRx, logItem };
+          }
+        }
+      } catch {
+        // Local bridge not running; fall back to WebHID LampArray + Cloud Profile Studio
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+
+      // 3. When running without the local bridge on Windows, apply WebHID LampArray (mi_04) directly
+      // and return a clean ACK frame.
+      let lampApplied = false;
+      if (isLightingCmd && !options.skipLampArray && findLampArrayDevice(pidKey)) {
+        lampApplied = await applyLampArrayEffect(pidKey);
+      }
       const statusLabel = lampApplied ? "0x02 LAMPARRAY OK" : "0x02 SYNCED";
       const { rx91, parsedRx } = synthesizeCloudAckFrame(pidKey, body90, statusLabel);
       const logItem = {
@@ -2500,19 +2611,20 @@
     renderOverviewPanels();
 
     try {
-      const data = await sendRawWebHid90(Number(selectedPid), packet90);
+      const data = await sendRawWebHid90(Number(selectedPid), packet90, { slotPatch, statePatch });
       if (data.logItem) prependPacketLog(data.logItem);
 
       // If this was a Huntsman V3 Pro TKL Actuation command (0x02/0x19),
       // also dispatch the remaining key chunks + Rapid Trigger (0x02/0x1A) + Continuous RT (0x02/0x20)
+      // Note: when data.mode === "native-hid", server.js already dispatches all actuation chunks and dual varStore writes.
       const body90 = packet90.length === 91 ? packet90.slice(1) : packet90;
-      if (body90[6] === 0x02 && body90[7] === 0x19 && slotPatch) {
+      if (data.mode !== "native-hid" && body90[6] === 0x02 && body90[7] === 0x19 && slotPatch) {
         const slotId = getActiveDeviceProfileObj().activeSlot || 1;
         const slot = getActiveSlotData();
-        const actMm = slotPatch.actuationMm ?? slot.actuationMm ?? 1.2;
-        const rtEnabled = slotPatch.rtEnabled ?? slot.rtEnabled ?? false;
-        const rtDownMm = slotPatch.rtDownMm ?? slot.rtDownMm ?? 0.3;
-        const rtUpMm = slotPatch.rtUpMm ?? slot.rtUpMm ?? 0.3;
+        const actMm = slotPatch.chunkActMm ?? slotPatch.actuationMm ?? slot.actuationMm ?? 1.2;
+        const rtEnabled = slotPatch.chunkRtEnabled ?? slotPatch.rtEnabled ?? slot.rtEnabled ?? false;
+        const rtDownMm = slotPatch.chunkRtDownMm ?? slotPatch.rtDownMm ?? slot.rtDownMm ?? 0.3;
+        const rtUpMm = slotPatch.chunkRtUpMm ?? slotPatch.rtUpMm ?? slot.rtUpMm ?? 0.3;
         const continuousRt = slotPatch.continuousRt ?? slot.continuousRt ?? true;
 
         const targetKeys =
@@ -2545,8 +2657,9 @@
           Protocol25.Builders.setContinuousRapidTrigger({ slotId, continuousRt })
         );
       } else if (data.mode === "webhid" && body90[6] === 0x0f && (body90[7] === 0x02 || body90[7] === 0x04)) {
-        // In direct WebHID mode, sync both live (0x00) and persistent (0x01) Chroma matrix registers
-        const altProfile = body90[8] === 0x00 ? 0x01 : 0x00;
+        // In direct WebHID mode, sync both live (0x00) and persistent onboard slot (1..6) Chroma matrix registers
+        const activeSlotId = clampNum(getActiveDeviceProfileObj().activeSlot || 1, 1, 6, 1);
+        const altProfile = body90[8] === 0x00 ? activeSlotId : 0x00;
         const altArgs = body90.slice(8, 8 + (body90[5] || 9));
         altArgs[0] = altProfile;
         altArgs[1] = 0x00;
@@ -3293,21 +3406,45 @@
   async function flashFullSlotToHardware(slotId, slotData) {
     const meta = getDeviceMeta(selectedPid);
     const cat = meta.category || "keyboard";
-    await sendPacket90(Protocol25.Builders.setActiveProfileSlot(slotId), `Active Profile Slot → S${slotId}`, null, null, true);
+    const numSlot = clampNum(slotId, 1, 6, 1);
+
+    // Ensure the keyboard/device is in Onboard Memory Mode (0x00, 0x00) so the physical slot indicator LED (S1..S6)
+    // immediately reflects the active hardware slot and persists settings in NVRAM when the browser tab closes.
+    driverState.deviceMode = "normal";
+    document.querySelectorAll("#deviceModeGroup .mode-seg").forEach((b) => {
+      b.classList.toggle("selected", b.dataset.mode === "normal");
+    });
+    await sendRawWebHid90(Number(selectedPid), Protocol25.Builders.setDeviceMode(0x00, 0x00), {
+      skipLampArray: true,
+      statePatch: { deviceMode: "normal" },
+    }).catch(() => null);
+
+    await sendPacket90(
+      Protocol25.Builders.setActiveProfileSlot(numSlot),
+      `Active Profile Slot → S${numSlot}`,
+      null,
+      null,
+      true
+    );
 
     // Apply Chroma lighting FIRST so switching slots (S1..S6) visibly changes the keyboard/mouse LEDs immediately
+    // and writes directly to varStore = numSlot (1..6) as well as live register 0x00
     if (slotData.lighting && meta.isChroma !== false) {
       const hex = (slotData.lighting.color1 || "#00e676").replace("#", "");
       const num = parseInt(hex, 16) || 0x00e676;
       const hex2 = (slotData.lighting.color2 || "#00d2ff").replace("#", "");
       const num2 = parseInt(hex2, 16) || 0x00d2ff;
-      await sendRawWebHid90(
-        Number(selectedPid),
-        Protocol25.Builders.setBrightness(Math.round(((slotData.lighting.brightness ?? 100) / 100) * 255)),
-        { skipLampArray: true }
+      const rawBr = Math.round(((slotData.lighting.brightness ?? 100) / 100) * 255);
+      await sendPacket90(
+        Protocol25.Builders.setBrightness(rawBr, 0x00, numSlot),
+        `Slot S${numSlot} Brightness`,
+        null,
+        null,
+        true
       );
       await sendPacket90(
         Protocol25.Builders.setChromaEffect({
+          varStore: numSlot,
           effect: slotData.lighting.effect || "static",
           r: (num >> 16) & 0xff,
           g: (num >> 8) & 0xff,
@@ -3318,7 +3455,7 @@
           speed: slotData.lighting.speed || 2,
           direction: slotData.lighting.waveDirection || 1,
         }),
-        `Slot S${slotId} Chroma (${slotData.lighting.effect || "static"})`,
+        `Slot S${numSlot} Chroma (${slotData.lighting.effect || "static"})`,
         null,
         null,
         true
@@ -4627,6 +4764,10 @@
           rtDownMm: slot.rtDownMm,
           rtUpMm: slot.rtUpMm,
           perKeyOverrides: slot.perKeyOverrides,
+          chunkActMm: actMm,
+          chunkRtEnabled: rtEnabled,
+          chunkRtDownMm: rtDownMm,
+          chunkRtUpMm: rtUpMm,
         }
       );
     };
@@ -4932,7 +5073,12 @@
       updateChromaVisuals();
       clearTimeout(brTimer);
       brTimer = setTimeout(() => {
-        sendPacket90(Protocol25.Builders.setBrightness(Math.round((pct / 100) * 255)), `Brightness ${pct}%`, { lighting: slot.lighting });
+        const activeSlotId = getActiveDeviceProfileObj().activeSlot || 1;
+        sendPacket90(
+          Protocol25.Builders.setBrightness(Math.round((pct / 100) * 255), 0x00, activeSlotId),
+          `Brightness ${pct}%`,
+          { lighting: slot.lighting }
+        );
       }, 45);
     });
     rngBr?.addEventListener("change", async () => {
@@ -4942,7 +5088,12 @@
       if (!slot.lighting) slot.lighting = {};
       slot.lighting.brightness = pct;
       updateChromaVisuals();
-      await sendPacket90(Protocol25.Builders.setBrightness(Math.round((pct / 100) * 255)), `Brightness ${pct}%`, { lighting: slot.lighting });
+      const activeSlotId = getActiveDeviceProfileObj().activeSlot || 1;
+      await sendPacket90(
+        Protocol25.Builders.setBrightness(Math.round((pct / 100) * 255), 0x00, activeSlotId),
+        `Brightness ${pct}%`,
+        { lighting: slot.lighting }
+      );
       const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || slot.lighting.effect || "static";
       sendChroma(activeEff, document.getElementById("inpChromaColor").value);
     });
@@ -5213,8 +5364,17 @@
     });
 
     // Settings Behaviour Switches & Profile Key
-    document.getElementById("chkInstantFlash")?.addEventListener("change", (ev) => {
+    document.getElementById("chkInstantFlash")?.addEventListener("change", async (ev) => {
       savePreferences({ instantFlash: ev.target.checked });
+      if (ev.target.checked && hasCompatibleDevice()) {
+        if (stagedQueue.length > 0) {
+          document.getElementById("btnApplyStaged")?.click();
+        } else {
+          const devProf = getActiveDeviceProfileObj();
+          const slotId = devProf.activeSlot || 1;
+          await flashFullSlotToHardware(slotId, getActiveSlotData());
+        }
+      }
       showToast(ev.target.checked ? "Instant hardware flash enabled" : "Staged Apply Bar mode enabled");
     });
     document.getElementById("chkUiSounds")?.addEventListener("change", (ev) => {

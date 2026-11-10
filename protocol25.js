@@ -1140,7 +1140,7 @@
           args = [varStore, ledId, 0x09, 0x00, 0x5a, 0x01, 0xff, 0x00, 0x00];
           break;
         case "wheel":
-          args = [varStore, ledId, 0x0c, direction & 0xff, 0x28, 0x00];
+          args = [varStore, ledId, 0x0a, direction & 0xff, 0x28, 0x00];
           break;
         case "rain":
         case "scanner":
