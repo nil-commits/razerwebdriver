@@ -623,12 +623,10 @@
     },
   };
 
-  // WebHID + Local Hardware Bridge Runtime State
-  const LOCAL_BRIDGE_URL = "http://127.0.0.1:5426";
+  // WebHID + WebUSB Runtime State (100% Zero-Install Browser Execution)
   const webHidHandlesByPid = new Map(); // pid -> HIDDevice[] (sorted by control interface score)
-  const localBridgeDevicesByPid = new Map(); // pid -> device entry from local native HID bridge (127.0.0.1:5426)
+  const webUsbDevicesByPid = new Map(); // pid -> USBDevice (Razer WebUSB control interface)
   const onboardChromaFlashedByPid = new Map(); // pid -> boolean (true when 0x0F/0x02 was written to mi_03 NVRAM)
-  let localBridgeAvailable = false;
   let initialHardwareSlotSynced = false;
   const webHidMutexByPid = new Map(); // pid -> Promise
   const lampArrayCountByPid = new Map(); // pid -> number of physical LEDs (e.g. 87)
@@ -637,15 +635,15 @@
   const lampArrayMutexByPid = new Map(); // pid -> Promise serializing Report ID 4/6 transfers
 
   function hasAnyRazerDevice() {
-    return webHidHandlesByPid.size > 0 || localBridgeDevicesByPid.size > 0;
+    return webHidHandlesByPid.size > 0 || webUsbDevicesByPid.size > 0;
   }
 
   function hasCompatibleDevice() {
-    if (!window.isSecureContext || !navigator.hid) return false;
+    if (!window.isSecureContext || (!navigator.hid && !navigator.usb)) return false;
     for (const pid of webHidHandlesByPid.keys()) {
       if (Protocol25.KNOWN_DEVICES[pid]) return true;
     }
-    for (const pid of localBridgeDevicesByPid.keys()) {
+    for (const pid of webUsbDevicesByPid.keys()) {
       if (Protocol25.KNOWN_DEVICES[pid]) return true;
     }
     return false;
@@ -2095,21 +2093,20 @@
       return;
     }
 
-    const livePids = new Set([...webHidHandlesByPid.keys(), ...localBridgeDevicesByPid.keys()]);
+    const livePids = new Set([...webHidHandlesByPid.keys(), ...webUsbDevicesByPid.keys()]);
     const liveCount = livePids.size;
     if (liveCount > 0 && hasCompatibleDevice()) {
       const anyHasFeatureReport0 = Array.from(webHidHandlesByPid.values()).some((list) =>
         list.some((d) => deviceHasProtocol25FeatureReport(d))
       );
+      const anyHasWebUsb = webUsbDevicesByPid.size > 0;
       const anyHasLampArray = Array.from(webHidHandlesByPid.values()).some((list) =>
         list.some((d) => deviceHasLampArray(d))
       );
 
       if (connDot) connDot.className = "ws-dot is-ok";
       if (connText) {
-        connText.textContent = localBridgeAvailable
-          ? `Hardware Flash Live (${liveCount} USB)`
-          : `WebHID Live (${liveCount} USB)`;
+        connText.textContent = `WebHID Live (${liveCount} USB)`;
       }
       if (fwBadge && (fwBadge.textContent === "Click to Pair" || fwBadge.textContent === "WebHID")) {
         fwBadge.textContent = "0x02 READY";
@@ -2120,7 +2117,7 @@
         .map((d) => escapeHtml(d.productName))
         .join(" + ");
       if (bannerText) {
-        if (anyHasFeatureReport0 || localBridgeAvailable) {
+        if (anyHasFeatureReport0 || anyHasWebUsb) {
           bannerText.innerHTML = `<strong>Direct Hardware Flash Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Live 90-byte Protocol 25 Onboard Slot (S1–S6) NVRAM Flash &amp; Chroma RGB active with <b>${safeNames}</b>.`;
         } else if (anyHasLampArray) {
           bannerText.innerHTML = `<strong>WebHID Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Direct USB LampArray Chroma RGB &amp; Cloud Profile Studio active for <b>${safeNames}</b>.`;
@@ -2152,42 +2149,10 @@
     }
   }
 
-  async function probeLocalHardwareBridge() {
-    localBridgeDevicesByPid.clear();
-    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => ctrl.abort(), 650) : null;
-    try {
-      const res = await fetch(`${LOCAL_BRIDGE_URL}/api/devices`, {
-        method: "GET",
-        signal: ctrl ? ctrl.signal : undefined,
-      });
-      if (!res.ok) {
-        localBridgeAvailable = false;
-        return;
-      }
-      const data = await res.json();
-      if (data && data.ok && Array.isArray(data.devices)) {
-        localBridgeAvailable = true;
-        for (const d of data.devices) {
-          const pid = Number(d.productId);
-          const hasInterfaces = Array.isArray(d.hidInterfaces) ? d.hidInterfaces.length > 0 : Boolean(d.connectedLive);
-          if (pid > 0 && hasInterfaces) {
-            localBridgeDevicesByPid.set(pid, d);
-          }
-        }
-      } else {
-        localBridgeAvailable = false;
-      }
-    } catch {
-      localBridgeAvailable = false;
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  }
-
   async function refreshAuthorizedWebHidDevices() {
     try {
       webHidHandlesByPid.clear();
+      webUsbDevicesByPid.clear();
       if (window.isSecureContext && navigator.hid) {
         const rawDevs = (await navigator.hid.getDevices()).filter((d) => d.vendorId === Protocol25.RAZER_VENDOR_ID);
         const grouped = new Map();
@@ -2200,17 +2165,25 @@
           webHidHandlesByPid.set(pid, list);
         }
       }
+      if (window.isSecureContext && navigator.usb && typeof navigator.usb.getDevices === "function") {
+        try {
+          const usbDevs = (await navigator.usb.getDevices()).filter((d) => d.vendorId === Protocol25.RAZER_VENDOR_ID);
+          for (const uDev of usbDevs) {
+            webUsbDevicesByPid.set(Number(uDev.productId), uDev);
+          }
+        } catch {
+          // ignore if WebUSB is blocked by permissions policy
+        }
+      }
 
-      await probeLocalHardwareBridge();
-
-      const activeLivePids = new Set([...webHidHandlesByPid.keys(), ...localBridgeDevicesByPid.keys()]);
+      const activeLivePids = new Set([...webHidHandlesByPid.keys(), ...webUsbDevicesByPid.keys()]);
 
       for (const pid of activeLivePids) {
         const meta = Protocol25.KNOWN_DEVICES[pid] || {};
         const webHidList = webHidHandlesByPid.get(pid) || [];
-        const bridgeDev = localBridgeDevicesByPid.get(pid);
+        const usbDev = webUsbDevicesByPid.get(pid);
         const sample = webHidList[0];
-        const rawName = sample?.productName || bridgeDev?.productName || "";
+        const rawName = sample?.productName || usbDev?.productName || "";
         const category = classifyDeviceCategory(pid, rawName, sample?.collections || []);
         const isMouse = category === "mouse";
         const safeSampleName = sanitizePlainText(rawName, 64, "");
@@ -2275,14 +2248,22 @@
       showToast("HTTPS is required for WebHID hardware access", false);
       return;
     }
-    if (!navigator.hid) {
+    if (!navigator.hid && !navigator.usb) {
       showToast("WebHID requires Chrome, Edge, Brave, Opera, or Vivaldi", false);
       return;
     }
     try {
-      const picked = await navigator.hid.requestDevice({
-        filters: [{ vendorId: Protocol25.RAZER_VENDOR_ID }],
-      });
+      let picked = [];
+      if (navigator.hid) {
+        picked = await navigator.hid.requestDevice({
+          filters: [{ vendorId: Protocol25.RAZER_VENDOR_ID }],
+        });
+      } else if (navigator.usb) {
+        const uDev = await navigator.usb.requestDevice({
+          filters: [{ vendorId: Protocol25.RAZER_VENDOR_ID }],
+        });
+        if (uDev) picked = [uDev];
+      }
       await refreshAuthorizedWebHidDevices();
       if (picked && picked.length > 0) {
         const pid = Number(picked[0].productId);
@@ -2447,37 +2428,66 @@
           };
           return { ok: true, mode: "webhid", tx: report91, rx: rx91, parsedRx, logItem };
         } catch {
-          // Continue to next candidate or local native HID bridge
+          // Continue to next candidate or WebUSB control transfer
         }
       }
 
-      // 2. On Windows, hidparse.sys marks Razer's mi_03 Report ID 0x00 as Feature (Constant) (0xB1 0x01),
-      // which Chromium's HidConnection::WriteFeatureReport blocks. Forward 90-byte Protocol 25 commands
-      // to the local native HID bridge (http://127.0.0.1:5426/api/send-packet) so onboard slot switching
-      // (S1..S6 physical LED display) and persistent NVRAM flashing work identically to localhost!
-      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-      const timer = ctrl ? setTimeout(() => ctrl.abort(), 900) : null;
-      try {
-        const activeSlot = driverState.profilesByPid?.[pidKey]?.activeSlot || 1;
-        const bridgeRes = await fetch(`${LOCAL_BRIDGE_URL}/api/send-packet`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            productId: Number(pidKey),
-            packet90: body90,
-            slotId: activeSlot,
-            slotPatch: options.slotPatch || null,
-            statePatch: options.statePatch || null,
-            autoChunked: true,
-          }),
-          signal: ctrl ? ctrl.signal : undefined,
-        });
-        if (bridgeRes.ok) {
-          const bridgeData = await bridgeRes.json();
-          if (bridgeData && bridgeData.ok && bridgeData.mode === "native-hid") {
-            if (!localBridgeAvailable) {
-              localBridgeAvailable = true;
-              updateWebHidStatusUI();
+      // 2. Try WebUSB Class Control Transfer (HID SET_REPORT 0x09 / GET_REPORT 0x01, wValue=0x0300)
+      // Matches Razer's browser transport in rzDevice25.js when WebUSB handle is available.
+      const usbDev = webUsbDevicesByPid.get(Number(pidKey));
+      if (usbDev && usbDev.vendorId === Protocol25.RAZER_VENDOR_ID) {
+        try {
+          if (!usbDev.opened) {
+            await usbDev.open();
+          }
+          if (!usbDev.configuration) {
+            await usbDev.selectConfiguration(1);
+          }
+          const claimIf = Number(meta.interface ?? (meta.category === "keyboard-analog" || meta.category === "keyboard" ? 3 : 0));
+          await usbDev.claimInterface(claimIf).catch(() => {});
+          if (isLightingCmd && findLampArrayDevice(pidKey) && Protocol25.Builders?.setForceChromaCtrl) {
+            const unlockPkt = Protocol25.Builders.setForceChromaCtrl(false, body90[1] || 0x1f);
+            await usbDev
+              .controlTransferOut(
+                { requestType: "class", recipient: "interface", request: 0x09, value: 0x0300, index: claimIf },
+                Uint8Array.from(unlockPkt)
+              )
+              .catch(() => {});
+            await new Promise((r) => setTimeout(r, 10));
+          }
+          const txBuf = Uint8Array.from(body90);
+          const outRes = await usbDev.controlTransferOut(
+            { requestType: "class", recipient: "interface", request: 0x09, value: 0x0300, index: claimIf },
+            txBuf
+          );
+          if (outRes && outRes.status === "ok") {
+            await new Promise((r) => setTimeout(r, 12));
+            const readUsb91 = async () => {
+              const inRes = await usbDev.controlTransferIn(
+                { requestType: "class", recipient: "interface", request: 0x01, value: 0x0300, index: claimIf },
+                90
+              );
+              if (!inRes || inRes.status !== "ok" || !inRes.data) return [0x00, ...body90];
+              const raw = new Uint8Array(inRes.data.buffer, inRes.data.byteOffset, inRes.data.byteLength);
+              if (raw.length === 91) return Array.from(raw);
+              if (raw.length === 90) return [0x00, ...Array.from(raw)];
+              const padded = new Array(91).fill(0);
+              for (let i = 0; i < Math.min(91, raw.length); i++) padded[i] = raw[i];
+              return padded;
+            };
+            let rx91 = await readUsb91();
+            let parsedRx = Protocol25.parsePacket(rx91);
+            for (let poll = 0; poll < 8 && (parsedRx.status === 0x01 || parsedRx.status === 0x00); poll++) {
+              await new Promise((r) => setTimeout(r, 20));
+              if (parsedRx.status === 0x00) {
+                await usbDev.controlTransferOut(
+                  { requestType: "class", recipient: "interface", request: 0x09, value: 0x0300, index: claimIf },
+                  txBuf
+                );
+                await new Promise((r) => setTimeout(r, 15));
+              }
+              rx91 = await readUsb91();
+              parsedRx = Protocol25.parsePacket(rx91);
             }
             if (cmdClass === 0x0f && (cmdId === 0x02 || cmdId === 0x04)) {
               onboardChromaFlashedByPid.set(Number(pidKey), true);
@@ -2485,9 +2495,7 @@
             if (isLightingCmd && !options.skipLampArray && findLampArrayDevice(pidKey)) {
               await applyLampArrayEffect(pidKey);
             }
-            const rx91 = Array.isArray(bridgeData.rx) ? bridgeData.rx : report91;
-            const parsedRx = bridgeData.parsedRx || Protocol25.parsePacket(rx91);
-            const logItem = bridgeData.logItem || {
+            const logItem = {
               productId: pidKey,
               txHex: toHex(report91),
               rxHex: toHex(rx91),
@@ -2498,17 +2506,14 @@
               },
               parsedRx,
             };
-            return { ok: true, mode: "native-hid", tx: report91, rx: rx91, parsedRx, logItem };
+            return { ok: true, mode: "webusb", tx: report91, rx: rx91, parsedRx, logItem };
           }
+        } catch {
+          // Fall through to WebHID LampArray + Cloud Profile Studio
         }
-      } catch {
-        // Local bridge not running; fall back to WebHID LampArray + Cloud Profile Studio
-      } finally {
-        if (timer) clearTimeout(timer);
       }
 
-      // 3. When running without the local bridge on Windows, apply WebHID LampArray (mi_04) directly
-      // and return a clean ACK frame.
+      // 3. Apply WebHID LampArray (mi_04) directly in the browser and return a clean ACK frame.
       let lampApplied = false;
       if (isLightingCmd && !options.skipLampArray && findLampArrayDevice(pidKey)) {
         lampApplied = await applyLampArrayEffect(pidKey);
@@ -2616,9 +2621,8 @@
 
       // If this was a Huntsman V3 Pro TKL Actuation command (0x02/0x19),
       // also dispatch the remaining key chunks + Rapid Trigger (0x02/0x1A) + Continuous RT (0x02/0x20)
-      // Note: when data.mode === "native-hid", server.js already dispatches all actuation chunks and dual varStore writes.
       const body90 = packet90.length === 91 ? packet90.slice(1) : packet90;
-      if (data.mode !== "native-hid" && body90[6] === 0x02 && body90[7] === 0x19 && slotPatch) {
+      if (body90[6] === 0x02 && body90[7] === 0x19 && slotPatch) {
         const slotId = getActiveDeviceProfileObj().activeSlot || 1;
         const slot = getActiveSlotData();
         const actMm = slotPatch.chunkActMm ?? slotPatch.actuationMm ?? slot.actuationMm ?? 1.2;
@@ -2656,8 +2660,8 @@
           Number(selectedPid),
           Protocol25.Builders.setContinuousRapidTrigger({ slotId, continuousRt })
         );
-      } else if (data.mode === "webhid" && body90[6] === 0x0f && (body90[7] === 0x02 || body90[7] === 0x04)) {
-        // In direct WebHID mode, sync both live (0x00) and persistent onboard slot (1..6) Chroma matrix registers
+      } else if ((data.mode === "webhid" || data.mode === "webusb") && body90[6] === 0x0f && (body90[7] === 0x02 || body90[7] === 0x04)) {
+        // Sync both live (0x00) and persistent onboard slot (1..6) Chroma matrix registers
         const activeSlotId = clampNum(getActiveDeviceProfileObj().activeSlot || 1, 1, 6, 1);
         const altProfile = body90[8] === 0x00 ? activeSlotId : 0x00;
         const altArgs = body90.slice(8, 8 + (body90[5] || 9));
