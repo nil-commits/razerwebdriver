@@ -799,11 +799,35 @@
     if (!driverState.profilesByPid[193]) driverState.profilesByPid[193] = buildDefaultDeviceProfile(193);
   }
 
+  const HARDWARE_NATIVE_CHROMA_EFFECTS = new Set([
+    "off",
+    "static",
+    "breathing",
+    "breathingDual",
+    "spectrum",
+    "wave",
+    "reactive",
+    "ripple",
+    "starlight",
+    "fire",
+    "wheel",
+  ]);
+
   function deviceHasProtocol25FeatureReport(dev) {
     const cols = dev?.collections || [];
-    return cols.some(
-      (c) => c.usagePage !== 0x0059 && (c.featureReports || []).some((r) => r.reportId === 0)
-    );
+    return cols.some((c) => {
+      if (c.usagePage === 0x0059 || c.usagePage >= 0xff00) return false;
+      const fReports = c.featureReports || [];
+      if (fReports.some((r) => r.reportId === 0)) return true;
+      // On Windows, hidparse.sys generates a ReportItem with report_count=0 when the
+      // 90-byte Feature Report 0 is declared as Feature (Constant) (0xB1, 0x01) without a Usage tag
+      // (e.g. Huntsman V3 Pro TKL mi_03: UP=0x000C, U=0x0001). Chromium's HidPreparsedData::GetReportItems
+      // skips report_count==0 items so c.featureReports is [], even though max_feature_report_size is 90
+      // and dev.sendFeatureReport(0x00, ...) / dev.receiveFeatureReport(0x00) work natively.
+      const inCount = (c.inputReports || []).length;
+      const outCount = (c.outputReports || []).length;
+      return inCount === 0 && outCount === 0 && fReports.length === 0;
+    });
   }
 
   function deviceHasLampArray(dev) {
@@ -825,17 +849,31 @@
         score += 50; // Keep LampArray accessible for findLampArrayDevice, sorted below Report 0
         continue;
       }
+      if (c.usagePage >= 0xff00) {
+        score -= 5000; // Strictly exclude vendor keystream interface (IF=5)
+        continue;
+      }
       const fReports = c.featureReports || [];
+      const inCount = (c.inputReports || []).length;
+      const outCount = (c.outputReports || []).length;
+      const isWindowsConstantFeature0 =
+        inCount === 0 && outCount === 0 && fReports.length === 0 && c.usagePage === 0x000c && c.usage === 0x0001;
+      const isFeatureOnlyCollection = inCount === 0 && outCount === 0 && fReports.length === 0;
       if (fReports.length > 0) {
         score += 1000;
         if (fReports.some((r) => r.reportId === 0)) {
           score += 1500;
           hasReport0 = true;
         }
+      } else if (isWindowsConstantFeature0) {
+        score += 2600;
+        hasReport0 = true;
+      } else if (isFeatureOnlyCollection) {
+        score += 2000;
+        hasReport0 = true;
       }
       if (c.usagePage === 1 && c.usage === 2) score += 200;
       if (c.usagePage === 12 && c.usage === 1) score += 150;
-      if (c.usagePage >= 0xff00) score += 180;
       if (c.usagePage === 1 && c.usage === 6 && fReports.length === 0) score -= 500;
     }
     if (!hasReport0) score -= 800;
@@ -1074,6 +1112,28 @@
   // ==========================================================================
   let lifecycleExitListenersBound = false;
 
+  async function releaseLampArrayToHardwareAutonomous(pidKey) {
+    const numPid = Number(pidKey);
+    const gen = (lampArrayGenByPid.get(numPid) || 0) + 1;
+    lampArrayGenByPid.set(numPid, gen);
+    const prevTimer = lampArrayTimerByPid.get(numPid);
+    if (prevTimer) {
+      clearLampInterval(prevTimer);
+      lampArrayTimerByPid.delete(numPid);
+    }
+    reactiveTriggerByPid.delete(numPid);
+    const lampDev = findLampArrayDevice(numPid);
+    if (!lampDev) return;
+    try {
+      if (!lampDev.opened) {
+        await lampDev.open();
+      }
+      await lampDev.sendFeatureReport(6, new Uint8Array([1]));
+    } catch {
+      // ignore if LampArray is unavailable
+    }
+  }
+
   function releaseAllLampArraysToAutonomous(shouldSpinDrain = true) {
     isPageUnloading = true;
 
@@ -1085,20 +1145,14 @@
     lampArrayTimerByPid.clear();
 
     // 2. Synchronously queue Report ID 6 = [1] (AutonomousMode = 1) over Mojo IPC
-    // for every connected LampArray device running a dynamic/animated effect (or flashed to onboard NVRAM),
-    // matching Razer Synapse 4's A.jf.onunload -> setDeviceMode(0, 0) so lighting animations NEVER freeze on tab close.
+    // for every connected LampArray device and setDeviceMode(0, 0) + setActiveProfileSlot(activeSlotId)
+    // on every open Protocol 25 interface, matching Razer Synapse 4's A.jf.onunload -> setDeviceMode(0, 0)
+    // so onboard slot settings stay persistent and lighting animations NEVER freeze on tab close.
     let dispatchedAny = false;
     for (const [pid, list] of webHidHandlesByPid.entries()) {
       const devProf = driverState.profilesByPid?.[pid];
       const activeSlotId = clampNum(devProf?.activeSlot || 1, 1, 6, 1);
-      const slot = devProf?.slots?.[activeSlotId];
-      const eff = slot?.lighting?.effect || "wave";
-      const br = Number(slot?.lighting?.brightness ?? 100);
-      const wasOnboardFlashed = Boolean(onboardChromaFlashedByPid.get(Number(pid)));
-      const isStaticFrameEffect = eff === "static" || eff === "gradient" || eff === "off" || br <= 0;
 
-      // Also dispatch setDeviceMode(0x00, 0x00) + setActiveProfileSlot(activeSlotId) on any open Protocol 25 interface
-      // exactly as Razer Synapse 4's A.jf.onunload does on exit.
       const protoDevs = (list || []).filter((d) => d.opened && deviceHasProtocol25FeatureReport(d));
       for (const pDev of protoDevs) {
         try {
@@ -1115,18 +1169,13 @@
       const lampDev = (list || []).find((d) => deviceHasLampArray(d));
       if (!lampDev || !lampDev.opened) continue;
 
-      // Only keep AutonomousMode = 0 on exit when a static/gradient/off frame is active AND onboard NVRAM
-      // was not flashed; for ALL animated/dynamic effects, ALWAYS switch to AutonomousMode = 1 ([1])
-      // so the keyboard's onboard lighting animation never freezes when closing websynap.se!
-      if (isStaticFrameEffect && !wasOnboardFlashed) continue;
-
       try {
         // Close any interrupted multi-packet Report ID 4 frame with LampUpdateComplete = 1
         const finishRep4 = new Uint8Array(50);
         finishRep4[0] = 1;
         finishRep4[1] = 1;
         void lampDev.sendFeatureReport(4, finishRep4).catch(() => {});
-        // Switch hardware back to AutonomousMode = 1 (Onboard MCU effect engine)
+        // Always switch hardware back to AutonomousMode = 1 (Onboard MCU NVRAM effect engine)
         void lampDev.sendFeatureReport(6, new Uint8Array([1])).catch(() => {});
         void lampDev.sendFeatureReport(6, new Uint8Array([1])).catch(() => {});
         dispatchedAny = true;
@@ -1165,14 +1214,30 @@
     document.addEventListener("resume", () => {
       isPageUnloading = false;
       if (findLampArrayDevice(selectedPid)) {
-        void applyLampArrayEffect(selectedPid);
+        const eff = getActiveSlotData()?.lighting?.effect || "static";
+        const hasProto25 = (webHidHandlesByPid.get(Number(selectedPid)) || []).some((d) =>
+          deviceHasProtocol25FeatureReport(d)
+        );
+        if (hasProto25 && HARDWARE_NATIVE_CHROMA_EFFECTS.has(eff)) {
+          void releaseLampArrayToHardwareAutonomous(selectedPid);
+        } else {
+          void applyLampArrayEffect(selectedPid);
+        }
       }
     });
     window.addEventListener("pageshow", (ev) => {
       if (ev.persisted || isPageUnloading) {
         isPageUnloading = false;
         if (findLampArrayDevice(selectedPid)) {
-          void applyLampArrayEffect(selectedPid);
+          const eff = getActiveSlotData()?.lighting?.effect || "static";
+          const hasProto25 = (webHidHandlesByPid.get(Number(selectedPid)) || []).some((d) =>
+            deviceHasProtocol25FeatureReport(d)
+          );
+          if (hasProto25 && HARDWARE_NATIVE_CHROMA_EFFECTS.has(eff)) {
+            void releaseLampArrayToHardwareAutonomous(selectedPid);
+          } else {
+            void applyLampArrayEffect(selectedPid);
+          }
         }
       }
     });
@@ -2347,7 +2412,15 @@
           const activeSlot = getActiveDeviceProfileObj().activeSlot || 1;
           void flashFullSlotToHardware(activeSlot, getActiveSlotData());
         } else if (findLampArrayDevice(selectedPid)) {
-          void applyLampArrayEffect(selectedPid);
+          const eff = getActiveSlotData()?.lighting?.effect || "static";
+          const hasProto25 = (webHidHandlesByPid.get(Number(selectedPid)) || []).some((d) =>
+            deviceHasProtocol25FeatureReport(d)
+          );
+          if (hasProto25 && HARDWARE_NATIVE_CHROMA_EFFECTS.has(eff)) {
+            void releaseLampArrayToHardwareAutonomous(selectedPid);
+          } else {
+            void applyLampArrayEffect(selectedPid);
+          }
         }
       } else {
         const bar = document.getElementById("profileSlotBar");
@@ -2527,7 +2600,12 @@
             onboardChromaFlashedByPid.set(Number(pidKey), true);
           }
           if (isLightingCmd && !options.skipLampArray && findLampArrayDevice(pidKey)) {
-            await applyLampArrayEffect(pidKey);
+            const activeEffect = getActiveSlotData()?.lighting?.effect || "static";
+            if (HARDWARE_NATIVE_CHROMA_EFFECTS.has(activeEffect)) {
+              await releaseLampArrayToHardwareAutonomous(pidKey);
+            } else {
+              await applyLampArrayEffect(pidKey);
+            }
           }
 
           const logItem = {
@@ -2608,7 +2686,12 @@
               onboardChromaFlashedByPid.set(Number(pidKey), true);
             }
             if (isLightingCmd && !options.skipLampArray && findLampArrayDevice(pidKey)) {
-              await applyLampArrayEffect(pidKey);
+              const activeEffect = getActiveSlotData()?.lighting?.effect || "static";
+              if (HARDWARE_NATIVE_CHROMA_EFFECTS.has(activeEffect)) {
+                await releaseLampArrayToHardwareAutonomous(pidKey);
+              } else {
+                await applyLampArrayEffect(pidKey);
+              }
             }
             const logItem = {
               productId: pidKey,
@@ -3527,6 +3610,13 @@
     const cat = meta.category || "keyboard";
     const numSlot = clampNum(slotId, 1, 6, 1);
 
+    // Release LampArray (mi_04) to AutonomousMode = 1 before switching hardware slots so the keyboard's
+    // physical profile slot display and onboard Chroma engine are never suppressed by Host LampArray mode.
+    const slotEff = slotData?.lighting?.effect || "static";
+    if (HARDWARE_NATIVE_CHROMA_EFFECTS.has(slotEff)) {
+      await releaseLampArrayToHardwareAutonomous(selectedPid);
+    }
+
     // Ensure the keyboard/device is in Onboard Memory Mode (0x00, 0x00) so the physical slot indicator LED (S1..S6)
     // immediately reflects the active hardware slot and persists settings in NVRAM when the browser tab closes.
     driverState.deviceMode = "normal";
@@ -3556,7 +3646,7 @@
       ).catch(() => null);
     }
 
-    // Apply Chroma lighting FIRST so switching slots (S1..S6) visibly changes the keyboard/mouse LEDs immediately
+    // Apply Chroma lighting so switching slots (S1..S6) visibly changes the keyboard/mouse LEDs immediately
     // and writes directly to varStore = numSlot (1..6) as well as live register 0x00
     if (slotData.lighting && meta.isChroma !== false) {
       const hex = (slotData.lighting.color1 || "#00e676").replace("#", "");
@@ -3589,6 +3679,13 @@
         null,
         true
       );
+      if ((cat === "keyboard-analog" || cat === "keyboard") && Protocol25.Builders.setTriggerFirmwareEffects) {
+        await sendRawWebHid90(
+          Number(selectedPid),
+          Protocol25.Builders.setTriggerFirmwareEffects({ effectId: 1, profileId: numSlot }),
+          { skipLampArray: true }
+        ).catch(() => null);
+      }
     }
 
     if (cat === "keyboard-analog" || cat === "keyboard") {
@@ -5503,7 +5600,7 @@
       savePreferences({ instantFlash: ev.target.checked });
       if (ev.target.checked && hasCompatibleDevice()) {
         if (stagedQueue.length > 0) {
-          document.getElementById("btnApplyStaged")?.click();
+          document.getElementById("btnFlushStaged")?.click();
         } else {
           const devProf = getActiveDeviceProfileObj();
           const slotId = devProf.activeSlot || 1;
@@ -5573,6 +5670,9 @@
       for (const item of queue) {
         await sendPacket90(item.packet90, item.label, item.slotPatch, item.statePatch, true);
       }
+      const devProf = getActiveDeviceProfileObj();
+      const slotId = devProf.activeSlot || 1;
+      await flashFullSlotToHardware(slotId, getActiveSlotData());
     });
 
     // Packet Inspector Drawer
