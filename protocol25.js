@@ -62,6 +62,12 @@
     { slot: 6, name: "Slot 6 (Magenta)", color: "#d946ef", rgb: [217, 70, 239] },
   ];
 
+  // From Razer Synapse 4 main.js (PID 679 profileNavigationGroup) & module 17204:
+  // Slot 1: KEY_INSERT (fwID 75), Slot 2: KEY_HOME (fwID 80), Slot 3: KEY_PAGE_UP (fwID 85),
+  // Slot 4: KEY_DELETE (fwID 76), Slot 5: KEY_END (fwID 81), Slot 6: KEY_PAGE_DOWN (fwID 86)
+  const SLOT_NAV_FW_KEY_IDS = { 1: 75, 2: 80, 3: 85, 4: 76, 5: 81, 6: 86 };
+  const KEY_LED_INDICATOR_ID = 255; // $.Ay.config.keyLedIndicatorId = 255
+
   const KNOWN_DEVICES = {
     70: {"productId":70,"hexPid":"0x0046","name":"Razer Mamba TE","category":"mouse","protocol":"25","interface":0,"usagePage":1,"usage":2,"defaultTransactionId":31,"reportId":0,"maxSlots":5,"isChroma":true,"connection":"wired","primaryPid":70,"features":["dpi","pollingRate","smartTracking","sensorAngle","dynamicSensitivity","powerSaving","remap","chroma"]},
     80: {"productId":80,"hexPid":"0x0050","name":"Razer Naga Hex V2","category":"mouse","protocol":"25","interface":0,"usagePage":1,"usage":2,"defaultTransactionId":31,"reportId":0,"maxSlots":5,"isChroma":true,"connection":"wired","primaryPid":80,"features":["dpi","pollingRate","smartTracking","sensorAngle","dynamicSensitivity","powerSaving","remap","chroma"]},
@@ -1175,6 +1181,35 @@
     },
 
     /**
+     * Trigger Firmware Effects (Class 0x0F, Cmd 0x17, Size 0x50)
+     * Carried over from Razer Synapse 4 rzDevice25.js (Vt.Zq = new Uint8Array([80, 15, 23]))
+     * & 6737.js (xi: setPresetProfileEffect -> setTriggerFirmwareEffects(1, slotId, keyFwId, 0, 0, 0)).
+     * Illuminates the onboard profile slot indicator LED and triggers the hardware preset ripple effect.
+     */
+    setTriggerFirmwareEffects({
+      effectId = 1,
+      profileId = 1,
+      keyId,
+      r = 0,
+      g = 0,
+      b = 0,
+      transactionId = 0x1f,
+    } = {}) {
+      const slot = Math.max(1, Math.min(6, Number(profileId) || 1)) & 0xff;
+      const fwKey =
+        keyId !== undefined
+          ? Number(keyId) & 0xff
+          : (SLOT_NAV_FW_KEY_IDS[slot] ?? 75) & 0xff;
+      return buildPacket({
+        commandClass: 0x0f,
+        commandId: 0x17,
+        dataSize: 0x50,
+        args: [effectId & 0xff, slot, fwKey, r & 0xff, g & 0xff, b & 0xff],
+        transactionId,
+      });
+    },
+
+    /**
      * Single DPI X/Y (Class 0x04, Cmd 0x05)
      */
     setDpiXY(dpiX = 1600, dpiY = 1600, varStore = 0x01, transactionId = 0x1f) {
@@ -1764,6 +1799,8 @@
     STATUS,
     STATUS_NAMES,
     PROFILE_SLOT_COLORS,
+    SLOT_NAV_FW_KEY_IDS,
+    KEY_LED_INDICATOR_ID,
     KNOWN_DEVICES,
     getDeviceMetadata,
     getCatalogDevices,

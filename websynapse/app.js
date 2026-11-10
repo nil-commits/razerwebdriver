@@ -280,7 +280,10 @@
   const STORAGE_KEY_STATE = "websynapse_state_v1";
   const STORAGE_KEY_PREFS = "websynapse_prefs_v1";
 
+  // Includes 255 ($.Ay.config.keyLedIndicatorId = 255 from Razer Synapse 4 module 17204 / 6737.js)
+  // so setActuationPoint (0x02/0x19) and setRapidTrigger (0x02/0x1A) also update the physical LED indicator bar.
   const ALL_TKL_ANALOG_KEY_IDS = [
+    255,
     1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
     16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
     31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
@@ -961,6 +964,17 @@
 
   const lampLayoutCacheByPid = new Map();
   const reactiveTriggerByPid = new Map();
+  const slotIndicatorOverlayByPid = new Map();
+  const SLOT_NAV_KEY_LABELS = { 1: "INS", 2: "HOME", 3: "PGUP", 4: "DEL", 5: "END", 6: "PGDN" };
+  const SLOT_NAV_LABEL_SET = new Set(["INS", "HOME", "PGUP", "DEL", "END", "PGDN"]);
+  const SLOT_RGB_BY_ID = {
+    1: [255, 255, 255],
+    2: [255, 59, 48],
+    3: [0, 230, 118],
+    4: [0, 122, 255],
+    5: [0, 210, 255],
+    6: [217, 70, 239],
+  };
   let reactiveKeyListenersBound = false;
   let isPageUnloading = false;
 
@@ -1071,22 +1085,40 @@
     lampArrayTimerByPid.clear();
 
     // 2. Synchronously queue Report ID 6 = [1] (AutonomousMode = 1) over Mojo IPC
-    // for every connected LampArray device running a dynamic/animated effect.
+    // for every connected LampArray device running a dynamic/animated effect (or flashed to onboard NVRAM),
+    // matching Razer Synapse 4's A.jf.onunload -> setDeviceMode(0, 0) so lighting animations NEVER freeze on tab close.
     let dispatchedAny = false;
     for (const [pid, list] of webHidHandlesByPid.entries()) {
-      const lampDev = (list || []).find((d) => deviceHasLampArray(d));
-      if (!lampDev || !lampDev.opened) continue;
-
       const devProf = driverState.profilesByPid?.[pid];
-      const slot = devProf?.slots?.[devProf?.activeSlot || 1];
+      const activeSlotId = clampNum(devProf?.activeSlot || 1, 1, 6, 1);
+      const slot = devProf?.slots?.[activeSlotId];
       const eff = slot?.lighting?.effect || "wave";
       const br = Number(slot?.lighting?.brightness ?? 100);
       const wasOnboardFlashed = Boolean(onboardChromaFlashedByPid.get(Number(pid)));
-      // If onboard MCU Chroma (0x0F/0x02) was NOT flashed (e.g. Windows without local bridge),
-      // or if the effect is a static/gradient frame, keep AutonomousMode = 0 so the keyboard's
-      // 87 LEDs retain the exact RGB colors set on websynap.se instead of reverting to an old MCU state.
       const isStaticFrameEffect = eff === "static" || eff === "gradient" || eff === "off" || br <= 0;
-      if (!wasOnboardFlashed || isStaticFrameEffect) continue;
+
+      // Also dispatch setDeviceMode(0x00, 0x00) + setActiveProfileSlot(activeSlotId) on any open Protocol 25 interface
+      // exactly as Razer Synapse 4's A.jf.onunload does on exit.
+      const protoDevs = (list || []).filter((d) => d.opened && deviceHasProtocol25FeatureReport(d));
+      for (const pDev of protoDevs) {
+        try {
+          const modePkt = Uint8Array.from(Protocol25.Builders.setDeviceMode(0x00, 0x00));
+          const slotPkt = Uint8Array.from(Protocol25.Builders.setActiveProfileSlot(activeSlotId));
+          void pDev.sendFeatureReport(0x00, modePkt).catch(() => {});
+          void pDev.sendFeatureReport(0x00, slotPkt).catch(() => {});
+          dispatchedAny = true;
+        } catch {
+          // ignore
+        }
+      }
+
+      const lampDev = (list || []).find((d) => deviceHasLampArray(d));
+      if (!lampDev || !lampDev.opened) continue;
+
+      // Only keep AutonomousMode = 0 on exit when a static/gradient/off frame is active AND onboard NVRAM
+      // was not flashed; for ALL animated/dynamic effects, ALWAYS switch to AutonomousMode = 1 ([1])
+      // so the keyboard's onboard lighting animation never freezes when closing websynap.se!
+      if (isStaticFrameEffect && !wasOnboardFlashed) continue;
 
       try {
         // Close any interrupted multi-packet Report ID 4 frame with LampUpdateComplete = 1
@@ -1352,9 +1384,87 @@
         });
       };
 
-      // Send uniform color across all lamps (ordered Left-to-Right)
+      // Helper: overlays Razer Synapse 4's Preset Profile Slot Indicator (main.js profileNavigationGroup
+      // & 6737.js setTriggerFirmwareEffects) onto LampArray LEDs during a slot switch (S1..S6).
+      const blendSlotIndicatorOverlay = (lampMeta, r, g, b) => {
+        const ov = slotIndicatorOverlayByPid.get(numPid);
+        if (!ov) return [r, g, b];
+        const now = performance.now();
+        if (now >= ov.until) {
+          slotIndicatorOverlayByPid.delete(numPid);
+          return [r, g, b];
+        }
+        const slotNum = clampNum(ov.slotId, 1, 6, 1);
+        const navLabel = SLOT_NAV_KEY_LABELS[slotNum] || "INS";
+        const [sr, sg, sb] = SLOT_RGB_BY_ID[slotNum] || [255, 255, 255];
+        const lbl = lampMeta?.label || "";
+
+        // Active slot navigation key (INS/HOME/PGUP/DEL/END/PGDN), number key (1..6), and function key (F1..F6)
+        if (lbl === navLabel || lbl === String(slotNum) || lbl === `F${slotNum}`) {
+          return [sr, sg, sb];
+        }
+        // Dim inactive slot navigation keys so the active slot key stands out clearly
+        if (SLOT_NAV_LABEL_SET.has(lbl)) {
+          return [Math.round(r * 0.12), Math.round(g * 0.12), Math.round(b * 0.12)];
+        }
+        // Expanding radial preset ripple from the active slot key (matching setTriggerFirmwareEffects)
+        const navIds = layout.byLabel.get(navLabel);
+        const origin = navIds && navIds.length > 0 ? layout.lamps[navIds[0]] : { x: 327, y: 38 };
+        const elapsed = Math.max(0, now - ov.startedAt);
+        const radius = elapsed * 0.42;
+        const dist = Math.hypot((lampMeta?.x ?? 165) - (origin?.x ?? 327), (lampMeta?.y ?? 65) - (origin?.y ?? 38));
+        const delta = Math.abs(dist - radius);
+        if (delta < 38 && radius < 420) {
+          const wave = Math.cos((delta / 38) * (Math.PI / 2));
+          const atten = Math.max(0, 1 - radius / 420);
+          const mix = Math.min(1, wave * wave * atten * 0.9);
+          return [
+            Math.round(r * (1 - mix) + sr * mix),
+            Math.round(g * (1 - mix) + sg * mix),
+            Math.round(b * (1 - mix) + sb * mix),
+          ];
+        }
+        return [r, g, b];
+      };
+
+      // Send a full 87-lamp frame computed by a per-lamp callback (lampMeta => [r, g, b])
+      const sendComputedFrame = async (computeRgbFn) => {
+        if (isPageUnloading) return;
+        const ids = layout.sortedIdsByX;
+        await runExclusiveLampBatch(async () => {
+          for (let baseIdx = 0; baseIdx < ids.length; baseIdx += 8) {
+            if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
+            const count = Math.min(8, ids.length - baseIdx);
+            const isLast = baseIdx + 8 >= ids.length;
+            const rep4 = new Uint8Array(50);
+            rep4[0] = count;
+            rep4[1] = isLast ? 1 : 0;
+            for (let i = 0; i < count; i++) {
+              const lampId = ids[baseIdx + i];
+              const lampMeta = layout.lamps[lampId] || { id: lampId, x: 16, y: 14, nx: 0, ny: 0 };
+              const rawRgb = computeRgbFn(lampMeta);
+              const [r, g, b] = blendSlotIndicatorOverlay(lampMeta, rawRgb[0], rawRgb[1], rawRgb[2]);
+              rep4[2 + i * 2] = lampId & 0xff;
+              rep4[2 + i * 2 + 1] = (lampId >> 8) & 0xff;
+              const colOff = 18 + i * 4;
+              rep4[colOff] = Math.round(r * brScale) & 0xff;
+              rep4[colOff + 1] = Math.round(g * brScale) & 0xff;
+              rep4[colOff + 2] = Math.round(b * brScale) & 0xff;
+              rep4[colOff + 3] = 255;
+            }
+            await lampDev.sendFeatureReport(4, rep4);
+          }
+        });
+      };
+
+      // Send uniform color across all lamps (ordered Left-to-Right), respecting any active slot-switch indicator
       const sendAllLampsColor = async (r, g, b, intensity = 255) => {
         if (isPageUnloading) return;
+        const ov = slotIndicatorOverlayByPid.get(numPid);
+        if (ov && performance.now() < ov.until) {
+          await sendComputedFrame(() => [r, g, b]);
+          return;
+        }
         const sr = Math.round(r * brScale) & 0xff;
         const sg = Math.round(g * brScale) & 0xff;
         const sb = Math.round(b * brScale) & 0xff;
@@ -1383,61 +1493,64 @@
         });
       };
 
-      // Send a full 87-lamp frame computed by a per-lamp callback (lampMeta => [r, g, b])
-      const sendComputedFrame = async (computeRgbFn) => {
-        if (isPageUnloading) return;
-        const ids = layout.sortedIdsByX;
-        await runExclusiveLampBatch(async () => {
-          for (let baseIdx = 0; baseIdx < ids.length; baseIdx += 8) {
-            if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
-            const count = Math.min(8, ids.length - baseIdx);
-            const isLast = baseIdx + 8 >= ids.length;
-            const rep4 = new Uint8Array(50);
-            rep4[0] = count;
-            rep4[1] = isLast ? 1 : 0;
-            for (let i = 0; i < count; i++) {
-              const lampId = ids[baseIdx + i];
-              const lampMeta = layout.lamps[lampId] || { id: lampId, x: 16, y: 14, nx: 0, ny: 0 };
-              const [r, g, b] = computeRgbFn(lampMeta);
-              rep4[2 + i * 2] = lampId & 0xff;
-              rep4[2 + i * 2 + 1] = (lampId >> 8) & 0xff;
-              const colOff = 18 + i * 4;
-              rep4[colOff] = Math.round(r * brScale) & 0xff;
-              rep4[colOff + 1] = Math.round(g * brScale) & 0xff;
-              rep4[colOff + 2] = Math.round(b * brScale) & 0xff;
-              rep4[colOff + 3] = 255;
-            }
-            await lampDev.sendFeatureReport(4, rep4);
-          }
-        });
-      };
-
-      if (effect === "off" || brScale <= 0) {
-        await sendAllLampsColor(0, 0, 0, 0);
-        return true;
-      }
-
-      if (effect === "static") {
-        await sendAllLampsColor(baseR, baseG, baseB, 255);
-        return true;
-      }
-
       const speedMult = Number(light.speed || 2);
       const dirSign = Number(light.waveDirection || 1) === 2 ? -1 : 1;
       const t0 = performance.now();
       let busy = false;
 
+      // Helper for static-frame effects (off, static, gradient) so slot-switch indicator ripple animates smoothly
+      // and then settles onto the static frame.
+      const runStaticFrameWithOptionalSlotIndicator = async (frameFn) => {
+        await frameFn();
+        const ov = slotIndicatorOverlayByPid.get(numPid);
+        if (ov && performance.now() < ov.until) {
+          const timer = setLampInterval(async () => {
+            if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+              clearLampInterval(timer);
+              return;
+            }
+            if (busy || !lampDev.opened) return;
+            busy = true;
+            try {
+              const curOv = slotIndicatorOverlayByPid.get(numPid);
+              if (!curOv || performance.now() >= curOv.until) {
+                slotIndicatorOverlayByPid.delete(numPid);
+                clearLampInterval(timer);
+                await frameFn();
+                return;
+              }
+              await frameFn();
+            } catch {
+              clearLampInterval(timer);
+            } finally {
+              busy = false;
+            }
+          }, 38);
+          lampArrayTimerByPid.set(numPid, timer);
+        }
+        return true;
+      };
+
+      if (effect === "off" || brScale <= 0) {
+        return await runStaticFrameWithOptionalSlotIndicator(() => sendAllLampsColor(0, 0, 0, 0));
+      }
+
+      if (effect === "static") {
+        return await runStaticFrameWithOptionalSlotIndicator(() => sendAllLampsColor(baseR, baseG, baseB, 255));
+      }
+
       // GRADIENT (Extra Studio Effect): Dual-color horizontal linear gradient (color1 <-> color2)
       if (effect === "gradient") {
-        await sendComputedFrame((l) => {
-          const t = dirSign === 1 ? l.nx : 1 - l.nx;
-          return [
-            Math.round(baseR * (1 - t) + secR * t),
-            Math.round(baseG * (1 - t) + secG * t),
-            Math.round(baseB * (1 - t) + secB * t),
-          ];
-        });
-        return true;
+        return await runStaticFrameWithOptionalSlotIndicator(() =>
+          sendComputedFrame((l) => {
+            const t = dirSign === 1 ? l.nx : 1 - l.nx;
+            return [
+              Math.round(baseR * (1 - t) + secR * t),
+              Math.round(baseG * (1 - t) + secG * t),
+              Math.round(baseB * (1 - t) + secB * t),
+            ];
+          })
+        );
       }
 
       // REACTIVE (Razer Synapse Quick Effect): All keys start dark (0,0,0); pressing any physical key
@@ -3433,6 +3546,16 @@
       true
     );
 
+    // Carry over Razer Synapse 4's setTriggerFirmwareEffects (0x0F / 0x17, size 0x50)
+    // from rzDevice25.js & 6737.js (xi: setPresetProfileEffect) to illuminate the slot display
+    if ((cat === "keyboard-analog" || cat === "keyboard") && Protocol25.Builders.setTriggerFirmwareEffects) {
+      await sendRawWebHid90(
+        Number(selectedPid),
+        Protocol25.Builders.setTriggerFirmwareEffects({ effectId: 1, profileId: numSlot }),
+        { skipLampArray: true }
+      ).catch(() => null);
+    }
+
     // Apply Chroma lighting FIRST so switching slots (S1..S6) visibly changes the keyboard/mouse LEDs immediately
     // and writes directly to varStore = numSlot (1..6) as well as live register 0x00
     if (slotData.lighting && meta.isChroma !== false) {
@@ -3616,6 +3739,12 @@
       updateProfileKeyBox();
 
       const sData = getActiveSlotData();
+      const now = performance.now();
+      slotIndicatorOverlayByPid.set(Number(selectedPid), {
+        slotId: clampNum(slotId, 1, 6, 1),
+        startedAt: now,
+        until: now + 1650,
+      });
       showToast(`Switched to Onboard Slot S${slotId} (${sData.name})`);
       void playUiTone("info");
       await flashFullSlotToHardware(slotId, sData);
