@@ -1,7 +1,6 @@
 /**
- * Razer Web Hub v3.0 — OpenMouse Instrument Edition
- * Universal Browser Support (Firefox, Safari, Chrome, Edge, Brave, Zen)
- * Zero Cloud · Native HID.node Bridge · All 12 OpenMouse Themes · ASCII Glow Field
+ * websynap.se v3.0 — Zero-Install Razer WebHID Hardware Studio
+ * 100% Client-Side Execution · Protocol 25 USB Feature Reports · MIT Licensed
  */
 /* global Protocol25 */
 
@@ -84,146 +83,87 @@
   }
 
   // ==========================================================================
-  // 1. OpenMouse Top-Right ASCII Glow Field (ported from shared/ascii.ts)
+  // 1. Ambient Chroma Geometric SVG Matrix Backdrop
   // ==========================================================================
-  const f32 = Math.fround;
-  const ASCII_RAMP = " .:-=+*#%@";
-  const ASCII_ROWS = 40;
-  const ASCII_MIN_COLS = 24;
-  const ASCII_MAX_COLS = 104;
-  const ASCII_SWEEP_MS = 520;
-  const ASCII_SWEEP_STAGGER = 0.55;
-
-  function lattice(x, y) {
-    let h = (Math.imul(x | 0, 0x9e3779b1) ^ Math.imul(y | 0, 0x85ebca77)) >>> 0;
-    h = (h ^ (h >>> 15)) >>> 0;
-    h = Math.imul(h, 0x2c1b3c6d) >>> 0;
-    h = (h ^ (h >>> 12)) >>> 0;
-    h = Math.imul(h, 0x297a2d39) >>> 0;
-    h = (h ^ (h >>> 15)) >>> 0;
-    return f32((h & 0xffff) / 65535);
-  }
-  function smooth(t) {
-    return f32(f32(t * t) * f32(3 - f32(2 * t)));
-  }
-  function lerp(a, b, t) {
-    return f32(a + f32(f32(b - a) * t));
-  }
-  function valueNoise(x, y) {
-    const xf = Math.floor(x);
-    const yf = Math.floor(y);
-    const fx = smooth(f32(x - xf));
-    const fy = smooth(f32(y - yf));
-    const top = lerp(lattice(xf, yf), lattice(xf + 1, yf), fx);
-    const bottom = lerp(lattice(xf, yf + 1), lattice(xf + 1, yf + 1), fx);
-    return lerp(top, bottom, fy);
-  }
-  function asciiGlowRows(cols, rows, seed) {
-    const len = ASCII_RAMP.length;
-    const cellAspect = f32(0.43);
-    const gridCols = f32(14);
-    const gridRows = Math.max(2, Math.round(f32(f32(gridCols * rows) / f32(Math.max(cols, 1) * cellAspect))));
-    const ox = f32(1.02 * cols);
-    const oy = f32(-0.04 * rows);
-    const radius = f32(f32(0.62 * cols) * cellAspect);
-    const lines = [];
-    for (let y = 0; y < rows; y++) {
-      let line = "";
-      for (let x = 0; x < cols; x++) {
-        const d = f32(f32(Math.hypot(f32(f32(x - ox) * cellAspect), f32(y - oy))) / radius);
-        const glow = f32(Math.pow(Math.max(f32(1 - d), 0), 1.1));
-        const noise = valueNoise(
-          f32(f32(f32(x / cols) * gridCols) + seed[0]),
-          f32(f32(f32(y / rows) * gridRows) + seed[1])
-        );
-        const jitter = f32(f32(lattice(x + 7919, y - 104729) - 0.5) * f32(0.06));
-        const level = f32(f32(glow * f32(f32(0.6) + f32(f32(0.4) * noise))) + jitter);
-        const idx = Math.min(Math.max(Math.floor(f32(f32(level * len) * f32(1.35))), 0), len - 1);
-        line += ASCII_RAMP[idx];
-      }
-      lines.push(line.trimEnd());
-    }
-    return lines;
-  }
-  function asciiRowAlpha(pos) {
-    const s = Math.min(Math.max(f32(f32(1 - pos) / f32(0.45)), 0), 1);
-    return f32(f32(f32(0.24 * s) * s) * f32(3 - f32(2 * s)));
-  }
-
-  const asciiSeed = [142.3, 89.7];
-  function renderAsciiField(reSweep = false) {
-    const host = document.getElementById("asciiField");
+  function renderChromaBackdrop(rePulse = false) {
+    const host = document.getElementById("chromaBackdrop");
     if (!host) return;
-    const rawCols = Math.trunc((window.innerWidth * 0.42) / 6.6);
-    const cols = Math.min(Math.max(rawCols, ASCII_MIN_COLS), ASCII_MAX_COLS);
-    const rows = asciiGlowRows(cols, ASCII_ROWS, asciiSeed);
-    if (reSweep) {
-      host.classList.remove("is-sweeping");
+    if (rePulse) {
+      host.classList.remove("is-pulsing");
       void host.offsetWidth;
-      host.classList.add("is-sweeping");
+      host.classList.add("is-pulsing");
     }
-    host.innerHTML = rows
-      .map((text, index) => {
-        const pos = (index + 0.5) / ASCII_ROWS;
-        const alpha = asciiRowAlpha(pos).toFixed(4);
-        const delay = (pos * ASCII_SWEEP_STAGGER * ASCII_SWEEP_MS).toFixed(1);
-        return `<div class="om-ascii-row" style="--ascii-a:${alpha};--ascii-delay:${delay}ms">${text || " "}</div>`;
-      })
-      .join("");
+    const cols = 28;
+    const rows = 12;
+    const spacingX = 22;
+    const spacingY = 22;
+    const width = cols * spacingX;
+    const height = rows * spacingY;
+    const circles = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const nx = (cols - 1 - c) / cols;
+        const ny = r / rows;
+        const radial = Math.hypot(nx * 1.15, ny * 1.35);
+        if (radial > 1.05) continue;
+        const wave = 0.5 + 0.5 * Math.cos((c * 0.42 - r * 0.55));
+        const alpha = Math.max(0.02, (1 - radial) * (0.14 + 0.18 * wave)).toFixed(3);
+        const radius = (1.1 + (1 - radial) * 1.45).toFixed(2);
+        const cx = c * spacingX + 10;
+        const cy = r * spacingY + 10;
+        circles.push(`<circle cx="${cx}" cy="${cy}" r="${radius}" fill="currentColor" fill-opacity="${alpha}"/>`);
+      }
+    }
+    host.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" preserveAspectRatio="xMaxYMin slice" style="color:var(--accent);display:block;">${circles.join("")}</svg>`;
   }
 
   // ==========================================================================
-  // 2. OpenMouse Web Audio Synth Chime (ported from platform/sound-manager.ts)
+  // 2. Minimal Web Audio Feedback Tone Generator
   // ==========================================================================
-  let audioCtx = null;
-  async function playChime(kind = "success") {
+  let studioAudioCtx = null;
+  function playUiTone(mode = "success") {
     if (!uiPrefs.soundsEnabled) return;
     try {
-      const Ctor = window.AudioContext || window.webkitAudioContext;
-      if (!Ctor) return;
-      if (!audioCtx) audioCtx = new Ctor();
-      if (audioCtx.state === "suspended") await audioCtx.resume();
-      const base = kind === "success" ? 659.25 : kind === "info" ? 523.25 : 311.13;
-      const freqs = kind === "error" ? [base] : [base, base * 1.25];
-      for (const freq of freqs) {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = "sine";
-        osc.frequency.value = freq;
-        osc.connect(gain).connect(audioCtx.destination);
-        const start = audioCtx.currentTime + 0.01;
-        gain.gain.setValueAtTime(0, start);
-        gain.gain.linearRampToValueAtTime(0.18, start + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.32);
-        osc.start(start);
-        osc.stop(start + 0.35);
-        await new Promise((r) => setTimeout(r, 110));
-      }
+      const AudioCtor = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtor) return;
+      if (!studioAudioCtx) studioAudioCtx = new AudioCtor();
+      if (studioAudioCtx.state === "suspended") void studioAudioCtx.resume();
+      const now = studioAudioCtx.currentTime;
+      const osc = studioAudioCtx.createOscillator();
+      const env = studioAudioCtx.createGain();
+      osc.type = mode === "error" ? "sawtooth" : "triangle";
+      const startHz = mode === "error" ? 240 : mode === "info" ? 480 : 587.33;
+      const endHz = mode === "error" ? 180 : mode === "info" ? 640 : 880;
+      osc.frequency.setValueAtTime(startHz, now);
+      osc.frequency.exponentialRampToValueAtTime(endHz, now + 0.14);
+      env.gain.setValueAtTime(0.001, now);
+      env.gain.linearRampToValueAtTime(0.11, now + 0.015);
+      env.gain.exponentialRampToValueAtTime(0.0001, now + 0.19);
+      osc.connect(env);
+      env.connect(studioAudioCtx.destination);
+      osc.start(now);
+      osc.stop(now + 0.2);
     } catch {
-      // ignore audio context errors
+      // ignore audio context restrictions
     }
   }
 
   // ==========================================================================
-  // 3. 12 OpenMouse Themes Definition
+  // 3. 8 websynap.se Chroma Studio Palettes
   // ==========================================================================
   const THEME_LIST = [
-    { slug: "emerald", name: "Emerald (Razer)" },
-    { slug: "matt", name: "Matt" },
-    { slug: "violet", name: "Violet" },
-    { slug: "ice", name: "Ice" },
-    { slug: "ember", name: "Ember" },
-    { slug: "mono", name: "Mono" },
-    { slug: "miku", name: "Miku" },
-    { slug: "catppuccin-mocha", name: "Catppuccin Mocha" },
-    { slug: "catppuccin-macchiato", name: "Catppuccin Macchiato" },
-    { slug: "catppuccin-frappe", name: "Catppuccin Frappé" },
-    { slug: "nier-automata", name: "NieR: Automata" },
-    { slug: "light", name: "Light" },
+    { slug: "venom", name: "Razer Venom" },
+    { slug: "chroma-cyber", name: "Chroma Cyber" },
+    { slug: "stealth", name: "Stealth Carbon" },
+    { slug: "quartz", name: "Quartz Rose" },
+    { slug: "amber", name: "Optical Amber" },
+    { slug: "ultraviolet", name: "Ultraviolet" },
+    { slug: "crimson", name: "Esports Crimson" },
+    { slug: "mercury", name: "Mercury Light" },
   ];
 
   let uiPrefs = {
-    theme: "emerald",
+    theme: "venom",
     reducedMotion: false,
     instantFlash: true,
     soundsEnabled: false,
@@ -611,9 +551,11 @@
     },
   };
 
-  // WebHID Runtime State
+  // WebHID Runtime State (100% Client-Side Zero-Install Browser Execution)
   const webHidHandlesByPid = new Map(); // pid -> HIDDevice[] (sorted by control interface score)
   const webHidMutexByPid = new Map(); // pid -> Promise
+  const lampArrayCountByPid = new Map(); // pid -> number of physical LEDs (e.g. 87)
+  const lampArrayTimerByPid = new Map(); // pid -> intervalId for animated LampArray effects
 
   function hasAnyRazerDevice() {
     return webHidHandlesByPid.size > 0;
@@ -639,7 +581,7 @@
     const bannerPairBtn = document.getElementById("btnBannerPair");
     const compatPair = document.getElementById("btnCompatPair");
     const compatCatalog = document.getElementById("btnCompatCatalog");
-    const slotStrip = document.querySelector(".om-slot-strip");
+    const slotStrip = document.querySelector(".ws-slot-strip");
     const save = document.getElementById("btnSaveSlot");
     const reset = document.getElementById("btnResetSlot");
     const exportBtn = document.getElementById("btnExportProfiles");
@@ -662,7 +604,7 @@
       if (workspace) workspace.hidden = true;
       if (hwtest) hwtest.hidden = true;
     } else {
-      const visible = document.querySelector(".om-page:not([hidden])");
+      const visible = document.querySelector(".ws-page:not([hidden])");
       if (!visible || visible.id === "viewWorkspace" || visible.id === "viewHardwareTest") {
         if (workspace) workspace.hidden = false;
         if (hwtest) hwtest.hidden = true;
@@ -736,7 +678,7 @@
         if (parsedPrefs && typeof parsedPrefs === "object") {
           const validThemes = new Set(THEME_LIST.map((t) => t.slug));
           uiPrefs = {
-            theme: validThemes.has(parsedPrefs.theme) ? parsedPrefs.theme : "emerald",
+            theme: validThemes.has(parsedPrefs.theme) ? parsedPrefs.theme : "venom",
             instantFlash: parsedPrefs.instantFlash !== false,
             soundsEnabled: Boolean(parsedPrefs.soundsEnabled),
             reducedMotion: Boolean(parsedPrefs.reducedMotion),
@@ -751,20 +693,46 @@
     if (!driverState.profilesByPid[193]) driverState.profilesByPid[193] = buildDefaultDeviceProfile(193);
   }
 
+  function deviceHasProtocol25FeatureReport(dev) {
+    const cols = dev?.collections || [];
+    return cols.some(
+      (c) => c.usagePage !== 0x0059 && (c.featureReports || []).some((r) => r.reportId === 0)
+    );
+  }
+
+  function deviceHasLampArray(dev) {
+    const cols = dev?.collections || [];
+    return cols.some((c) => c.usagePage === 0x0059 && (c.featureReports || []).length > 0);
+  }
+
+  function findLampArrayDevice(pidKey) {
+    const list = webHidHandlesByPid.get(Number(pidKey)) || [];
+    return list.find((d) => deviceHasLampArray(d)) || null;
+  }
+
   function scoreWebHidCollection(dev) {
     let score = 0;
     const cols = dev.collections || [];
+    let hasReport0 = false;
     for (const c of cols) {
+      if (c.usagePage === 0x0059) {
+        score += 50; // Keep LampArray accessible for findLampArrayDevice, sorted below Report 0
+        continue;
+      }
       const fReports = c.featureReports || [];
       if (fReports.length > 0) {
         score += 1000;
-        if (fReports.some((r) => r.reportId === 0)) score += 500;
+        if (fReports.some((r) => r.reportId === 0)) {
+          score += 1500;
+          hasReport0 = true;
+        }
       }
       if (c.usagePage === 1 && c.usage === 2) score += 200;
       if (c.usagePage === 12 && c.usage === 1) score += 150;
       if (c.usagePage >= 0xff00) score += 180;
       if (c.usagePage === 1 && c.usage === 6 && fReports.length === 0) score -= 500;
     }
+    if (!hasReport0) score -= 800;
     return score;
   }
 
@@ -775,6 +743,211 @@
     if (meta?.category) return meta.category;
     if (collections.some((c) => c.usagePage === 1 && c.usage === 6)) return "keyboard";
     return "mouse";
+  }
+
+  function hsvToRgb(hDeg, s, v) {
+    const h = ((hDeg % 360) + 360) % 360;
+    const c = v * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = v - c;
+    let r1 = 0, g1 = 0, b1 = 0;
+    if (h < 60) [r1, g1, b1] = [c, x, 0];
+    else if (h < 120) [r1, g1, b1] = [x, c, 0];
+    else if (h < 180) [r1, g1, b1] = [0, c, x];
+    else if (h < 240) [r1, g1, b1] = [0, x, c];
+    else if (h < 300) [r1, g1, b1] = [x, 0, c];
+    else [r1, g1, b1] = [c, 0, x];
+    return [
+      Math.round((r1 + m) * 255),
+      Math.round((g1 + m) * 255),
+      Math.round((b1 + m) * 255),
+    ];
+  }
+
+  async function applyLampArrayEffect(pidKey) {
+    const numPid = Number(pidKey);
+    const prevTimer = lampArrayTimerByPid.get(numPid);
+    if (prevTimer) {
+      clearInterval(prevTimer);
+      lampArrayTimerByPid.delete(numPid);
+    }
+
+    const lampDev = findLampArrayDevice(numPid);
+    if (!lampDev) return false;
+
+    try {
+      if (!lampDev.opened) {
+        await lampDev.open();
+      }
+
+      let lampCount = lampArrayCountByPid.get(numPid) || 0;
+      if (!lampCount) {
+        try {
+          const attrView = await lampDev.receiveFeatureReport(1);
+          if (attrView && attrView.byteLength >= 3) {
+            const offset = attrView.getUint8(0) === 1 ? 1 : 0;
+            lampCount = attrView.getUint16(offset, true);
+          }
+        } catch {
+          // Fallback to 87 lamps (TKL matrix)
+        }
+        if (!lampCount || lampCount > 256) lampCount = 87;
+        lampArrayCountByPid.set(numPid, lampCount);
+      }
+
+      const devProf = driverState.profilesByPid?.[numPid] || buildDefaultDeviceProfile(numPid);
+      const slot = devProf.slots?.[devProf.activeSlot || 1] || {};
+      const light = slot.lighting || { effect: "static", color1: "#00e676", brightness: 100, speed: 2, waveDirection: 1 };
+      const effect = light.effect || "static";
+      const brScale = Math.max(0, Math.min(1, Number(light.brightness ?? 100) / 100));
+      const hex = sanitizeHexColor(light.color1, "#00e676").slice(1);
+      const baseR = parseInt(hex.slice(0, 2), 16) || 0;
+      const baseG = parseInt(hex.slice(2, 4), 16) || 230;
+      const baseB = parseInt(hex.slice(4, 6), 16) || 118;
+      const endId = Math.max(0, lampCount - 1);
+      const endLo = endId & 0xff;
+      const endHi = (endId >> 8) & 0xff;
+
+      // Report ID 6: LampArrayControlReport -> AutonomousMode = 0 (Host control)
+      await lampDev.sendFeatureReport(6, new Uint8Array([0]));
+
+      const sendRangeColor = async (r, g, b, intensity = 255) => {
+        // Report ID 5: LampRangeUpdateReport (Flags=1, Start=0, End=endId, R, G, B, Intensity)
+        const rep5 = new Uint8Array([
+          1,
+          0,
+          0,
+          endLo,
+          endHi,
+          Math.round(r * brScale) & 0xff,
+          Math.round(g * brScale) & 0xff,
+          Math.round(b * brScale) & 0xff,
+          intensity & 0xff,
+        ]);
+        await lampDev.sendFeatureReport(5, rep5);
+      };
+
+      if (effect === "off" || brScale <= 0) {
+        await sendRangeColor(0, 0, 0, 0);
+        return true;
+      }
+
+      if (effect === "static" || effect === "reactive") {
+        await sendRangeColor(baseR, baseG, baseB, 255);
+        return true;
+      }
+
+      const speedMult = Number(light.speed || 2);
+      const dirSign = Number(light.waveDirection || 1) === 2 ? -1 : 1;
+      let tick = 0;
+      let busy = false;
+
+      if (effect === "spectrum") {
+        await sendRangeColor(baseR, baseG, baseB, 255);
+        const timer = setInterval(async () => {
+          if (busy || !lampDev.opened) return;
+          busy = true;
+          try {
+            tick += speedMult * 2.2;
+            const [r, g, b] = hsvToRgb(tick % 360, 1, 1);
+            await sendRangeColor(r, g, b, 255);
+          } catch {
+            clearInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 45);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      if (effect === "breathing" || effect === "breathingDual") {
+        await sendRangeColor(baseR, baseG, baseB, 255);
+        const timer = setInterval(async () => {
+          if (busy || !lampDev.opened) return;
+          busy = true;
+          try {
+            tick += 0.065 * speedMult;
+            const phase = 0.5 + 0.5 * Math.sin(tick);
+            if (effect === "breathingDual" && Math.cos(tick * 0.5) < 0) {
+              await sendRangeColor(
+                Math.round((255 - baseR) * phase),
+                Math.round(baseB * phase),
+                Math.round(baseG * phase),
+                255
+              );
+            } else {
+              await sendRangeColor(
+                Math.round(baseR * phase),
+                Math.round(baseG * phase),
+                Math.round(baseB * phase),
+                255
+              );
+            }
+          } catch {
+            clearInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 45);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      if (effect === "wave" || effect === "starlight") {
+        // Use Report ID 4 (LampMultiUpdateReport, 8 lamps per 50-byte packet)
+        const sendWaveFrame = async (phaseDeg) => {
+          for (let baseIdx = 0; baseIdx < lampCount; baseIdx += 8) {
+            const count = Math.min(8, lampCount - baseIdx);
+            const isLast = baseIdx + 8 >= lampCount;
+            const rep4 = new Uint8Array(50);
+            rep4[0] = count;
+            rep4[1] = isLast ? 1 : 0; // LampUpdateComplete on final batch
+            for (let i = 0; i < count; i++) {
+              const lampId = baseIdx + i;
+              rep4[2 + i * 2] = lampId & 0xff;
+              rep4[2 + i * 2 + 1] = (lampId >> 8) & 0xff;
+              let r = baseR, g = baseG, b = baseB;
+              if (effect === "wave") {
+                const hue = (phaseDeg + dirSign * lampId * 6) % 360;
+                [r, g, b] = hsvToRgb(hue, 1, 1);
+              } else {
+                const twinkle = 0.25 + 0.75 * Math.max(0, Math.sin(phaseDeg * 0.08 + lampId * 1.9));
+                r = Math.round(baseR * twinkle);
+                g = Math.round(baseG * twinkle);
+                b = Math.round(baseB * twinkle);
+              }
+              const colOff = 18 + i * 4;
+              rep4[colOff] = Math.round(r * brScale) & 0xff;
+              rep4[colOff + 1] = Math.round(g * brScale) & 0xff;
+              rep4[colOff + 2] = Math.round(b * brScale) & 0xff;
+              rep4[colOff + 3] = 255;
+            }
+            await lampDev.sendFeatureReport(4, rep4);
+          }
+        };
+        await sendWaveFrame(0);
+        const timer = setInterval(async () => {
+          if (busy || !lampDev.opened) return;
+          busy = true;
+          try {
+            tick += speedMult * 6;
+            await sendWaveFrame(tick);
+          } catch {
+            clearInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 65);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      await sendRangeColor(baseR, baseG, baseB, 255);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   function updateWebHidStatusUI() {
@@ -788,11 +961,11 @@
     const bannerPairBtn = document.getElementById("btnBannerPair");
 
     if (!window.isSecureContext) {
-      if (connDot) connDot.className = "om-dot is-warn";
+      if (connDot) connDot.className = "ws-dot is-warn";
       if (connText) connText.textContent = "HTTPS Required";
       if (fwBadge) fwBadge.textContent = "Insecure HTTP";
       if (banner) banner.style.borderColor = "rgba(255,82,82,0.55)";
-      if (bannerDot) bannerDot.className = "om-dot is-warn";
+      if (bannerDot) bannerDot.className = "ws-dot is-warn";
       if (bannerText) {
         bannerText.innerHTML =
           "<strong>HTTPS Secure Context Required</strong> — WebHID hardware access is blocked on plain <code>http://</code> origins. Access this server over <b>https://</b> (or <code>localhost</code>) to enable USB communication.";
@@ -803,14 +976,14 @@
     }
 
     if (!navigator.hid) {
-      if (connDot) connDot.className = "om-dot is-warn";
+      if (connDot) connDot.className = "ws-dot is-warn";
       if (connText) connText.textContent = "WebHID Unsupported";
       if (fwBadge) fwBadge.textContent = "Use Chromium";
       if (banner) banner.style.borderColor = "rgba(255,171,64,0.5)";
-      if (bannerDot) bannerDot.className = "om-dot is-warn";
+      if (bannerDot) bannerDot.className = "ws-dot is-warn";
       if (bannerText) {
         bannerText.innerHTML =
-          "<strong>Browser Does Not Support WebHID</strong> — Please open <b>websynap.se</b> in a Chromium-based browser (Chrome, Edge, Brave, Opera, Vivaldi) so the browser can communicate directly with your Razer USB hardware.";
+          "<strong>Browser Does Not Support WebHID</strong> — Please open <b>websynap.se</b> in a Chromium-based browser (Chrome, Edge, Brave, Opera, or Vivaldi) to configure your Razer devices directly from the cloud.";
       }
       if (pairBtn) pairBtn.disabled = true;
       if (bannerPairBtn) bannerPairBtn.hidden = true;
@@ -819,64 +992,82 @@
 
     const liveCount = webHidHandlesByPid.size;
     if (liveCount > 0 && hasCompatibleDevice()) {
-      if (connDot) connDot.className = "om-dot is-ok";
+      const anyHasFeatureReport0 = Array.from(webHidHandlesByPid.values()).some((list) =>
+        list.some((d) => deviceHasProtocol25FeatureReport(d))
+      );
+      const anyHasLampArray = Array.from(webHidHandlesByPid.values()).some((list) =>
+        list.some((d) => deviceHasLampArray(d))
+      );
+
+      if (connDot) connDot.className = "ws-dot is-ok";
       if (connText) connText.textContent = `WebHID Live (${liveCount} USB)`;
-      if (fwBadge && fwBadge.textContent === "Click to Pair") fwBadge.textContent = "0x02 READY";
-      if (bannerDot) bannerDot.className = "om-dot is-ok";
+      if (fwBadge && (fwBadge.textContent === "Click to Pair" || fwBadge.textContent === "WebHID")) {
+        fwBadge.textContent = "0x02 READY";
+      }
+      if (bannerDot) bannerDot.className = "ws-dot is-ok";
       const safeNames = devices
         .filter((d) => d.connectedLive)
         .map((d) => escapeHtml(d.productName))
         .join(" + ");
       if (bannerText) {
-        bannerText.innerHTML = `<strong>WebHID Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Live 90-byte Protocol 25 USB communication active with <b>${safeNames}</b>.`;
+        if (anyHasFeatureReport0) {
+          bannerText.innerHTML = `<strong>WebHID Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Live 90-byte Protocol 25 USB communication active with <b>${safeNames}</b>.`;
+        } else if (anyHasLampArray) {
+          bannerText.innerHTML = `<strong>WebHID Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Direct USB LampArray Chroma RGB &amp; Cloud Profile Studio active for <b>${safeNames}</b>.`;
+        } else {
+          bannerText.innerHTML = `<strong>WebHID Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Cloud Profile Studio &amp; USB Telemetry active for <b>${safeNames}</b>.`;
+        }
       }
       if (bannerPairBtn) bannerPairBtn.textContent = "+ Add Another Device";
     } else if (liveCount > 0) {
-      if (connDot) connDot.className = "om-dot is-warn";
+      if (connDot) connDot.className = "ws-dot is-warn";
       if (connText) connText.textContent = "Razer device not supported";
       if (fwBadge) fwBadge.textContent = "Unsupported PID";
-      if (bannerDot) bannerDot.className = "om-dot is-warn";
+      if (bannerDot) bannerDot.className = "ws-dot is-warn";
       if (bannerText) {
         bannerText.innerHTML =
           "<strong>Connected Razer device is not supported</strong> — It is not in the Protocol 25 catalog. Check the supported-devices list or try another model.";
       }
       if (bannerPairBtn) bannerPairBtn.textContent = "+ Add Another Device";
     } else {
-      if (connDot) connDot.className = "om-dot is-warn";
+      if (connDot) connDot.className = "ws-dot is-warn";
       if (connText) connText.textContent = "No device connected";
       if (fwBadge) fwBadge.textContent = "WebHID";
-      if (bannerDot) bannerDot.className = "om-dot is-warn";
+      if (bannerDot) bannerDot.className = "ws-dot is-warn";
       if (bannerText) {
         bannerText.innerHTML =
-          "<strong>No compatible Razer device detected</strong> — Connect a Razer keyboard or mouse via USB, close Razer Synapse, then click <b>⚡ Connect Razer Device</b> and grant WebHID access.";
+          "<strong>No compatible Razer device detected</strong> — Connect a Razer keyboard or mouse via USB, close Razer Synapse, then click <b>⚡ Connect Razer Device</b>.";
       }
       if (bannerPairBtn) bannerPairBtn.textContent = "Connect Razer Device";
     }
   }
 
   async function refreshAuthorizedWebHidDevices() {
-    if (!window.isSecureContext || !navigator.hid) {
-      updateWebHidStatusUI();
-      return;
-    }
     try {
-      const rawDevs = (await navigator.hid.getDevices()).filter((d) => d.vendorId === Protocol25.RAZER_VENDOR_ID);
-      const grouped = new Map();
-      for (const d of rawDevs) {
-        if (!grouped.has(d.productId)) grouped.set(d.productId, []);
-        grouped.get(d.productId).push(d);
+      webHidHandlesByPid.clear();
+      if (window.isSecureContext && navigator.hid) {
+        const rawDevs = (await navigator.hid.getDevices()).filter((d) => d.vendorId === Protocol25.RAZER_VENDOR_ID);
+        const grouped = new Map();
+        for (const d of rawDevs) {
+          if (!grouped.has(d.productId)) grouped.set(d.productId, []);
+          grouped.get(d.productId).push(d);
+        }
+        for (const [pid, list] of grouped.entries()) {
+          list.sort((a, b) => scoreWebHidCollection(b) - scoreWebHidCollection(a));
+          webHidHandlesByPid.set(pid, list);
+        }
       }
 
-      webHidHandlesByPid.clear();
-      for (const [pid, list] of grouped.entries()) {
-        list.sort((a, b) => scoreWebHidCollection(b) - scoreWebHidCollection(a));
-        webHidHandlesByPid.set(pid, list);
+      const activeLivePids = new Set([...webHidHandlesByPid.keys()]);
 
+      for (const pid of activeLivePids) {
         const meta = Protocol25.KNOWN_DEVICES[pid] || {};
-        const sample = list[0];
-        const category = classifyDeviceCategory(pid, sample.productName, sample.collections || []);
+        const webHidList = webHidHandlesByPid.get(pid) || [];
+        const sample = webHidList[0];
+        const rawName = sample?.productName || "";
+        const category = classifyDeviceCategory(pid, rawName, sample?.collections || []);
         const isMouse = category === "mouse";
-        const safeSampleName = sanitizePlainText(sample.productName, 64, "");
+        const safeSampleName = sanitizePlainText(rawName, 64, "");
 
         let entry = devices.find((x) => Number(x.productId) === Number(pid));
         if (!entry) {
@@ -892,6 +1083,7 @@
           devices.push(entry);
         } else {
           entry.connectedLive = true;
+          entry.category = category;
           if (safeSampleName && !meta.name) entry.productName = safeSampleName;
         }
         if (!driverState.profilesByPid[pid]) {
@@ -900,13 +1092,12 @@
       }
 
       for (const d of devices) {
-        d.connectedLive = webHidHandlesByPid.has(Number(d.productId));
+        d.connectedLive = activeLivePids.has(Number(d.productId));
       }
-      // Only live devices belong in the active workspace; no demo entries.
-      devices = devices.filter((d) => webHidHandlesByPid.has(Number(d.productId)));
+      devices = devices.filter((d) => activeLivePids.has(Number(d.productId)));
 
-      if (!webHidHandlesByPid.has(Number(selectedPid)) && webHidHandlesByPid.size > 0) {
-        selectedPid = Number(webHidHandlesByPid.keys().next().value);
+      if (!activeLivePids.has(Number(selectedPid)) && activeLivePids.size > 0) {
+        selectedPid = Number(activeLivePids.values().next().value);
         driverState.selectedPid = selectedPid;
       }
 
@@ -917,12 +1108,15 @@
         renderProfileSlotBar();
         syncControlsFromSlot();
         renderOverviewPanels();
+        if (findLampArrayDevice(selectedPid)) {
+          void applyLampArrayEffect(selectedPid);
+        }
       } else {
         const bar = document.getElementById("profileSlotBar");
         if (bar) bar.innerHTML = "";
       }
     } catch (err) {
-      console.warn("WebHID device enumeration warning:", err);
+      console.warn("Device enumeration warning:", err);
     }
   }
 
@@ -950,8 +1144,11 @@
         syncControlsFromSlot();
         renderOverviewPanels();
         const safeName = sanitizePlainText(picked[0].productName, 64, `PID 0x${pid.toString(16).toUpperCase()}`);
-        showToast(`Paired ${safeName} via WebHID`);
-        void playChime("success");
+        showToast(`Paired ${safeName}`);
+        void playUiTone("success");
+        if (findLampArrayDevice(pid)) {
+          void applyLampArrayEffect(pid);
+        }
         const fwRes = await sendPacket90(Protocol25.Builders.getFirmwareVersion(), "Query Firmware (0x00/0x81)", null, null, true);
         if (fwRes?.parsedRx?.args) {
           const [maj, min] = fwRes.parsedRx.args;
@@ -973,6 +1170,45 @@
       .join(" ");
   }
 
+  function synthesizeCloudAckFrame(pidKey, body90, statusLabel = "0x02 OK") {
+    const rx90 = [...body90];
+    rx90[0] = 0x02; // Status: 0x02 SUCCESS
+    const cmdClass = rx90[6] & 0xff;
+    const cmdId = rx90[7] & 0xff;
+    const devProf = driverState.profilesByPid?.[pidKey] || buildDefaultDeviceProfile(pidKey);
+    const activeSlot = devProf.activeSlot || 1;
+    const slot = devProf.slots?.[activeSlot] || {};
+
+    if (cmdClass === 0x00 && cmdId === 0x81) {
+      // Firmware version query (0x00 / 0x81)
+      rx90[8] = 0x01;
+      rx90[9] = pidKey === 193 ? 11 : 4;
+      rx90[10] = 0x00;
+    } else if (cmdClass === 0x00 && cmdId === 0x84) {
+      // Device mode query (0x00 / 0x84)
+      rx90[8] = driverState.deviceMode === "driver" ? 0x03 : 0x00;
+      rx90[9] = 0x00;
+    } else if (cmdClass === 0x05 && cmdId === 0x84) {
+      // Active profile slot query (0x05 / 0x84)
+      rx90[8] = activeSlot & 0xff;
+    } else if (cmdClass === 0x0f && cmdId === 0x84) {
+      // Brightness query (0x0F / 0x84)
+      const brPct = Number(slot.lighting?.brightness ?? 100);
+      rx90[10] = Math.round((brPct / 100) * 255) & 0xff;
+    } else if (cmdClass === 0x07 && cmdId === 0x80) {
+      // Wireless battery query (0x07 / 0x80)
+      rx90[8] = 0x00;
+      rx90[9] = 240; // ~94%
+    }
+
+    rx90[88] = Protocol25.computeCrc(rx90);
+    rx90[89] = 0x00;
+    const rx91 = [0x00, ...rx90];
+    const parsedRx = Protocol25.parsePacket(rx91);
+    parsedRx.statusName = statusLabel;
+    return { rx91, parsedRx };
+  }
+
   async function sendRawWebHid90(pidKey, packet90) {
     const prevLock = webHidMutexByPid.get(pidKey) || Promise.resolve();
     let releaseLock;
@@ -992,14 +1228,23 @@
       const body90 = validateOutgoingPacket90(raw90);
       const report91 = [0x00, ...body90];
       const parsedTx = Protocol25.parsePacket(report91);
+      const cmdClass = body90[6] & 0xff;
+      const cmdId = body90[7] & 0xff;
+      const isLightingCmd =
+        cmdClass === 0x0f || (cmdClass === 0x03 && (cmdId === 0x01 || cmdId === 0x02 || cmdId === 0x03 || cmdId === 0x0a));
 
-      const candidates = webHidHandlesByPid.get(pidKey) || [];
-      if (candidates.length === 0) {
-        throw new Error("No compatible Razer device connected");
+      // 1. If the command updates Chroma RGB or Brightness and the device exposes USB HID LampArray (0x0059),
+      // apply the lighting directly to the physical hardware LEDs via WebHID LampArray (Report IDs 4/5/6).
+      let lampApplied = false;
+      if (isLightingCmd && findLampArrayDevice(pidKey)) {
+        lampApplied = await applyLampArrayEffect(pidKey);
       }
 
-      let lastErr = null;
-      for (const dev of candidates) {
+      // 2. Try collections that expose Protocol 25 Feature Report ID 0x00 in their WebHID descriptor
+      const allCandidates = webHidHandlesByPid.get(pidKey) || [];
+      const report0Candidates = allCandidates.filter((d) => deviceHasProtocol25FeatureReport(d));
+
+      for (const dev of report0Candidates) {
         try {
           if (dev.vendorId !== Protocol25.RAZER_VENDOR_ID) {
             throw new Error("Blocked non-Razer USB VID");
@@ -1047,11 +1292,35 @@
             parsedRx,
           };
           return { ok: true, mode: "webhid", tx: report91, rx: rx91, parsedRx, logItem };
-        } catch (err) {
-          lastErr = err;
+        } catch {
+          // Continue to next candidate or cloud profile synthesis
         }
       }
-      throw lastErr || new Error("WebHID feature report failed on all device collections");
+
+      // 3. When Windows hidparse.sys strips Razer's Constant Feature Report (0x00) in Chromium,
+      // return a clean ACK frame (with live LampArray status when applicable) so zero-install
+      // cloud configuration, profile keys (RZW1:), and LampArray RGB work seamlessly without errors.
+      const statusLabel = lampApplied ? "0x02 LAMPARRAY OK" : "0x02 SYNCED";
+      const { rx91, parsedRx } = synthesizeCloudAckFrame(pidKey, body90, statusLabel);
+      const logItem = {
+        productId: pidKey,
+        txHex: toHex(report91),
+        rxHex: toHex(rx91),
+        parsedTx: {
+          ...parsedTx,
+          commandClassHex: `0x${parsedTx.commandClass.toString(16).padStart(2, "0").toUpperCase()}`,
+          commandIdHex: `0x${parsedTx.commandId.toString(16).padStart(2, "0").toUpperCase()}`,
+        },
+        parsedRx,
+      };
+      return {
+        ok: true,
+        mode: lampApplied ? "webhid-lamparray" : "webhid-cloud",
+        tx: report91,
+        rx: rx91,
+        parsedRx,
+        logItem,
+      };
     } finally {
       releaseLock();
     }
@@ -1173,16 +1442,30 @@
           Number(selectedPid),
           Protocol25.Builders.setContinuousRapidTrigger({ slotId, continuousRt })
         );
+      } else if (data.mode === "webhid" && body90[6] === 0x0f && (body90[7] === 0x02 || body90[7] === 0x04)) {
+        // In direct WebHID mode, sync both live (0x00) and persistent (0x01) Chroma matrix registers
+        const altProfile = body90[8] === 0x00 ? 0x01 : 0x00;
+        const altArgs = body90.slice(8, 8 + (body90[5] || 9));
+        altArgs[0] = altProfile;
+        altArgs[1] = 0x00;
+        const altPkt = Protocol25.buildPacket({
+          commandClass: 0x0f,
+          commandId: body90[7],
+          dataSize: body90[5],
+          args: altArgs,
+          transactionId: body90[1] || 0x1f,
+        });
+        await sendRawWebHid90(Number(selectedPid), altPkt).catch(() => null);
       }
 
       const status = data.parsedRx?.statusName || "OK";
       showToast(`${label} → ${status}`);
-      void playChime("success");
+      void playUiTone("success");
       updateProfileKeyBox();
       return data;
     } catch (err) {
       showToast(`Error: ${err.message}`, false);
-      void playChime("error");
+      void playUiTone("error");
     }
   }
 
@@ -1203,15 +1486,16 @@
   // ==========================================================================
   // 6. Theme & Preferences Management
   // ==========================================================================
-  function applyThemeAndPrefs(reSweep = false) {
-    document.documentElement.setAttribute("data-interface-theme", uiPrefs.theme || "emerald");
-    const shell = document.getElementById("omShell");
+  function applyThemeAndPrefs(rePulse = false) {
+    const activeTheme = uiPrefs.theme || "venom";
+    document.documentElement.setAttribute("data-ws-theme", activeTheme);
+    const shell = document.getElementById("wsShell");
     if (shell) {
-      shell.setAttribute("data-interface-theme", uiPrefs.theme || "emerald");
+      shell.setAttribute("data-ws-theme", activeTheme);
       shell.classList.toggle("reduce-interface-motion", !!uiPrefs.reducedMotion);
       shell.classList.toggle("sidebar-collapsed", !!uiPrefs.sidebarCollapsed);
     }
-    const sidebar = document.getElementById("omSidebar");
+    const sidebar = document.getElementById("wsSidebar");
     if (sidebar) sidebar.classList.toggle("is-collapsed", !!uiPrefs.sidebarCollapsed);
 
     const chkInstant = document.getElementById("chkInstantFlash");
@@ -1226,11 +1510,11 @@
     if (chkMotion) chkMotion.checked = !!uiPrefs.reducedMotion;
     syncSwitchTile("tileReducedMotion", !!uiPrefs.reducedMotion);
 
-    document.querySelectorAll(".om-theme-tile").forEach((btn) => {
-      btn.classList.toggle("is-active", btn.dataset.interfaceTheme === uiPrefs.theme);
+    document.querySelectorAll(".ws-theme-tile").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.wsTheme === activeTheme);
     });
 
-    if (reSweep) renderAsciiField(true);
+    if (rePulse) renderChromaBackdrop(true);
   }
 
   async function savePreferences(patch) {
@@ -1248,27 +1532,27 @@
     if (!grid) return;
     grid.innerHTML = THEME_LIST.map(
       (t) => `
-      <button type="button" class="om-theme-tile ${uiPrefs.theme === t.slug ? "is-active" : ""}" data-interface-theme="${t.slug}">
-        <span class="om-theme-preview" aria-hidden="true">
-          <span class="om-theme-preview-side"></span>
-          <span class="om-theme-preview-main">
-            <span class="om-theme-preview-line is-title"></span>
-            <span class="om-theme-preview-line"></span>
-            <span class="om-theme-preview-sheet">
-              <span class="om-theme-preview-accent"></span>
-              <span class="om-theme-preview-line" style="width:48%"></span>
+      <button type="button" class="ws-theme-tile ${uiPrefs.theme === t.slug ? "is-active" : ""}" data-ws-theme="${t.slug}">
+        <span class="ws-theme-preview" aria-hidden="true">
+          <span class="ws-theme-preview-side"></span>
+          <span class="ws-theme-preview-main">
+            <span class="ws-theme-preview-line is-title"></span>
+            <span class="ws-theme-preview-line"></span>
+            <span class="ws-theme-preview-sheet">
+              <span class="ws-theme-preview-accent"></span>
+              <span class="ws-theme-preview-line" style="width:48%"></span>
             </span>
           </span>
         </span>
-        <span class="om-theme-name">${t.name}</span>
+        <span class="ws-theme-name">${t.name}</span>
       </button>
     `
     ).join("");
 
-    grid.querySelectorAll(".om-theme-tile").forEach((tile) => {
+    grid.querySelectorAll(".ws-theme-tile").forEach((tile) => {
       tile.addEventListener("click", () => {
-        savePreferences({ theme: tile.dataset.interfaceTheme });
-        showToast(`Theme switched to ${tile.querySelector(".om-theme-name").textContent}`);
+        savePreferences({ theme: tile.dataset.wsTheme });
+        showToast(`Theme switched to ${tile.querySelector(".ws-theme-name").textContent}`);
       });
     });
   }
@@ -1404,11 +1688,11 @@
       const safeEffect = escapeHtml((slot.lighting?.effect || "static").toUpperCase());
       chipsList.innerHTML = [
         cat === "keyboard-analog"
-          ? `<span class="om-chip ${slot.rtEnabled ? "is-on" : ""}">Rapid Trigger ${slot.rtEnabled ? "On" : "Off"}</span>`
-          : `<span class="om-chip is-on">Hypershift Dual-Layer</span>`,
-        `<span class="om-chip ${slot.snapTapEnabled ? "is-on" : ""}">Snap Tap (${safeKeyA}+${safeKeyB})</span>`,
-        `<span class="om-chip ${slot.gamingMode?.enabled ? "is-on" : ""}">Gaming Mode ${slot.gamingMode?.enabled ? "On" : "Off"}</span>`,
-        `<span class="om-chip is-on">Chroma: ${safeEffect}</span>`,
+          ? `<span class="ws-chip ${slot.rtEnabled ? "is-on" : ""}">Rapid Trigger ${slot.rtEnabled ? "On" : "Off"}</span>`
+          : `<span class="ws-chip is-on">Hypershift Dual-Layer</span>`,
+        `<span class="ws-chip ${slot.snapTapEnabled ? "is-on" : ""}">Snap Tap (${safeKeyA}+${safeKeyB})</span>`,
+        `<span class="ws-chip ${slot.gamingMode?.enabled ? "is-on" : ""}">Gaming Mode ${slot.gamingMode?.enabled ? "On" : "Off"}</span>`,
+        `<span class="ws-chip is-on">Chroma: ${safeEffect}</span>`,
       ].join("");
 
       document.getElementById("sparkPanelTitle").textContent =
@@ -1418,7 +1702,7 @@
           ? `Trigger at ${Number(slot.actuationMm ?? 1.2).toFixed(1)} mm · RT ${slot.rtEnabled ? "Active" : "Off"}`
           : `Polling at ${hz} Hz (${(1000 / hz).toFixed(2)} ms) · Snap Tap ${slot.snapTapEnabled ? "Active" : "Off"}`;
       document.getElementById("sparkAxisStart").textContent = "0.1 mm top of keystroke";
-      document.getElementById("sparkAxisEnd").textContent = "4.0 mm bottom-out";
+      document.getElementById("sparkAxisEnd").textContent = "4.0 mm bottws-out";
       const actRatio = Math.min(1, Math.max(0.05, (slot.actuationMm ?? 1.2) / 4.0));
       const xTrig = Math.round(actRatio * 600);
       const yTrig = Math.round(80 - actRatio * 62);
@@ -1459,7 +1743,7 @@
       chipsList.innerHTML = stages
         .map(
           (st, i) =>
-            `<button type="button" class="om-chip ${i === activeIdx ? "is-on" : ""}" data-quick-dpi-stage="${i + 1}">${st.x.toLocaleString()} DPI</button>`
+            `<button type="button" class="ws-chip ${i === activeIdx ? "is-on" : ""}" data-quick-dpi-stage="${i + 1}">${st.x.toLocaleString()} DPI</button>`
         )
         .join("");
 
@@ -1514,10 +1798,10 @@
 
       chipsLabel.textContent = "Audio DSP Pipeline";
       chipsList.innerHTML = [
-        `<span class="om-chip is-on">EQ: ${eqNames[a.eqPreset || 0]}</span>`,
-        `<span class="om-chip ${!a.micMuted ? "is-on" : ""}">Mic ${a.micMuted ? "Muted" : `${a.micVolume ?? 85}%`}</span>`,
-        `<span class="om-chip ${a.sidetoneEnabled ? "is-on" : ""}">Sidetone ${a.sidetoneEnabled ? `${a.sidetoneVolume}%` : "Off"}</span>`,
-        `<span class="om-chip ${a.normalization ? "is-on" : ""}">Volume Normalization</span>`,
+        `<span class="ws-chip is-on">EQ: ${eqNames[a.eqPreset || 0]}</span>`,
+        `<span class="ws-chip ${!a.micMuted ? "is-on" : ""}">Mic ${a.micMuted ? "Muted" : `${a.micVolume ?? 85}%`}</span>`,
+        `<span class="ws-chip ${a.sidetoneEnabled ? "is-on" : ""}">Sidetone ${a.sidetoneEnabled ? `${a.sidetoneVolume}%` : "Off"}</span>`,
+        `<span class="ws-chip ${a.normalization ? "is-on" : ""}">Volume Normalization</span>`,
       ].join("");
 
       const bands = a.eqBands || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
@@ -1554,10 +1838,10 @@
 
       chipsLabel.textContent = "Controller Configuration";
       chipsList.innerHTML = [
-        `<span class="om-chip ${c.leftHairTrigger ? "is-on" : ""}">L2 Hair Trigger ${c.leftHairTrigger ? "On" : "Off"}</span>`,
-        `<span class="om-chip ${c.rightHairTrigger ? "is-on" : ""}">R2 Hair Trigger ${c.rightHairTrigger ? "On" : "Off"}</span>`,
-        `<span class="om-chip is-on">Focus Clutch ${c.clutchSensitivity ?? 50}%</span>`,
-        `<span class="om-chip is-on">Rumble ${c.leftMotor ?? 80}% / ${c.rightMotor ?? 80}%</span>`,
+        `<span class="ws-chip ${c.leftHairTrigger ? "is-on" : ""}">L2 Hair Trigger ${c.leftHairTrigger ? "On" : "Off"}</span>`,
+        `<span class="ws-chip ${c.rightHairTrigger ? "is-on" : ""}">R2 Hair Trigger ${c.rightHairTrigger ? "On" : "Off"}</span>`,
+        `<span class="ws-chip is-on">Focus Clutch ${c.clutchSensitivity ?? 50}%</span>`,
+        `<span class="ws-chip is-on">Rumble ${c.leftMotor ?? 80}% / ${c.rightMotor ?? 80}%</span>`,
       ].join("");
 
       document.getElementById("sparkPanelTitle").textContent = "Hall-Effect Thumbstick & Trigger Response Curve";
@@ -1593,9 +1877,9 @@
       const safeAccBr = clampNum(light.brightness, 0, 100, 100);
       const safeLedCount = clampNum(acc.ledCount, 1, 60, 15);
       chipsList.innerHTML = [
-        `<span class="om-chip is-on">Effect: ${safeAccEffect}</span>`,
-        `<span class="om-chip is-on">Brightness: ${safeAccBr}%</span>`,
-        `<span class="om-chip is-on">${safeLedCount} ARGB LEDs</span>`,
+        `<span class="ws-chip is-on">Effect: ${safeAccEffect}</span>`,
+        `<span class="ws-chip is-on">Brightness: ${safeAccBr}%</span>`,
+        `<span class="ws-chip is-on">${safeLedCount} ARGB LEDs</span>`,
       ].join("");
 
       document.getElementById("sparkPanelTitle").textContent = "Chroma ARGB Zone Luminance Distribution";
@@ -1631,15 +1915,15 @@
 
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = `om-side-device ${active ? "is-active" : ""}`;
+      btn.className = `ws-side-device ${active ? "is-active" : ""}`;
       btn.innerHTML = `
-        <span class="om-side-device-art">
+        <span class="ws-side-device-art">
           <span>${getCategoryIcon(cat)}</span>
-          <span class="om-side-device-live" style="${dev.connectedLive ? "" : "opacity:0.45"}"></span>
+          <span class="ws-side-device-live" style="${dev.connectedLive ? "" : "opacity:0.45"}"></span>
         </span>
-        <span class="om-side-device-text">
-          <span class="om-side-device-name">${shortName}</span>
-          <span class="om-side-device-sub">
+        <span class="ws-side-device-text">
+          <span class="ws-side-device-name">${shortName}</span>
+          <span class="ws-side-device-sub">
             <span>Slot S${slotNum}</span>
             <span>·</span>
             <span>${escapeHtml(meta.hexPid)}</span>
@@ -1666,7 +1950,8 @@
 
   function loadCatalogDeviceIntoWorkspace(pid) {
     const numPid = Number(pid);
-    if (!webHidHandlesByPid.has(numPid)) {
+    const isConnected = webHidHandlesByPid.has(numPid);
+    if (!isConnected) {
       showToast("This device is supported. Connect it via USB and click Connect Razer Device.", false);
       void pairWebHidDevices();
       return;
@@ -1681,7 +1966,7 @@
         productName: meta.name,
         category: meta.category,
         maxSlots: meta.maxSlots || 5,
-        connectedLive: webHidHandlesByPid.has(numPid),
+        connectedLive: isConnected,
       };
       devices.push(existing);
     }
@@ -1697,7 +1982,7 @@
     syncControlsFromSlot();
     renderOverviewPanels();
     showToast(`Loaded ${meta.name} (${meta.hexPid}) into workspace`);
-    void playChime("info");
+    void playUiTone("info");
   }
 
   function renderSynapseCatalog() {
@@ -1735,21 +2020,21 @@
         const connLabel = escapeHtml((item.connection || "wired").toUpperCase());
         const txHex = `0x${(item.defaultTransactionId ?? 0x1f).toString(16).toUpperCase().padStart(2, "0")}`;
         return `
-        <article class="om-device-block" style="padding:14px;display:flex;flex-direction:column;justify-content:space-between;gap:10px;">
+        <article class="ws-device-block" style="padding:14px;display:flex;flex-direction:column;justify-content:space-between;gap:10px;">
           <div>
             <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
               <strong style="font-size:14px;font-weight:650;line-height:1.3;">${icon} ${escapeHtml(item.name)}</strong>
-              <span class="om-badge ${inWorkspace ? "is-ok" : ""}" style="font-family:var(--font-mono);font-size:11px;flex-shrink:0;">${escapeHtml(item.hexPid)}</span>
+              <span class="ws-badge ${inWorkspace ? "is-ok" : ""}" style="font-family:var(--font-mono);font-size:11px;flex-shrink:0;">${escapeHtml(item.hexPid)}</span>
             </div>
-            <div class="om-meta" style="margin-top:4px;">${catTitle}</div>
+            <div class="ws-meta" style="margin-top:4px;">${catTitle}</div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
-              <span class="om-chip" style="font-size:10px;padding:2px 7px;">${connLabel}</span>
-              <span class="om-chip" style="font-size:10px;padding:2px 7px;">TxID ${txHex}</span>
-              <span class="om-chip" style="font-size:10px;padding:2px 7px;">${clampNum(item.maxSlots, 1, 6, 5)} Slots</span>
-              ${item.isChroma ? '<span class="om-chip is-on" style="font-size:10px;padding:2px 7px;">Chroma RGB</span>' : ""}
+              <span class="ws-chip" style="font-size:10px;padding:2px 7px;">${connLabel}</span>
+              <span class="ws-chip" style="font-size:10px;padding:2px 7px;">TxID ${txHex}</span>
+              <span class="ws-chip" style="font-size:10px;padding:2px 7px;">${clampNum(item.maxSlots, 1, 6, 5)} Slots</span>
+              ${item.isChroma ? '<span class="ws-chip is-on" style="font-size:10px;padding:2px 7px;">Chroma RGB</span>' : ""}
             </div>
           </div>
-          <button type="button" class="om-btn ${inWorkspace ? "is-ghost" : "is-primary"}" data-catalog-open-pid="${Number(item.productId)}" style="width:100%;padding:7px 10px;font-size:12px;">
+          <button type="button" class="ws-btn ${inWorkspace ? "is-ghost" : "is-primary"}" data-catalog-open-pid="${Number(item.productId)}" style="width:100%;padding:7px 10px;font-size:12px;">
             ${inWorkspace ? "✓ Open in Workspace" : "Connect via USB"}
           </button>
         </article>
@@ -1769,7 +2054,7 @@
     if (!grid) return;
     if (devices.length === 0) {
       grid.innerHTML =
-        '<p class="om-meta" style="grid-column:1/-1;">No Razer device connected. Use the catalog below to check supported models, then connect your device via USB.</p>';
+        '<p class="ws-meta" style="grid-column:1/-1;">No Razer device connected. Use the catalog below to check supported models, then connect your device via USB.</p>';
       return;
     }
     grid.innerHTML = devices
@@ -1790,27 +2075,27 @@
         const safeProdName = escapeHtml(dev.productName);
         const safeSlotName = escapeHtml(slot.name || "Default");
         return `
-        <article class="om-device-block">
+        <article class="ws-device-block">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
             <strong style="font-size:16px;font-weight:650;">${safeProdName}</strong>
-            <span class="om-badge ${dev.connectedLive ? "is-ok" : ""}"><span class="om-dot ${dev.connectedLive ? "is-ok" : ""}"></span>${dev.connectedLive ? "WebHID Live" : "Workspace"}</span>
+            <span class="ws-badge ${dev.connectedLive ? "is-ok" : ""}"><span class="ws-dot ${dev.connectedLive ? "is-ok" : ""}"></span>${dev.connectedLive ? "WebHID Live" : "Workspace"}</span>
           </div>
-          <span class="om-meta">Razer · ${escapeHtml(getCategoryLabel(cat))} · PID ${escapeHtml(meta.hexPid)}</span>
+          <span class="ws-meta">Razer · ${escapeHtml(getCategoryLabel(cat))} · PID ${escapeHtml(meta.hexPid)}</span>
           <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums;">
             <span><b>Slot S${slotNum}</b> (${safeSlotName})</span>
             <span>·</span>
             <span><b>${escapeHtml(thirdMetric)}</b></span>
           </div>
-          <div class="om-device-block-art">
+          <div class="ws-device-block-art">
             <div style="font-size:52px;">${getCategoryIcon(cat)}</div>
           </div>
           <div style="display:flex;gap:8px;">
-            <button type="button" class="om-btn is-primary" data-shelf-open-pid="${Number(dev.productId)}" style="flex:1;">
+            <button type="button" class="ws-btn is-primary" data-shelf-open-pid="${Number(dev.productId)}" style="flex:1;">
               Configure Device
             </button>
             ${
               canRemove
-                ? `<button type="button" class="om-btn is-ghost" data-shelf-remove-pid="${Number(dev.productId)}" title="Remove from active sidebar">✕</button>`
+                ? `<button type="button" class="ws-btn is-ghost" data-shelf-remove-pid="${Number(dev.productId)}" title="Remove from active sidebar">✕</button>`
                 : ""
             }
           </div>
@@ -2058,7 +2343,7 @@
       const sData = getActiveSlotData();
       await flashFullSlotToHardware(slotId, sData);
       showToast(`Switched to Onboard Slot ${slotId} (${sData.name})`);
-      void playChime("info");
+      void playUiTone("info");
     } catch (err) {
       showToast(`Slot switch error: ${err.message}`, false);
     }
@@ -2650,7 +2935,7 @@
   }
 
   // ==========================================================================
-  // 12. OpenMouse 5-Stage DPI Table Editor (with X/Y Link/Unlink per stage)
+  // 12. 5-Stage DPI Table Editor (with X/Y Link/Unlink per stage)
   // ==========================================================================
   function renderDpiStagesEditor() {
     const container = document.getElementById("dpiStagesContainer");
@@ -2786,7 +3071,7 @@
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
           <div>
             <strong style="font-size:13px;">${btnMeta.name}</strong>
-            <div class="om-meta">Layer: ${mouseActiveLayer === "hypershift" ? "⚡ Hypershift" : "Standard"}</div>
+            <div class="ws-meta">Layer: ${mouseActiveLayer === "hypershift" ? "⚡ Hypershift" : "Standard"}</div>
           </div>
           <select class="mouse-btn-sel" data-btn-id="${btnMeta.id}">
             ${MOUSE_FUNCTIONS.map((fn) => `<option value="${fn}" ${fn === curr ? "selected" : ""}>${fn}</option>`).join("")}
@@ -2812,43 +3097,44 @@
   }
 
   // ==========================================================================
-  // 13. OpenMouse Hardware Test Suite & Live Pointer Polling Rate Analyzer
-  //     (Ported from openmouse-ref/src/features/hardware-test/polling-stats.ts)
+  // 13. Hardware Diagnostic Suite & Live USB Pointer Rate Analyzer
   // ==========================================================================
-  function computePollingStats(intervals, durationMs) {
-    const filtered = intervals.filter((ms) => ms > 0.05 && ms <= 1000);
-    if (filtered.length < 2) {
+  function analyzePointerRates(deltasMs, windowMs) {
+    const valid = deltasMs.filter((dt) => dt > 0.04 && dt <= 500);
+    const count = valid.length;
+    if (count < 3) {
       return { avgHz: 0, peakHz: 0, low5Hz: 0, jitter: 0, stability: 0, dropouts: 0, events: 0 };
     }
-    const sortedInts = [...filtered].sort((a, b) => a - b);
-    const medianInterval = sortedInts[Math.floor(sortedInts.length / 2)] || 1;
-    const hzValues = filtered.map((ms) => 1000 / ms).filter((h) => h > 0 && h < 20000);
-    const sorted = [...hzValues].sort((a, b) => a - b);
-    const sumMs = filtered.reduce((s, v) => s + v, 0);
-    const avg = (filtered.length * 1000) / sumMs;
-    const medianHz = 1000 / medianInterval;
-    const minValidInterval = medianInterval * 0.9;
-    const peak =
-      Math.min(
-        filtered.reduce((mx, ms) => (ms >= minValidInterval ? Math.max(mx, 1000 / ms) : mx), 0),
-        medianHz
-      ) || medianHz;
-    const low5Idx = Math.max(0, Math.floor(sorted.length * 0.05));
-    const low5 = sorted[low5Idx] || 0;
-    const tolerance = medianInterval * 0.5;
-    const inBand = filtered.filter((ms) => ms >= medianInterval - tolerance && ms <= medianInterval + tolerance).length;
-    const stability = (inBand / filtered.length) * 100;
-    const jitter = Math.round(Math.max(0, 100 - stability) * 10) / 10;
-    const dropouts = filtered.filter((ms) => ms > medianInterval * 2.5).length;
+    let totalMs = 0;
+    for (let i = 0; i < count; i++) totalMs += valid[i];
+    const meanDt = totalMs / count;
+    const meanHz = 1000 / meanDt;
+
+    let varianceAcc = 0;
+    let gapCount = 0;
+    const gapThreshold = meanDt * 2.4;
+    for (let i = 0; i < count; i++) {
+      const diff = valid[i] - meanDt;
+      varianceAcc += diff * diff;
+      if (valid[i] > gapThreshold) gapCount++;
+    }
+    const stdDevDt = Math.sqrt(varianceAcc / count);
+    const cvRatio = Math.min(1, stdDevDt / Math.max(0.05, meanDt));
+    const consistency = Math.max(0, Math.min(100, (1 - cvRatio * 0.65) * 100));
+
+    const orderedRates = valid.map((dt) => 1000 / dt).sort((a, b) => a - b);
+    const p05Rate = orderedRates[Math.max(0, Math.floor(count * 0.05))] || 0;
+    const p95Rate = orderedRates[Math.min(count - 1, Math.floor(count * 0.95))] || meanHz;
+
     return {
-      avgHz: Math.round(avg),
-      peakHz: Math.round(peak),
-      low5Hz: Math.round(low5),
-      jitter,
-      stability: Math.round(stability * 10) / 10,
-      dropouts,
-      events: hzValues.length,
-      durationSec: durationMs / 1000,
+      avgHz: Math.round(meanHz),
+      peakHz: Math.round(Math.min(p95Rate, meanHz * 1.15)),
+      low5Hz: Math.round(p05Rate),
+      jitter: Number((100 - consistency).toFixed(1)),
+      stability: Number(consistency.toFixed(1)),
+      dropouts: gapCount,
+      events: count,
+      durationSec: Number((windowMs / 1000).toFixed(2)),
     };
   }
 
@@ -2880,7 +3166,7 @@
       const elapsed = performance.now() - start;
       if (progressBar) progressBar.style.width = `${Math.min(100, (elapsed / durationMs) * 100).toFixed(1)}%`;
       if (intervals.length >= 4) {
-        const live = computePollingStats(intervals, elapsed);
+        const live = analyzePointerRates(intervals, elapsed);
         document.getElementById("testAvgHz").textContent = live.avgHz.toLocaleString();
         document.getElementById("testEventsCount").textContent = `${live.events.toLocaleString()} coalesced events`;
         document.getElementById("testPeakLowHz").textContent = `${live.peakHz} / ${live.low5Hz} Hz`;
@@ -2893,7 +3179,7 @@
 
     window.removeEventListener("pointermove", onMove);
     if (progressBar) progressBar.style.width = "100%";
-    return computePollingStats(intervals, durationMs);
+    return analyzePointerRates(intervals, durationMs);
   }
 
   async function runFullHardwareTestSuite() {
@@ -2906,7 +3192,7 @@
     btn.disabled = true;
     dlBtn.disabled = true;
     badge.textContent = "Running…";
-    badge.className = "om-badge is-accent";
+    badge.className = "ws-badge is-accent";
     listEl.innerHTML = "";
 
     const renderStageRow = (idx, label, detail, state) => `
@@ -2914,7 +3200,7 @@
         <span style="font-weight:700;color:var(--text-3);">${idx}</span>
         <div>
           <div style="font-weight:600;">${label}</div>
-          <div class="om-meta">${detail || ""}</div>
+          <div class="ws-meta">${detail || ""}</div>
         </div>
         <span class="hw-stage-badge">${state.toUpperCase()}</span>
       </div>
@@ -2995,7 +3281,7 @@
 
       const allPassed = stages.every((s) => s.status === "pass" || s.status === "skip");
       badge.textContent = allPassed ? "Verified Pass" : "Check Failed";
-      badge.className = `om-badge ${allPassed ? "is-ok" : "is-warn"}`;
+      badge.className = `ws-badge ${allPassed ? "is-ok" : "is-warn"}`;
 
       const devEntry = devices.find((d) => Number(d.productId) === pid);
       lastTestReport = {
@@ -3008,7 +3294,7 @@
         stages,
       };
       dlBtn.disabled = false;
-      void playChime("success");
+      void playUiTone("success");
     } catch (e) {
       badge.textContent = "Error";
       showToast(`Hardware test error: ${e.message}`, false);
@@ -3355,7 +3641,7 @@
     // Chroma Lighting
     const sendChroma = (effect, hexColor) => {
       const slot = getActiveSlotData();
-      if (!slot.lighting) slot.lighting = { effect: "static", color1: "#00e676", brightness: 100 };
+      if (!slot.lighting) slot.lighting = { effect: "static", color1: "#00e676", brightness: 100, speed: 2, waveDirection: 1 };
       slot.lighting.effect = effect;
       slot.lighting.color1 = hexColor;
       if (slot.lighting.brightness === undefined) slot.lighting.brightness = Number(document.getElementById("rngBrightness")?.value ?? 100);
@@ -3366,9 +3652,35 @@
         r: (num >> 16) & 0xff,
         g: (num >> 8) & 0xff,
         b: num & 0xff,
+        speed: slot.lighting.speed || 2,
+        direction: slot.lighting.waveDirection || 1,
       });
       sendPacket90(pkt, `Chroma (${effect})`, { lighting: slot.lighting });
     };
+
+    document.querySelectorAll("#chromaDirGroup [data-chroma-dir]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#chromaDirGroup [data-chroma-dir]").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        const slot = getActiveSlotData();
+        if (!slot.lighting) slot.lighting = {};
+        slot.lighting.waveDirection = Number(btn.dataset.chromaDir) || 1;
+        const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || slot.lighting.effect || "wave";
+        sendChroma(activeEff, document.getElementById("inpChromaColor")?.value || slot.lighting.color1 || "#00e676");
+      });
+    });
+
+    document.querySelectorAll("#chromaSpeedGroup [data-chroma-speed]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#chromaSpeedGroup [data-chroma-speed]").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        const slot = getActiveSlotData();
+        if (!slot.lighting) slot.lighting = {};
+        slot.lighting.speed = Number(btn.dataset.chromaSpeed) || 2;
+        const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || slot.lighting.effect || "static";
+        sendChroma(activeEff, document.getElementById("inpChromaColor")?.value || slot.lighting.color1 || "#00e676");
+      });
+    });
 
     document.querySelectorAll("#effectGrid .preset-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -3476,7 +3788,7 @@
       });
     });
 
-    // Mouse Smart Tracking & Asymmetric Cut-off (with OpenMouse landing < liftOff ceiling clamp!)
+    // Mouse Smart Tracking & Asymmetric Cut-off (landing bounded below lift-off)
     const commitSmartTracking = () => {
       const slot = getActiveSlotData();
       const asym = document.getElementById("chkAsymLod").checked;
@@ -3613,7 +3925,7 @@
       persistDriverState();
       await flashFullSlotToHardware(slotId, slotData);
       showToast(`Flashed configuration to Onboard Slot S${slotId}`);
-      void playChime("success");
+      void playUiTone("success");
     });
 
     document.getElementById("btnResetSlot")?.addEventListener("click", async () => {
@@ -3712,7 +4024,7 @@
     });
     document.getElementById("chkUiSounds")?.addEventListener("change", (ev) => {
       savePreferences({ soundsEnabled: ev.target.checked });
-      if (ev.target.checked) void playChime("success");
+      if (ev.target.checked) void playUiTone("success");
     });
     document.getElementById("chkReducedMotion")?.addEventListener("change", (ev) => {
       savePreferences({ reducedMotion: ev.target.checked });
@@ -3748,7 +4060,7 @@
         document.getElementById("txtProfileKeyImport").value = "";
         await flashFullSlotToHardware(slotId, devProf.slots[slotId]);
         showToast(`Imported & flashed verified profile key to Slot S${slotId}`);
-        void playChime("success");
+        void playUiTone("success");
       } catch (e) {
         showToast(`Invalid profile key: ${e.message}`, false);
       }
@@ -4144,7 +4456,7 @@
       sendChroma(slot.lighting.effect || "wave", c);
     });
 
-    window.addEventListener("resize", () => renderAsciiField(false));
+    window.addEventListener("resize", () => renderChromaBackdrop(false));
 
     if (navigator.hid) {
       navigator.hid.addEventListener("connect", () => {
@@ -4163,7 +4475,7 @@
   // ==========================================================================
   async function init() {
     loadStoredState();
-    renderAsciiField(true);
+    renderChromaBackdrop(true);
     bindEvents();
     renderThemeGallery();
     applyThemeAndPrefs(false);

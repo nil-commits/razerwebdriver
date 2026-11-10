@@ -1,7 +1,7 @@
 /**
- * Razer Web Hub v3.0 — OpenMouse Instrument Edition
+ * Razer Web Hub v3.0 — Chroma Hardware Studio Edition
  * Universal Browser Support (Firefox, Safari, Chrome, Edge, Brave, Zen)
- * Zero Cloud · Native HID.node Bridge · All 12 OpenMouse Themes · ASCII Glow Field
+ * Zero Cloud · Native HID.node Bridge · 8 Chroma Studio Themes · Ambient Matrix Backdrop
  */
 /* global Protocol25 */
 
@@ -11,146 +11,87 @@
   const Protocol25 = window.RazerProtocol25 || window.Protocol25;
 
   // ==========================================================================
-  // 1. OpenMouse Top-Right ASCII Glow Field (ported from shared/ascii.ts)
+  // 1. Ambient Chroma Geometric SVG Matrix Backdrop
   // ==========================================================================
-  const f32 = Math.fround;
-  const ASCII_RAMP = " .:-=+*#%@";
-  const ASCII_ROWS = 40;
-  const ASCII_MIN_COLS = 24;
-  const ASCII_MAX_COLS = 104;
-  const ASCII_SWEEP_MS = 520;
-  const ASCII_SWEEP_STAGGER = 0.55;
-
-  function lattice(x, y) {
-    let h = (Math.imul(x | 0, 0x9e3779b1) ^ Math.imul(y | 0, 0x85ebca77)) >>> 0;
-    h = (h ^ (h >>> 15)) >>> 0;
-    h = Math.imul(h, 0x2c1b3c6d) >>> 0;
-    h = (h ^ (h >>> 12)) >>> 0;
-    h = Math.imul(h, 0x297a2d39) >>> 0;
-    h = (h ^ (h >>> 15)) >>> 0;
-    return f32((h & 0xffff) / 65535);
-  }
-  function smooth(t) {
-    return f32(f32(t * t) * f32(3 - f32(2 * t)));
-  }
-  function lerp(a, b, t) {
-    return f32(a + f32(f32(b - a) * t));
-  }
-  function valueNoise(x, y) {
-    const xf = Math.floor(x);
-    const yf = Math.floor(y);
-    const fx = smooth(f32(x - xf));
-    const fy = smooth(f32(y - yf));
-    const top = lerp(lattice(xf, yf), lattice(xf + 1, yf), fx);
-    const bottom = lerp(lattice(xf, yf + 1), lattice(xf + 1, yf + 1), fx);
-    return lerp(top, bottom, fy);
-  }
-  function asciiGlowRows(cols, rows, seed) {
-    const len = ASCII_RAMP.length;
-    const cellAspect = f32(0.43);
-    const gridCols = f32(14);
-    const gridRows = Math.max(2, Math.round(f32(f32(gridCols * rows) / f32(Math.max(cols, 1) * cellAspect))));
-    const ox = f32(1.02 * cols);
-    const oy = f32(-0.04 * rows);
-    const radius = f32(f32(0.62 * cols) * cellAspect);
-    const lines = [];
-    for (let y = 0; y < rows; y++) {
-      let line = "";
-      for (let x = 0; x < cols; x++) {
-        const d = f32(f32(Math.hypot(f32(f32(x - ox) * cellAspect), f32(y - oy))) / radius);
-        const glow = f32(Math.pow(Math.max(f32(1 - d), 0), 1.1));
-        const noise = valueNoise(
-          f32(f32(f32(x / cols) * gridCols) + seed[0]),
-          f32(f32(f32(y / rows) * gridRows) + seed[1])
-        );
-        const jitter = f32(f32(lattice(x + 7919, y - 104729) - 0.5) * f32(0.06));
-        const level = f32(f32(glow * f32(f32(0.6) + f32(f32(0.4) * noise))) + jitter);
-        const idx = Math.min(Math.max(Math.floor(f32(f32(level * len) * f32(1.35))), 0), len - 1);
-        line += ASCII_RAMP[idx];
-      }
-      lines.push(line.trimEnd());
-    }
-    return lines;
-  }
-  function asciiRowAlpha(pos) {
-    const s = Math.min(Math.max(f32(f32(1 - pos) / f32(0.45)), 0), 1);
-    return f32(f32(f32(0.24 * s) * s) * f32(3 - f32(2 * s)));
-  }
-
-  const asciiSeed = [142.3, 89.7];
-  function renderAsciiField(reSweep = false) {
-    const host = document.getElementById("asciiField");
+  function renderChromaBackdrop(rePulse = false) {
+    const host = document.getElementById("chromaBackdrop");
     if (!host) return;
-    const rawCols = Math.trunc((window.innerWidth * 0.42) / 6.6);
-    const cols = Math.min(Math.max(rawCols, ASCII_MIN_COLS), ASCII_MAX_COLS);
-    const rows = asciiGlowRows(cols, ASCII_ROWS, asciiSeed);
-    if (reSweep) {
-      host.classList.remove("is-sweeping");
+    if (rePulse) {
+      host.classList.remove("is-pulsing");
       void host.offsetWidth;
-      host.classList.add("is-sweeping");
+      host.classList.add("is-pulsing");
     }
-    host.innerHTML = rows
-      .map((text, index) => {
-        const pos = (index + 0.5) / ASCII_ROWS;
-        const alpha = asciiRowAlpha(pos).toFixed(4);
-        const delay = (pos * ASCII_SWEEP_STAGGER * ASCII_SWEEP_MS).toFixed(1);
-        return `<div class="om-ascii-row" style="--ascii-a:${alpha};--ascii-delay:${delay}ms">${text || " "}</div>`;
-      })
-      .join("");
+    const cols = 28;
+    const rows = 12;
+    const spacingX = 22;
+    const spacingY = 22;
+    const width = cols * spacingX;
+    const height = rows * spacingY;
+    const circles = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const nx = (cols - 1 - c) / cols;
+        const ny = r / rows;
+        const radial = Math.hypot(nx * 1.15, ny * 1.35);
+        if (radial > 1.05) continue;
+        const wave = 0.5 + 0.5 * Math.cos((c * 0.42 - r * 0.55));
+        const alpha = Math.max(0.02, (1 - radial) * (0.14 + 0.18 * wave)).toFixed(3);
+        const radius = (1.1 + (1 - radial) * 1.45).toFixed(2);
+        const cx = c * spacingX + 10;
+        const cy = r * spacingY + 10;
+        circles.push(`<circle cx="${cx}" cy="${cy}" r="${radius}" fill="currentColor" fill-opacity="${alpha}"/>`);
+      }
+    }
+    host.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" preserveAspectRatio="xMaxYMin slice" style="color:var(--accent);display:block;">${circles.join("")}</svg>`;
   }
 
   // ==========================================================================
-  // 2. OpenMouse Web Audio Synth Chime (ported from platform/sound-manager.ts)
+  // 2. Minimal Web Audio Feedback Tone Generator
   // ==========================================================================
-  let audioCtx = null;
-  async function playChime(kind = "success") {
+  let studioAudioCtx = null;
+  function playUiTone(mode = "success") {
     if (!uiPrefs.soundsEnabled) return;
     try {
-      const Ctor = window.AudioContext || window.webkitAudioContext;
-      if (!Ctor) return;
-      if (!audioCtx) audioCtx = new Ctor();
-      if (audioCtx.state === "suspended") await audioCtx.resume();
-      const base = kind === "success" ? 659.25 : kind === "info" ? 523.25 : 311.13;
-      const freqs = kind === "error" ? [base] : [base, base * 1.25];
-      for (const freq of freqs) {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = "sine";
-        osc.frequency.value = freq;
-        osc.connect(gain).connect(audioCtx.destination);
-        const start = audioCtx.currentTime + 0.01;
-        gain.gain.setValueAtTime(0, start);
-        gain.gain.linearRampToValueAtTime(0.18, start + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.32);
-        osc.start(start);
-        osc.stop(start + 0.35);
-        await new Promise((r) => setTimeout(r, 110));
-      }
+      const AudioCtor = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtor) return;
+      if (!studioAudioCtx) studioAudioCtx = new AudioCtor();
+      if (studioAudioCtx.state === "suspended") void studioAudioCtx.resume();
+      const now = studioAudioCtx.currentTime;
+      const osc = studioAudioCtx.createOscillator();
+      const env = studioAudioCtx.createGain();
+      osc.type = mode === "error" ? "sawtooth" : "triangle";
+      const startHz = mode === "error" ? 240 : mode === "info" ? 480 : 587.33;
+      const endHz = mode === "error" ? 180 : mode === "info" ? 640 : 880;
+      osc.frequency.setValueAtTime(startHz, now);
+      osc.frequency.exponentialRampToValueAtTime(endHz, now + 0.14);
+      env.gain.setValueAtTime(0.001, now);
+      env.gain.linearRampToValueAtTime(0.11, now + 0.015);
+      env.gain.exponentialRampToValueAtTime(0.0001, now + 0.19);
+      osc.connect(env);
+      env.connect(studioAudioCtx.destination);
+      osc.start(now);
+      osc.stop(now + 0.2);
     } catch {
-      // ignore audio context errors
+      // ignore audio context restrictions
     }
   }
 
   // ==========================================================================
-  // 3. 12 OpenMouse Themes Definition
+  // 3. 8 Chroma Studio Palettes
   // ==========================================================================
   const THEME_LIST = [
-    { slug: "emerald", name: "Emerald (Razer)" },
-    { slug: "matt", name: "Matt" },
-    { slug: "violet", name: "Violet" },
-    { slug: "ice", name: "Ice" },
-    { slug: "ember", name: "Ember" },
-    { slug: "mono", name: "Mono" },
-    { slug: "miku", name: "Miku" },
-    { slug: "catppuccin-mocha", name: "Catppuccin Mocha" },
-    { slug: "catppuccin-macchiato", name: "Catppuccin Macchiato" },
-    { slug: "catppuccin-frappe", name: "Catppuccin Frappé" },
-    { slug: "nier-automata", name: "NieR: Automata" },
-    { slug: "light", name: "Light" },
+    { slug: "venom", name: "Razer Venom" },
+    { slug: "chroma-cyber", name: "Chroma Cyber" },
+    { slug: "stealth", name: "Stealth Carbon" },
+    { slug: "quartz", name: "Quartz Rose" },
+    { slug: "amber", name: "Optical Amber" },
+    { slug: "ultraviolet", name: "Ultraviolet" },
+    { slug: "crimson", name: "Esports Crimson" },
+    { slug: "mercury", name: "Mercury Light" },
   ];
 
   let uiPrefs = {
-    theme: "emerald",
+    theme: "venom",
     reducedMotion: false,
     instantFlash: true,
     soundsEnabled: false,
@@ -338,12 +279,12 @@
       if (data.logItem) prependPacketLog(data.logItem);
       const status = data.parsedRx?.statusName || "OK";
       showToast(`${label} → ${status}`);
-      void playChime("success");
+      void playUiTone("success");
       updateProfileKeyBox();
       return data;
     } catch (err) {
       showToast(`Error: ${err.message}`, false);
-      void playChime("error");
+      void playUiTone("error");
     }
   }
 
@@ -364,15 +305,16 @@
   // ==========================================================================
   // 6. Theme & Preferences Management
   // ==========================================================================
-  function applyThemeAndPrefs(reSweep = false) {
-    document.documentElement.setAttribute("data-interface-theme", uiPrefs.theme || "emerald");
-    const shell = document.getElementById("omShell");
+  function applyThemeAndPrefs(rePulse = false) {
+    const activeTheme = uiPrefs.theme || "venom";
+    document.documentElement.setAttribute("data-ws-theme", activeTheme);
+    const shell = document.getElementById("wsShell");
     if (shell) {
-      shell.setAttribute("data-interface-theme", uiPrefs.theme || "emerald");
+      shell.setAttribute("data-ws-theme", activeTheme);
       shell.classList.toggle("reduce-interface-motion", !!uiPrefs.reducedMotion);
       shell.classList.toggle("sidebar-collapsed", !!uiPrefs.sidebarCollapsed);
     }
-    const sidebar = document.getElementById("omSidebar");
+    const sidebar = document.getElementById("wsSidebar");
     if (sidebar) sidebar.classList.toggle("is-collapsed", !!uiPrefs.sidebarCollapsed);
 
     const chkInstant = document.getElementById("chkInstantFlash");
@@ -387,11 +329,11 @@
     if (chkMotion) chkMotion.checked = !!uiPrefs.reducedMotion;
     syncSwitchTile("tileReducedMotion", !!uiPrefs.reducedMotion);
 
-    document.querySelectorAll(".om-theme-tile").forEach((btn) => {
-      btn.classList.toggle("is-active", btn.dataset.interfaceTheme === uiPrefs.theme);
+    document.querySelectorAll(".ws-theme-tile").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.wsTheme === activeTheme);
     });
 
-    if (reSweep) renderAsciiField(true);
+    if (rePulse) renderChromaBackdrop(true);
   }
 
   async function savePreferences(patch) {
@@ -413,27 +355,27 @@
     if (!grid) return;
     grid.innerHTML = THEME_LIST.map(
       (t) => `
-      <button type="button" class="om-theme-tile ${uiPrefs.theme === t.slug ? "is-active" : ""}" data-interface-theme="${t.slug}">
-        <span class="om-theme-preview" aria-hidden="true">
-          <span class="om-theme-preview-side"></span>
-          <span class="om-theme-preview-main">
-            <span class="om-theme-preview-line is-title"></span>
-            <span class="om-theme-preview-line"></span>
-            <span class="om-theme-preview-sheet">
-              <span class="om-theme-preview-accent"></span>
-              <span class="om-theme-preview-line" style="width:48%"></span>
+      <button type="button" class="ws-theme-tile ${uiPrefs.theme === t.slug ? "is-active" : ""}" data-ws-theme="${t.slug}">
+        <span class="ws-theme-preview" aria-hidden="true">
+          <span class="ws-theme-preview-side"></span>
+          <span class="ws-theme-preview-main">
+            <span class="ws-theme-preview-line is-title"></span>
+            <span class="ws-theme-preview-line"></span>
+            <span class="ws-theme-preview-sheet">
+              <span class="ws-theme-preview-accent"></span>
+              <span class="ws-theme-preview-line" style="width:48%"></span>
             </span>
           </span>
         </span>
-        <span class="om-theme-name">${t.name}</span>
+        <span class="ws-theme-name">${t.name}</span>
       </button>
     `
     ).join("");
 
-    grid.querySelectorAll(".om-theme-tile").forEach((tile) => {
+    grid.querySelectorAll(".ws-theme-tile").forEach((tile) => {
       tile.addEventListener("click", () => {
-        savePreferences({ theme: tile.dataset.interfaceTheme });
-        showToast(`Theme switched to ${tile.querySelector(".om-theme-name").textContent}`);
+        savePreferences({ theme: tile.dataset.wsTheme });
+        showToast(`Theme switched to ${tile.querySelector(".ws-theme-name").textContent}`);
       });
     });
   }
@@ -502,17 +444,17 @@
 
       chipsLabel.textContent = "Active features";
       chipsList.innerHTML = [
-        `<span class="om-chip ${slot.rtEnabled ? "is-on" : ""}">Rapid Trigger ${slot.rtEnabled ? "On" : "Off"}</span>`,
-        `<span class="om-chip ${slot.snapTapEnabled ? "is-on" : ""}">Snap Tap (${slot.snapKeyA || "A"}+${slot.snapKeyB || "D"})</span>`,
-        `<span class="om-chip ${slot.gamingMode?.enabled ? "is-on" : ""}">Gaming Mode ${slot.gamingMode?.enabled ? "On" : "Off"}</span>`,
-        `<span class="om-chip is-on">Chroma: ${(slot.lighting?.effect || "static").toUpperCase()}</span>`,
+        `<span class="ws-chip ${slot.rtEnabled ? "is-on" : ""}">Rapid Trigger ${slot.rtEnabled ? "On" : "Off"}</span>`,
+        `<span class="ws-chip ${slot.snapTapEnabled ? "is-on" : ""}">Snap Tap (${slot.snapKeyA || "A"}+${slot.snapKeyB || "D"})</span>`,
+        `<span class="ws-chip ${slot.gamingMode?.enabled ? "is-on" : ""}">Gaming Mode ${slot.gamingMode?.enabled ? "On" : "Off"}</span>`,
+        `<span class="ws-chip is-on">Chroma: ${(slot.lighting?.effect || "static").toUpperCase()}</span>`,
       ].join("");
 
       // Render analog switch response curve in sparkline
       document.getElementById("sparkPanelTitle").textContent = "Analog switch actuation curve";
       document.getElementById("sparkPanelMeta").textContent = `Trigger at ${Number(slot.actuationMm ?? 1.2).toFixed(1)} mm · RT ${slot.rtEnabled ? "Active" : "Off"}`;
       document.getElementById("sparkAxisStart").textContent = "0.1 mm top of keystroke";
-      document.getElementById("sparkAxisEnd").textContent = "4.0 mm bottom-out";
+      document.getElementById("sparkAxisEnd").textContent = "4.0 mm bottws-out";
       const actRatio = Math.min(1, Math.max(0.05, (slot.actuationMm ?? 1.2) / 4.0));
       const xTrig = Math.round(actRatio * 600);
       const yTrig = Math.round(80 - actRatio * 62);
@@ -548,7 +490,7 @@
       chipsList.innerHTML = stages
         .map(
           (st, i) =>
-            `<button type="button" class="om-chip ${i === activeIdx ? "is-on" : ""}" data-quick-dpi-stage="${i + 1}">${st.x.toLocaleString()} DPI</button>`
+            `<button type="button" class="ws-chip ${i === activeIdx ? "is-on" : ""}" data-quick-dpi-stage="${i + 1}">${st.x.toLocaleString()} DPI</button>`
         )
         .join("");
 
@@ -602,15 +544,15 @@
       const slotNum = devProf?.activeSlot || 1;
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = `om-side-device ${active ? "is-active" : ""}`;
+      btn.className = `ws-side-device ${active ? "is-active" : ""}`;
       btn.innerHTML = `
-        <span class="om-side-device-art">
+        <span class="ws-side-device-art">
           <span>${isKbd ? "⌨️" : "🖱️"}</span>
-          <span class="om-side-device-live"></span>
+          <span class="ws-side-device-live"></span>
         </span>
-        <span class="om-side-device-text">
-          <span class="om-side-device-name">${isKbd ? "Huntsman V3 Pro TKL" : "Viper V3 Pro"}</span>
-          <span class="om-side-device-sub">
+        <span class="ws-side-device-text">
+          <span class="ws-side-device-name">${isKbd ? "Huntsman V3 Pro TKL" : "Viper V3 Pro"}</span>
+          <span class="ws-side-device-sub">
             <span>Slot S${slotNum}</span>
             <span>·</span>
             <span>${isKbd ? "Optical" : "8K Wireless"}</span>
@@ -644,12 +586,12 @@
         const slotNum = devProf?.activeSlot || 1;
         const slot = devProf?.slots?.[slotNum] || {};
         return `
-        <article class="om-device-block">
+        <article class="ws-device-block">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
             <strong style="font-size:16px;font-weight:650;">${dev.productName}</strong>
-            <span class="om-badge is-ok"><span class="om-dot is-ok"></span>Connected</span>
+            <span class="ws-badge is-ok"><span class="ws-dot is-ok"></span>Connected</span>
           </div>
-          <span class="om-meta">Razer · ${isKbd ? "Analog Optical Keyboard" : "HyperPolling Wireless Mouse"} · PID 0x${Number(dev.productId).toString(16).toUpperCase().padStart(4, "0")}</span>
+          <span class="ws-meta">Razer · ${isKbd ? "Analog Optical Keyboard" : "HyperPolling Wireless Mouse"} · PID 0x${Number(dev.productId).toString(16).toUpperCase().padStart(4, "0")}</span>
           <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums;">
             <span><b>Slot S${slotNum}</b> (${slot.name || "Default"})</span>
             <span>·</span>
@@ -657,10 +599,10 @@
             <span>·</span>
             <span><b>${isKbd ? `${Number(slot.actuationMm ?? 1.2).toFixed(1)} mm` : `${slot.dpiStages?.[(slot.activeStageIndex || 3) - 1]?.x || 1600} DPI`}</b></span>
           </div>
-          <div class="om-device-block-art">
+          <div class="ws-device-block-art">
             <div style="font-size:56px;">${isKbd ? "⌨️" : "🖱️"}</div>
           </div>
-          <button type="button" class="om-btn is-primary" data-shelf-open-pid="${dev.productId}" style="width:100%;">
+          <button type="button" class="ws-btn is-primary" data-shelf-open-pid="${dev.productId}" style="width:100%;">
             Configure ${isKbd ? "Huntsman V3 Pro TKL" : "Viper V3 Pro"}
           </button>
         </article>
@@ -745,7 +687,7 @@
       updateProfileKeyBox();
       const sData = getActiveSlotData();
       showToast(`Switched to Onboard Slot ${slotId} (${sData.name})`);
-      void playChime("info");
+      void playUiTone("info");
     } catch (err) {
       showToast(`Slot switch error: ${err.message}`, false);
     }
@@ -1127,7 +1069,7 @@
   }
 
   // ==========================================================================
-  // 12. OpenMouse 5-Stage DPI Table Editor (with X/Y Link/Unlink per stage)
+  // 12. 5-Stage DPI Table Editor (with X/Y Link/Unlink per stage)
   // ==========================================================================
   function renderDpiStagesEditor() {
     const container = document.getElementById("dpiStagesContainer");
@@ -1260,7 +1202,7 @@
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
           <div>
             <strong style="font-size:13px;">${btnMeta.name}</strong>
-            <div class="om-meta">Layer: ${mouseActiveLayer === "hypershift" ? "⚡ Hypershift" : "Standard"}</div>
+            <div class="ws-meta">Layer: ${mouseActiveLayer === "hypershift" ? "⚡ Hypershift" : "Standard"}</div>
           </div>
           <select class="mouse-btn-sel" data-btn-id="${btnMeta.id}">
             ${MOUSE_FUNCTIONS.map((fn) => `<option value="${fn}" ${fn === curr ? "selected" : ""}>${fn}</option>`).join("")}
@@ -1286,43 +1228,44 @@
   }
 
   // ==========================================================================
-  // 13. OpenMouse Hardware Test Suite & Live Pointer Polling Rate Analyzer
-  //     (Ported from openmouse-ref/src/features/hardware-test/polling-stats.ts)
+  // 13. Hardware Diagnostic Suite & Live USB Pointer Rate Analyzer
   // ==========================================================================
-  function computePollingStats(intervals, durationMs) {
-    const filtered = intervals.filter((ms) => ms > 0.05 && ms <= 1000);
-    if (filtered.length < 2) {
+  function analyzePointerRates(deltasMs, windowMs) {
+    const valid = deltasMs.filter((dt) => dt > 0.04 && dt <= 500);
+    const count = valid.length;
+    if (count < 3) {
       return { avgHz: 0, peakHz: 0, low5Hz: 0, jitter: 0, stability: 0, dropouts: 0, events: 0 };
     }
-    const sortedInts = [...filtered].sort((a, b) => a - b);
-    const medianInterval = sortedInts[Math.floor(sortedInts.length / 2)] || 1;
-    const hzValues = filtered.map((ms) => 1000 / ms).filter((h) => h > 0 && h < 20000);
-    const sorted = [...hzValues].sort((a, b) => a - b);
-    const sumMs = filtered.reduce((s, v) => s + v, 0);
-    const avg = (filtered.length * 1000) / sumMs;
-    const medianHz = 1000 / medianInterval;
-    const minValidInterval = medianInterval * 0.9;
-    const peak =
-      Math.min(
-        filtered.reduce((mx, ms) => (ms >= minValidInterval ? Math.max(mx, 1000 / ms) : mx), 0),
-        medianHz
-      ) || medianHz;
-    const low5Idx = Math.max(0, Math.floor(sorted.length * 0.05));
-    const low5 = sorted[low5Idx] || 0;
-    const tolerance = medianInterval * 0.5;
-    const inBand = filtered.filter((ms) => ms >= medianInterval - tolerance && ms <= medianInterval + tolerance).length;
-    const stability = (inBand / filtered.length) * 100;
-    const jitter = Math.round(Math.max(0, 100 - stability) * 10) / 10;
-    const dropouts = filtered.filter((ms) => ms > medianInterval * 2.5).length;
+    let totalMs = 0;
+    for (let i = 0; i < count; i++) totalMs += valid[i];
+    const meanDt = totalMs / count;
+    const meanHz = 1000 / meanDt;
+
+    let varianceAcc = 0;
+    let gapCount = 0;
+    const gapThreshold = meanDt * 2.4;
+    for (let i = 0; i < count; i++) {
+      const diff = valid[i] - meanDt;
+      varianceAcc += diff * diff;
+      if (valid[i] > gapThreshold) gapCount++;
+    }
+    const stdDevDt = Math.sqrt(varianceAcc / count);
+    const cvRatio = Math.min(1, stdDevDt / Math.max(0.05, meanDt));
+    const consistency = Math.max(0, Math.min(100, (1 - cvRatio * 0.65) * 100));
+
+    const orderedRates = valid.map((dt) => 1000 / dt).sort((a, b) => a - b);
+    const p05Rate = orderedRates[Math.max(0, Math.floor(count * 0.05))] || 0;
+    const p95Rate = orderedRates[Math.min(count - 1, Math.floor(count * 0.95))] || meanHz;
+
     return {
-      avgHz: Math.round(avg),
-      peakHz: Math.round(peak),
-      low5Hz: Math.round(low5),
-      jitter,
-      stability: Math.round(stability * 10) / 10,
-      dropouts,
-      events: hzValues.length,
-      durationSec: durationMs / 1000,
+      avgHz: Math.round(meanHz),
+      peakHz: Math.round(Math.min(p95Rate, meanHz * 1.15)),
+      low5Hz: Math.round(p05Rate),
+      jitter: Number((100 - consistency).toFixed(1)),
+      stability: Number(consistency.toFixed(1)),
+      dropouts: gapCount,
+      events: count,
+      durationSec: Number((windowMs / 1000).toFixed(2)),
     };
   }
 
@@ -1354,7 +1297,7 @@
       const elapsed = performance.now() - start;
       if (progressBar) progressBar.style.width = `${Math.min(100, (elapsed / durationMs) * 100).toFixed(1)}%`;
       if (intervals.length >= 4) {
-        const live = computePollingStats(intervals, elapsed);
+        const live = analyzePointerRates(intervals, elapsed);
         document.getElementById("testAvgHz").textContent = live.avgHz.toLocaleString();
         document.getElementById("testEventsCount").textContent = `${live.events.toLocaleString()} coalesced events`;
         document.getElementById("testPeakLowHz").textContent = `${live.peakHz} / ${live.low5Hz} Hz`;
@@ -1367,7 +1310,7 @@
 
     window.removeEventListener("pointermove", onMove);
     if (progressBar) progressBar.style.width = "100%";
-    return computePollingStats(intervals, durationMs);
+    return analyzePointerRates(intervals, durationMs);
   }
 
   async function runFullHardwareTestSuite() {
@@ -1380,7 +1323,7 @@
     btn.disabled = true;
     dlBtn.disabled = true;
     badge.textContent = "Running…";
-    badge.className = "om-badge is-accent";
+    badge.className = "ws-badge is-accent";
     listEl.innerHTML = "";
 
     const renderStageRow = (idx, label, detail, state) => `
@@ -1388,7 +1331,7 @@
         <span style="font-weight:700;color:var(--text-3);">${idx}</span>
         <div>
           <div style="font-weight:600;">${label}</div>
-          <div class="om-meta">${detail || ""}</div>
+          <div class="ws-meta">${detail || ""}</div>
         </div>
         <span class="hw-stage-badge">${state.toUpperCase()}</span>
       </div>
@@ -1429,11 +1372,11 @@
 
       const allPassed = stages.every((s) => s.status === "pass" || s.status === "skip");
       badge.textContent = allPassed ? "Verified Pass" : "Check Failed";
-      badge.className = `om-badge ${allPassed ? "is-ok" : "is-warn"}`;
+      badge.className = `ws-badge ${allPassed ? "is-ok" : "is-warn"}`;
 
       lastTestReport = {
         runAt: new Date().toISOString(),
-        driver: "Razer Web Hub v3.0 (OpenMouse Instrument Edition)",
+        driver: "Razer Web Hub v3.0 (Chroma Studio Edition)",
         productId: selectedPid,
         deviceName: hwData.deviceName,
         firmware: hwData.firmware,
@@ -1441,7 +1384,7 @@
         stages,
       };
       dlBtn.disabled = false;
-      void playChime("success");
+      void playUiTone("success");
     } catch (e) {
       badge.textContent = "Error";
       showToast(`Hardware test error: ${e.message}`, false);
@@ -1761,7 +1704,7 @@
     // Chroma Lighting
     const sendChroma = (effect, hexColor) => {
       const slot = getActiveSlotData();
-      if (!slot.lighting) slot.lighting = { effect: "static", color1: "#00e676", brightness: 100 };
+      if (!slot.lighting) slot.lighting = { effect: "static", color1: "#00e676", brightness: 100, speed: 2, waveDirection: 1 };
       slot.lighting.effect = effect;
       slot.lighting.color1 = hexColor;
       if (slot.lighting.brightness === undefined) slot.lighting.brightness = Number(document.getElementById("rngBrightness")?.value ?? 100);
@@ -1772,9 +1715,35 @@
         r: (num >> 16) & 0xff,
         g: (num >> 8) & 0xff,
         b: num & 0xff,
+        speed: slot.lighting.speed || 2,
+        direction: slot.lighting.waveDirection || 1,
       });
       sendPacket90(pkt, `Chroma (${effect})`, { lighting: slot.lighting });
     };
+
+    document.querySelectorAll("#chromaDirGroup [data-chroma-dir]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#chromaDirGroup [data-chroma-dir]").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        const slot = getActiveSlotData();
+        if (!slot.lighting) slot.lighting = {};
+        slot.lighting.waveDirection = Number(btn.dataset.chromaDir) || 1;
+        const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || slot.lighting.effect || "wave";
+        sendChroma(activeEff, document.getElementById("inpChromaColor")?.value || slot.lighting.color1 || "#00e676");
+      });
+    });
+
+    document.querySelectorAll("#chromaSpeedGroup [data-chroma-speed]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#chromaSpeedGroup [data-chroma-speed]").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        const slot = getActiveSlotData();
+        if (!slot.lighting) slot.lighting = {};
+        slot.lighting.speed = Number(btn.dataset.chromaSpeed) || 2;
+        const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || slot.lighting.effect || "static";
+        sendChroma(activeEff, document.getElementById("inpChromaColor")?.value || slot.lighting.color1 || "#00e676");
+      });
+    });
 
     document.querySelectorAll("#effectGrid .preset-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -1882,7 +1851,7 @@
       });
     });
 
-    // Mouse Smart Tracking & Asymmetric Cut-off (with OpenMouse landing < liftOff ceiling clamp!)
+    // Mouse Smart Tracking & Asymmetric Cut-off (landing bounded below lift-off)
     const commitSmartTracking = () => {
       const slot = getActiveSlotData();
       const asym = document.getElementById("chkAsymLod").checked;
@@ -2018,7 +1987,7 @@
       const data = await res.json();
       if (data.state) driverState = data.state;
       showToast(`Flashed configuration to Onboard Slot S${slotId}`);
-      void playChime("success");
+      void playUiTone("success");
     });
 
     document.getElementById("btnResetSlot")?.addEventListener("click", async () => {
@@ -2111,7 +2080,7 @@
     });
     document.getElementById("chkUiSounds")?.addEventListener("change", (ev) => {
       savePreferences({ soundsEnabled: ev.target.checked });
-      if (ev.target.checked) void playChime("success");
+      if (ev.target.checked) void playUiTone("success");
     });
     document.getElementById("chkReducedMotion")?.addEventListener("change", (ev) => {
       savePreferences({ reducedMotion: ev.target.checked });
@@ -2143,7 +2112,7 @@
         updateProfileKeyBox();
         document.getElementById("txtProfileKeyImport").value = "";
         showToast(`Imported & flashed profile key to Slot S${slotId}`);
-        void playChime("success");
+        void playUiTone("success");
       } catch (e) {
         showToast(`Invalid profile key: ${e.message}`, false);
       }
@@ -2184,14 +2153,14 @@
       document.getElementById("packetCountBadge").textContent = "0";
     });
 
-    window.addEventListener("resize", () => renderAsciiField(false));
+    window.addEventListener("resize", () => renderChromaBackdrop(false));
   }
 
   // ==========================================================================
   // 16. Bootstrap
   // ==========================================================================
   async function init() {
-    renderAsciiField(true);
+    renderChromaBackdrop(true);
     bindEvents();
 
     try {

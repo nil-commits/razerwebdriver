@@ -193,48 +193,73 @@ function selectControlInterfaces(allHidForPid, productId, preferredInterface) {
   const meta = Protocol25.KNOWN_DEVICES[Number(productId)] || {};
   const targetIf = meta.interface !== undefined ? meta.interface : Number(preferredInterface);
 
-  return [...allHidForPid].sort((a, b) => {
-    const score = (d) => {
-      let s = 0;
-      if (meta.usagePage && d.usagePage === meta.usagePage && d.usage === meta.usage) s += 100;
-      if (d.interface === targetIf) s += 50;
-      if (d.usagePage === 12 && d.usage === 1) s += 20;
-      if (d.usagePage === 1 && d.usage === 2) s += 15;
-      if (d.path && d.path.endsWith("\\kbd")) s -= 40;
-      return s;
-    };
-    return score(b) - score(a);
-  });
+  return [...allHidForPid]
+    .filter((d) => d.usagePage !== 0x0059) // Exclude Windows Dynamic Lighting LampArray (0x0059)
+    .sort((a, b) => {
+      const score = (d) => {
+        let s = 0;
+        if (meta.usagePage && d.usagePage === meta.usagePage && d.usage === meta.usage) s += 140;
+        if (d.interface === targetIf) s += 120;
+        if (d.usagePage === 12 && d.usage === 1) s += 30;
+        if (d.usagePage === 1 && d.usage === 2) s += 25;
+        if (d.path && /&col/i.test(d.path)) s -= 80;
+        if (d.path && d.path.endsWith("\\kbd")) s -= 80;
+        return s;
+      };
+      return score(b) - score(a);
+    });
 }
 
 const hidHandleCache = new Map(); // pid -> { handle, info }
 const hidMutexByPid = new Map(); // pid -> Promise
 
-function getOrOpenHidEntry(productId, interfaceNum = 3) {
+function getHidCandidates(productId, interfaceNum = 3) {
   const pidKey = Number(productId) || 679;
-  const cached = hidHandleCache.get(pidKey);
-  if (cached && cached.handle) {
-    return cached;
-  }
   const allHid = (nodeHid.devices() || []).filter(
     (d) => d.vendorId === Protocol25.RAZER_VENDOR_ID && (!productId || d.productId === pidKey)
   );
   if (allHid.length === 0) {
     throw new Error(`No live Razer HID interface found for PID ${pidKey}`);
   }
-  const candidates = selectControlInterfaces(allHid, pidKey, interfaceNum);
-  let lastError = null;
-  for (const targetInfo of candidates) {
-    try {
-      const handle = new nodeHid.HID(targetInfo.path);
-      const entry = { handle, info: targetInfo };
-      hidHandleCache.set(pidKey, entry);
-      return entry;
-    } catch (err) {
-      lastError = err;
-    }
+  return selectControlInterfaces(allHid, pidKey, interfaceNum);
+}
+
+async function executeHidFeatureTransfer(handle, report91, reportId) {
+  if (typeof handle.sendFeatureReportSync === "function") {
+    handle.sendFeatureReportSync(report91);
+  } else {
+    await handle.sendFeatureReport(report91);
   }
-  throw lastError || new Error(`Unable to open HID handle for PID ${pidKey}`);
+  await new Promise((r) => setTimeout(r, 10));
+  let rawRx =
+    typeof handle.getFeatureReportSync === "function"
+      ? handle.getFeatureReportSync(reportId, 91)
+      : await handle.getFeatureReport(reportId, 91);
+
+  let rxArr = Array.from(rawRx || []);
+  let parsedRx = Protocol25.parsePacket(rxArr);
+
+  // If the MCU is still writing to onboard flash (0x01 BUSY),
+  // poll getFeatureReport (without re-sending sendFeatureReport) until it finishes.
+  for (let poll = 0; poll < 8 && (parsedRx.status === 0x01 || parsedRx.status === 0x00); poll++) {
+    await new Promise((r) => setTimeout(r, 20));
+    if (parsedRx.status === 0x00) {
+      if (typeof handle.sendFeatureReportSync === "function") {
+        handle.sendFeatureReportSync(report91);
+      } else {
+        await handle.sendFeatureReport(report91);
+      }
+      await new Promise((r) => setTimeout(r, 15));
+    }
+    rawRx =
+      typeof handle.getFeatureReportSync === "function"
+        ? handle.getFeatureReportSync(reportId, 91)
+        : await handle.getFeatureReport(reportId, 91);
+    rxArr = Array.from(rawRx || []);
+    parsedRx = Protocol25.parsePacket(rxArr);
+  }
+
+  return { rxArr, parsedRx };
 }
 
 async function sendProtocol25Command({ productId, interfaceNum = 3, reportId = 0, packet90 }) {
@@ -283,44 +308,49 @@ async function sendProtocol25Command({ productId, interfaceNum = 3, reportId = 0
       };
     }
 
-    for (let retry = 0; retry < 2; retry++) {
-      let entry = null;
+    // 1. Try cached verified handle first if present
+    const cached = hidHandleCache.get(pidKey);
+    if (cached && cached.handle) {
       try {
-        entry = getOrOpenHidEntry(pidKey, interfaceNum);
-        const { handle, info: targetInfo } = entry;
-        if (typeof handle.sendFeatureReportSync === "function") {
-          handle.sendFeatureReportSync(report91);
-        } else {
-          await handle.sendFeatureReport(report91);
+        const { rxArr, parsedRx } = await executeHidFeatureTransfer(cached.handle, report91, reportId);
+        const logItem = recordPacketLog({
+          mode: "native-hid",
+          productId: cached.info.productId,
+          interfaceNum: cached.info.interface,
+          path: cached.info.path,
+          reportId,
+          txHex: toHex(report91),
+          rxHex: toHex(rxArr),
+          parsedTx: parsedReq,
+          parsedRx,
+        });
+        return {
+          ok: true,
+          mode: "native-hid",
+          tx: report91,
+          rx: rxArr,
+          parsedRx,
+          logItem,
+        };
+      } catch {
+        try {
+          cached.handle.close();
+        } catch {
+          // ignore
         }
-        await new Promise((r) => setTimeout(r, 10));
-        let rawRx =
-          typeof handle.getFeatureReportSync === "function"
-            ? handle.getFeatureReportSync(reportId, 91)
-            : await handle.getFeatureReport(reportId, 91);
+        hidHandleCache.delete(pidKey);
+      }
+    }
 
-        let rxArr = Array.from(rawRx || []);
-        let parsedRx = Protocol25.parsePacket(rxArr);
-
-        // If the MCU is still writing to onboard flash (0x01 BUSY),
-        // poll getFeatureReport (without re-sending sendFeatureReport) until it finishes.
-        for (let poll = 0; poll < 8 && (parsedRx.status === 0x01 || parsedRx.status === 0x00); poll++) {
-          await new Promise((r) => setTimeout(r, 20));
-          if (parsedRx.status === 0x00) {
-            if (typeof handle.sendFeatureReportSync === "function") {
-              handle.sendFeatureReportSync(report91);
-            } else {
-              await handle.sendFeatureReport(report91);
-            }
-            await new Promise((r) => setTimeout(r, 15));
-          }
-          rawRx =
-            typeof handle.getFeatureReportSync === "function"
-              ? handle.getFeatureReportSync(reportId, 91)
-              : await handle.getFeatureReport(reportId, 91);
-          rxArr = Array.from(rawRx || []);
-          parsedRx = Protocol25.parsePacket(rxArr);
-        }
+    // 2. Iterate through all ranked candidate HID collections and cache the first one that accepts the 91-byte Feature Report
+    const candidates = getHidCandidates(pidKey, interfaceNum);
+    let lastError = null;
+    for (const targetInfo of candidates) {
+      let handle = null;
+      try {
+        handle = new nodeHid.HID(targetInfo.path);
+        const { rxArr, parsedRx } = await executeHidFeatureTransfer(handle, report91, reportId);
+        hidHandleCache.set(pidKey, { handle, info: targetInfo });
 
         const logItem = recordPacketLog({
           mode: "native-hid",
@@ -343,17 +373,17 @@ async function sendProtocol25Command({ productId, interfaceNum = 3, reportId = 0
           logItem,
         };
       } catch (err) {
-        if (entry?.handle) {
+        lastError = err;
+        if (handle) {
           try {
-            entry.handle.close();
+            handle.close();
           } catch {
             // ignore
           }
         }
-        hidHandleCache.delete(pidKey);
-        if (retry === 1) throw err;
       }
     }
+    throw lastError || new Error(`All HID interfaces rejected feature report for PID ${pidKey}`);
   } finally {
     releaseLock();
   }
@@ -478,7 +508,7 @@ function buildDefaultState() {
     deviceMode: "normal",
     mappingHooksEnabled: true,
     preferences: {
-      theme: "emerald",
+      theme: "venom",
       reducedMotion: false,
       instantFlash: true,
       soundsEnabled: false,
@@ -559,10 +589,18 @@ function readJsonBody(req) {
   });
 }
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Private-Network": "true",
+};
+
 function sendJson(res, statusCode, data) {
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
+    ...CORS_HEADERS,
   });
   res.end(JSON.stringify(data));
 }
@@ -605,7 +643,21 @@ async function handleApiElectronRpc(method, arg) {
   }
 }
 
+const ALL_TKL_ANALOG_KEY_IDS = [
+  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+  16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+  31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
+  46, 47, 48, 49, 50, 51, 52, 53, 55, 57, 58, 59, 60, 61, 62,
+  64, 75, 76, 79, 80, 81, 83, 84, 85, 86, 89, 110, 112, 113, 114,
+  115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126,
+];
+
 const server = http.createServer(async (req, res) => {
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, CORS_HEADERS);
+    return res.end();
+  }
+
   const url = new URL(req.url, `http://${req.headers.host || `${HOST}:${PORT}`}`);
   const pathname = url.pathname;
 
@@ -626,7 +678,8 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/api/profile-slot" && req.method === "POST") {
       const body = await readJsonBody(req);
       const pid = Number(body.productId || driverState.selectedPid || 679);
-      const isMouse = pid === 193 || pid === 192;
+      const meta = Protocol25.KNOWN_DEVICES[pid] || {};
+      const isMouse = meta.category === "mouse" || pid === 193 || pid === 192;
 
       if (!driverState.profilesByPid[pid]) {
         const slots = {};
@@ -816,22 +869,43 @@ const server = http.createServer(async (req, res) => {
           reportId: body.reportId ?? 0,
           packet90: altPkt,
         }).catch(() => null);
-      } else if (norm90[6] === 0x02 && norm90[7] === 0x19 && driverState.profilesByPid[pid]) {
-        // When setAnalogActuation (0x02 / 0x19) is sent, also sync Multi Rapid Trigger (0x02 / 0x1A)
-        // and Continuous Rapid Trigger (0x02 / 0x20) from the active slot.
+      } else if (norm90[6] === 0x02 && norm90[7] === 0x19 && body.slotPatch && !body.autoChunked && driverState.profilesByPid[pid]) {
+        // When setAnalogActuation (0x02 / 0x19) is sent with slotPatch, also sync remaining 87-key chunks,
+        // Multi Rapid Trigger (0x02 / 0x1A), and Continuous Rapid Trigger (0x02 / 0x20) from the active slot.
         const activeSlot = driverState.profilesByPid[pid].activeSlot || 1;
         const slotObj = driverState.profilesByPid[pid].slots[activeSlot] || {};
-        await sendProtocol25Command({
-          productId: pid,
-          interfaceNum: body.interfaceNum ?? 3,
-          reportId: body.reportId ?? 0,
-          packet90: Protocol25.Builders.setAnalogRapidTrigger({
-            slotId: activeSlot,
-            rtEnabled: !!slotObj.rtEnabled,
-            rtDownMm: slotObj.rtDownMm ?? 0.3,
-            rtUpMm: slotObj.rtUpMm ?? 0.3,
-          }),
-        }).catch(() => null);
+        const actMm = slotObj.actuationMm ?? 1.2;
+        const rtEnabled = !!slotObj.rtEnabled;
+        const rtDownMm = slotObj.rtDownMm ?? 0.3;
+        const rtUpMm = slotObj.rtUpMm ?? 0.3;
+        for (let i = 15; i < ALL_TKL_ANALOG_KEY_IDS.length; i += 15) {
+          const chunk = ALL_TKL_ANALOG_KEY_IDS.slice(i, i + 15);
+          await sendProtocol25Command({
+            productId: pid,
+            interfaceNum: body.interfaceNum ?? 3,
+            reportId: body.reportId ?? 0,
+            packet90: Protocol25.Builders.setAnalogActuation({
+              slotId: activeSlot,
+              actuationMm: actMm,
+              keyIds: chunk,
+            }),
+          }).catch(() => null);
+        }
+        for (let i = 0; i < ALL_TKL_ANALOG_KEY_IDS.length; i += 13) {
+          const chunk = ALL_TKL_ANALOG_KEY_IDS.slice(i, i + 13);
+          await sendProtocol25Command({
+            productId: pid,
+            interfaceNum: body.interfaceNum ?? 3,
+            reportId: body.reportId ?? 0,
+            packet90: Protocol25.Builders.setAnalogRapidTrigger({
+              slotId: activeSlot,
+              rtEnabled,
+              rtDownMm,
+              rtUpMm,
+              keyIds: chunk,
+            }),
+          }).catch(() => null);
+        }
         await sendProtocol25Command({
           productId: pid,
           interfaceNum: body.interfaceNum ?? 3,
