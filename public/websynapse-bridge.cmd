@@ -79,6 +79,18 @@ public static class RazerBridgeNative
     [DllImport("user32.dll")]
     private static extern uint MapVirtualKeyW(uint uCode, uint uMapType);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr OpenInputDesktop(uint dwFlags, bool fInherit, uint dwDesiredAccess);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr OpenDesktopW(string lpszDesktop, uint dwFlags, bool fInherit, uint dwDesiredAccess);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetThreadDesktop(IntPtr hDesktop);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool CloseDesktop(IntPtr hDesktop);
+
     [DllImport("hid.dll", SetLastError = true)]
     public static extern void HidD_GetHidGuid(out Guid HidGuid);
 
@@ -781,7 +793,7 @@ public static class RazerBridgeNative
     public static string FormatDevicesJson(List<RazerEndpoint> verified)
     {
         var sb = new StringBuilder();
-        sb.Append("{\"ok\":true,\"bridgeVersion\":\"1.4.0\",\"devices\":[");
+        sb.Append("{\"ok\":true,\"bridgeVersion\":\"1.4.1\",\"devices\":[");
         for (int i = 0; i < verified.Count; i++)
         {
             if (i > 0) sb.Append(',');
@@ -900,6 +912,7 @@ public static class RazerBridgeNative
         int[] resolvedVk = new int[n];
         long lastVkMapTicks = 0;
         bool wasIdle = true;
+        IntPtr attachedDesktop = IntPtr.Zero;
 
         while (true)
         {
@@ -914,6 +927,27 @@ public static class RazerBridgeNative
 
             if (wasIdle || (nowTicks - lastVkMapTicks > 25000000L))
             {
+                // Attach poller thread to the interactive user Input Desktop ("Default")
+                // so GetAsyncKeyState & MapVirtualKeyW always see live physical keystrokes
+                // even when the bridge was spawned from a background / non-interactive desktop.
+                IntPtr hd = OpenInputDesktop(0, false, 0x01FF);
+                if (hd == IntPtr.Zero) hd = OpenDesktopW("Default", 0, false, 0x01FF);
+                if (hd != IntPtr.Zero)
+                {
+                    if (SetThreadDesktop(hd))
+                    {
+                        if (attachedDesktop != IntPtr.Zero && attachedDesktop != hd)
+                        {
+                            try { CloseDesktop(attachedDesktop); } catch { }
+                        }
+                        attachedDesktop = hd;
+                    }
+                    else
+                    {
+                        try { CloseDesktop(hd); } catch { }
+                    }
+                }
+
                 for (int i = 0; i < n; i++)
                 {
                     uint sc = KeyPollDefs[i].ScanCode;
@@ -932,17 +966,36 @@ public static class RazerBridgeNative
             {
                 for (int i = 0; i < n; i++)
                 {
-                    prevDown[i] = (GetAsyncKeyState(resolvedVk[i]) & 0x8000) != 0;
+                    prevDown[i] = (GetAsyncKeyState(resolvedVk[i]) & unchecked((short)0x8000)) != 0;
                 }
                 wasIdle = false;
-                Thread.Sleep(8);
+                Thread.Sleep(4);
                 continue;
             }
 
             for (int i = 0; i < n; i++)
             {
-                bool isDown = (GetAsyncKeyState(resolvedVk[i]) & 0x8000) != 0;
-                if (isDown != prevDown[i])
+                short st = GetAsyncKeyState(resolvedVk[i]);
+                bool isDown = (st & unchecked((short)0x8000)) != 0;
+                bool tappedBetweenPolls = !isDown && !prevDown[i] && ((st & 1) != 0);
+                if (tappedBetweenPolls)
+                {
+                    lock (KeyRingLock)
+                    {
+                        long seqDn = NextKeySeq++;
+                        int idxDn = (int)(seqDn & 127);
+                        KeyRing[idxDn].Seq = seqDn;
+                        KeyRing[idxDn].Code = KeyPollDefs[i].Code;
+                        KeyRing[idxDn].Down = true;
+
+                        long seqUp = NextKeySeq++;
+                        int idxUp = (int)(seqUp & 127);
+                        KeyRing[idxUp].Seq = seqUp;
+                        KeyRing[idxUp].Code = KeyPollDefs[i].Code;
+                        KeyRing[idxUp].Down = false;
+                    }
+                }
+                else if (isDown != prevDown[i])
                 {
                     prevDown[i] = isDown;
                     lock (KeyRingLock)
@@ -955,7 +1008,7 @@ public static class RazerBridgeNative
                     }
                 }
             }
-            Thread.Sleep(8);
+            Thread.Sleep(4);
         }
     }
 

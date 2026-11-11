@@ -1021,10 +1021,10 @@
 
   function findLampArrayDevice(pidKey) {
     const numPid = Number(pidKey);
+    const bridgeLamp = getBridgeLampArrayAdapter(numPid);
+    if (bridgeLamp) return bridgeLamp;
     const list = webHidHandlesByPid.get(numPid) || [];
-    const webHidLamp = list.find((d) => deviceHasLampArray(d)) || null;
-    if (webHidLamp) return webHidLamp;
-    return getBridgeLampArrayAdapter(numPid);
+    return list.find((d) => deviceHasLampArray(d)) || null;
   }
 
   function scoreWebHidCollection(dev) {
@@ -1564,6 +1564,65 @@
     window.addEventListener("pageshow", (ev) => {
       if (ev.persisted || isPageUnloading) resumeSoftwareEffect();
     });
+
+    if (typeof window !== "undefined" && window.location?.port === "5426") {
+      document.addEventListener("visibilitychange", () => {
+        if (isPageUnloading) return;
+        const pid = Number(selectedPid || 679);
+        const dp = driverState.profilesByPid?.[pid];
+        const sl = dp?.slots?.[dp.activeSlot || 1];
+        const eff = sl?.lighting?.effect || "static";
+
+        if (document.visibilityState === "hidden") {
+          const prevTimer = lampArrayTimerByPid.get(pid);
+          if (prevTimer) {
+            clearLampInterval(prevTimer);
+            lampArrayTimerByPid.delete(pid);
+          }
+          lampArrayGenByPid.set(pid, (lampArrayGenByPid.get(pid) || 0) + 1);
+          activeLampEffectByPid.delete(pid);
+          reactiveTriggerByPid.delete(pid);
+
+          if (!HARDWARE_NATIVE_CHROMA_EFFECTS.has(eff)) {
+            lampHostControlPids.delete(pid);
+            void fetch("/api/studio-handoff", {
+              method: "POST",
+              keepalive: true,
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                pid,
+                slotId: dp?.activeSlot || 1,
+                lighting: sl?.lighting || null,
+              }),
+            }).catch(() => {});
+          } else {
+            void releaseLampArrayToHardwareAutonomous(pid);
+          }
+        } else if (document.visibilityState === "visible") {
+          void fetch("/api/studio-claim", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pid }),
+          }).catch(() => {});
+          if (findLampArrayDevice(pid)) {
+            void applyLampArrayEffect(pid);
+          }
+        }
+      });
+
+      setInterval(() => {
+        if (isPageUnloading || document.visibilityState !== "visible") return;
+        const pid = Number(selectedPid || 679);
+        const eff = driverState.profilesByPid?.[pid]?.slots?.[driverState.profilesByPid?.[pid]?.activeSlot || 1]?.lighting?.effect || "static";
+        if (!HARDWARE_NATIVE_CHROMA_EFFECTS.has(eff)) {
+          void fetch("/api/studio-claim", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pid }),
+          }).catch(() => {});
+        }
+      }, 2200);
+    }
   }
 
   let globalKeyPollTimer = null;
@@ -1611,11 +1670,14 @@
       );
     }
 
+    lastFocusedWarmupAt = 0;
+
     if (!globalKeyPollTimer) {
       globalKeyPollTimer = setLampInterval(async () => {
         if (isPageUnloading || reactiveTriggerByPid.size === 0) return;
-        const isLocalPort =
-          typeof window !== "undefined" && (window.location?.port === "5426" || window.location?.port === "18925");
+        const port = typeof window !== "undefined" ? window.location?.port : "";
+        if (port === "5426" && typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        const isLocalPort = port === "5426" || port === "18925";
         if (!localBridgeOnline && !isLocalPort) return;
 
         const pageFocused =

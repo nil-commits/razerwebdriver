@@ -1093,6 +1093,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/keyevents" && req.method === "GET") {
+      studioDaemon.noteBrowserActivity(679, 4500);
       if (process.platform === "win32") {
         const bridgeRes = await callNativeBridgeFast("GET", `/keyevents${url.search || ""}`, null, 900);
         return sendJson(res, 200, bridgeRes);
@@ -1415,6 +1416,12 @@ const server = http.createServer(async (req, res) => {
         saveDriverState();
         void studioDaemon.syncFromState();
       }
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (pathname === "/api/studio-claim" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      studioDaemon.noteBrowserActivity(Number(body?.pid || 679), 4500);
       return sendJson(res, 200, { ok: true });
     }
 

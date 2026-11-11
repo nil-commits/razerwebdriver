@@ -211,7 +211,7 @@ function createStudioDaemon({ callNativeBridgeFast, getDriverState, saveDriverSt
   let watchdogTimer = null;
   let renderTimer = null;
   let keyPollTimer = null;
-  let lastBrowserFrameAt = 0;
+  let browserLeaseUntil = 0;
   let activeEffectName = null;
   let activeEffectGen = 0;
   let daemonClaimsHostControl = false;
@@ -281,7 +281,7 @@ function createStudioDaemon({ callNativeBridgeFast, getDriverState, saveDriverSt
     if (keyPollTimer) return;
     let pollBusy = false;
     keyPollTimer = setInterval(async () => {
-      if (pollBusy || !keyHookFn || Date.now() - lastBrowserFrameAt < 1200) return;
+      if (pollBusy || !keyHookFn || Date.now() < browserLeaseUntil) return;
       pollBusy = true;
       try {
         const res = await callNativeBridgeFast("GET", `/keyevents?since=${lastKeySeq}`, null, 700);
@@ -302,7 +302,7 @@ function createStudioDaemon({ callNativeBridgeFast, getDriverState, saveDriverSt
       } finally {
         pollBusy = false;
       }
-    }, 20);
+    }, 16);
     if (typeof keyPollTimer.unref === "function") keyPollTimer.unref();
   }
 
@@ -357,7 +357,7 @@ function createStudioDaemon({ callNativeBridgeFast, getDriverState, saveDriverSt
     };
 
     const sendComputedFrame = async (p, computeRgbFn, minChannelDelta = 2) => {
-      if (activeEffectGen !== gen || Date.now() - lastBrowserFrameAt < 1200) return;
+      if (activeEffectGen !== gen || Date.now() < browserLeaseUntil) return;
       const changed = [];
       for (let idx = 0; idx < layout.sortedIdsByX.length; idx++) {
         const lampId = layout.sortedIdsByX[idx];
@@ -386,7 +386,7 @@ function createStudioDaemon({ callNativeBridgeFast, getDriverState, saveDriverSt
     };
 
     const sendAllColor = async (p, r, g, b, intensity = 255) => {
-      if (activeEffectGen !== gen || Date.now() - lastBrowserFrameAt < 1200) return;
+      if (activeEffectGen !== gen || Date.now() < browserLeaseUntil) return;
       const sr = Math.round(r * p.brScale) & 0xff;
       const sg = Math.round(g * p.brScale) & 0xff;
       const sb = Math.round(b * p.brScale) & 0xff;
@@ -492,7 +492,7 @@ function createStudioDaemon({ callNativeBridgeFast, getDriverState, saveDriverSt
 
     const stepFrame = async () => {
       if (frameBusy || activeEffectGen !== gen) return;
-      if (Date.now() - lastBrowserFrameAt < 1200) {
+      if (Date.now() < browserLeaseUntil) {
         stopRenderLoops();
         daemonClaimsHostControl = false;
         return;
@@ -961,7 +961,7 @@ function createStudioDaemon({ callNativeBridgeFast, getDriverState, saveDriverSt
       return;
     }
 
-    if (Date.now() - lastBrowserFrameAt < 1200) {
+    if (Date.now() < browserLeaseUntil) {
       if (activeEffectName) {
         stopRenderLoops();
         daemonClaimsHostControl = false;
@@ -974,13 +974,17 @@ function createStudioDaemon({ callNativeBridgeFast, getDriverState, saveDriverSt
     }
   }
 
-  function noteBrowserLampFrame(pid) {
-    if (Number(pid) !== targetPid) return;
-    lastBrowserFrameAt = Date.now();
+  function noteBrowserActivity(pid, leaseMs = 4500) {
+    if (pid && Number(pid) !== targetPid) return;
+    browserLeaseUntil = Date.now() + leaseMs;
     if (activeEffectName) {
       stopRenderLoops();
       daemonClaimsHostControl = false;
     }
+  }
+
+  function noteBrowserLampFrame(pid) {
+    noteBrowserActivity(pid, 4500);
   }
 
   function handoffFromBrowser({ pid, slotId, lighting } = {}) {
@@ -1001,7 +1005,7 @@ function createStudioDaemon({ callNativeBridgeFast, getDriverState, saveDriverSt
       }
       if (typeof saveDriverState === "function") saveDriverState();
     }
-    lastBrowserFrameAt = 0;
+    browserLeaseUntil = 0;
     void syncFromState();
   }
 
@@ -1028,6 +1032,7 @@ function createStudioDaemon({ callNativeBridgeFast, getDriverState, saveDriverSt
     start,
     stop,
     syncFromState,
+    noteBrowserActivity,
     noteBrowserLampFrame,
     handoffFromBrowser,
     releaseToAutonomous,
