@@ -16,6 +16,7 @@ const path = require("path");
 const os = require("os");
 const { spawn } = require("child_process");
 const Protocol25 = require("./protocol25");
+const { createStudioDaemon } = require("./studio-daemon");
 
 const HOST = process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || 5426); // 5426 = 0x1532 (Razer Vendor ID)
@@ -252,12 +253,16 @@ function cleanupSpawnedBridge() {
   }
 }
 
+let studioDaemon = null;
+
 process.on("exit", cleanupSpawnedBridge);
-process.on("SIGINT", () => {
+process.on("SIGINT", async () => {
+  if (studioDaemon) await studioDaemon.stop().catch(() => {});
   cleanupSpawnedBridge();
   process.exit(0);
 });
-process.on("SIGTERM", () => {
+process.on("SIGTERM", async () => {
+  if (studioDaemon) await studioDaemon.stop().catch(() => {});
   cleanupSpawnedBridge();
   process.exit(0);
 });
@@ -829,6 +834,13 @@ function saveDriverState() {
   }
 }
 
+studioDaemon = createStudioDaemon({
+  callNativeBridgeFast,
+  getDriverState: () => driverState,
+  saveDriverState,
+  targetPid: 679,
+});
+
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
@@ -1080,6 +1092,14 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (pathname === "/keyevents" && req.method === "GET") {
+      if (process.platform === "win32") {
+        const bridgeRes = await callNativeBridgeFast("GET", `/keyevents${url.search || ""}`, null, 900);
+        return sendJson(res, 200, bridgeRes);
+      }
+      return sendJson(res, 200, { ok: true, seq: 0, events: [] });
+    }
+
     if (pathname === "/lamparray" && req.method === "POST") {
       const body = await readJsonBody(req);
       const pid = Number(body.pid || body.productId || 0);
@@ -1087,6 +1107,7 @@ const server = http.createServer(async (req, res) => {
       if (!pid || reportsB64.length === 0 || reportsB64.length > 64) {
         return sendJson(res, 400, { ok: false, error: "pid and 1..64 reportsB64 entries required" });
       }
+      studioDaemon.noteBrowserLampFrame(pid);
       if (process.platform === "win32") {
         const bridgeRes = await callNativeBridgeFast("POST", "/lamparray", { pid, reportsB64 }, 1800);
         return sendJson(res, 200, bridgeRes);
@@ -1237,6 +1258,7 @@ const server = http.createServer(async (req, res) => {
           }).catch(() => null);
         }
 
+        void studioDaemon.syncFromState();
         return sendJson(res, 200, { ok: true, state: driverState, hw });
       }
 
@@ -1248,6 +1270,7 @@ const server = http.createServer(async (req, res) => {
           slot: slotId,
         };
         saveDriverState();
+        void studioDaemon.syncFromState();
         const pkt90 = Protocol25.Builders.setActiveProfileSlot(slotId);
         const hw = await sendProtocol25Command({ productId: pid, packet90: pkt90 }).catch(() => null);
         return sendJson(res, 200, { ok: true, state: driverState, hw });
@@ -1370,10 +1393,35 @@ const server = http.createServer(async (req, res) => {
         }).catch(() => null);
       }
 
+      void studioDaemon.syncFromState();
       return sendJson(res, 200, {
         ...result,
         state: driverState,
       });
+    }
+
+    if (pathname === "/api/studio-state" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      if (body && typeof body === "object") {
+        if (body.selectedPid) {
+          driverState.selectedPid = Number(body.selectedPid) || driverState.selectedPid;
+        }
+        if (body.profilesByPid && typeof body.profilesByPid === "object") {
+          driverState.profilesByPid = {
+            ...driverState.profilesByPid,
+            ...body.profilesByPid,
+          };
+        }
+        saveDriverState();
+        void studioDaemon.syncFromState();
+      }
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (pathname === "/api/studio-handoff" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      studioDaemon.handoffFromBrowser(body || {});
+      return sendJson(res, 200, { ok: true });
     }
 
     if (pathname === "/api/rpc" && req.method === "POST") {
@@ -1569,6 +1617,7 @@ server.on("connection", (socket) => {
 
 server.listen(PORT, HOST, async () => {
   const bridgeStatus = await ensureNativeBridge();
+  studioDaemon.start();
   const bridgeCount = Array.isArray(bridgeStatus?.devices) ? bridgeStatus.devices.length : 0;
   console.log("================================================================");
   console.log("  websynap.se v3.0 · Local Node.js Chroma Studio Server");

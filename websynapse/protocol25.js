@@ -1159,7 +1159,11 @@
           args = [varStore, ledId, 0x0a, direction & 0xff, hwWavePeriod, 0x00];
           break;
         case "splash":
-          args = [varStore, ledId, 0x04, direction & 0xff, hwWavePeriod, 0x00];
+        case "shockwave":
+          args = [varStore, ledId, 0x06, 0x00, hwWavePeriod, 0x01, r & 0xff, g & 0xff, b & 0xff];
+          break;
+        case "heatmap":
+          args = [varStore, ledId, 0x05, 0x00, hwDurationEnum, 0x01, r & 0xff, g & 0xff, b & 0xff];
           break;
         case "rain":
         case "scanner":
@@ -1172,8 +1176,6 @@
         case "ember":
         case "raindrops":
         case "equalizer":
-        case "shockwave":
-        case "heatmap":
         case "disco":
           args = [
             varStore,

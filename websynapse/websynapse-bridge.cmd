@@ -73,6 +73,12 @@ public static class RazerBridgeNative
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool CancelIoEx(IntPtr hFile, ref NativeOverlappedSimple lpOverlapped);
 
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
+
+    [DllImport("user32.dll")]
+    private static extern uint MapVirtualKeyW(uint uCode, uint uMapType);
+
     [DllImport("hid.dll", SetLastError = true)]
     public static extern void HidD_GetHidGuid(out Guid HidGuid);
 
@@ -775,7 +781,7 @@ public static class RazerBridgeNative
     public static string FormatDevicesJson(List<RazerEndpoint> verified)
     {
         var sb = new StringBuilder();
-        sb.Append("{\"ok\":true,\"bridgeVersion\":\"1.3.0\",\"devices\":[");
+        sb.Append("{\"ok\":true,\"bridgeVersion\":\"1.4.0\",\"devices\":[");
         for (int i = 0; i < verified.Count; i++)
         {
             if (i > 0) sb.Append(',');
@@ -802,6 +808,204 @@ public static class RazerBridgeNative
             sb.Append((int)rx91[i]);
         }
         sb.Append("]}");
+        return sb.ToString();
+    }
+
+    // =========================================================================
+    // Zero-Hook, Zero-Latency Reactive Lighting Key-Edge Tracker (/keyevents)
+    // Uses GetAsyncKeyState bitmask transitions (never WH_KEYBOARD_LL hooks,
+    // never stores characters/text, sleeps at 0% CPU when not polled).
+    // =========================================================================
+    private struct KeyPollDef
+    {
+        public uint ScanCode;
+        public int FallbackVk;
+        public string Code;
+        public KeyPollDef(uint sc, int vk, string code) { ScanCode = sc; FallbackVk = vk; Code = code; }
+    }
+
+    private struct KeyEdgeItem
+    {
+        public long Seq;
+        public string Code;
+        public bool Down;
+    }
+
+    private static readonly KeyPollDef[] KeyPollDefs = new KeyPollDef[]
+    {
+        new KeyPollDef(0, 0x1B, "Escape"),
+        new KeyPollDef(0, 0x70, "F1"), new KeyPollDef(0, 0x71, "F2"), new KeyPollDef(0, 0x72, "F3"), new KeyPollDef(0, 0x73, "F4"),
+        new KeyPollDef(0, 0x74, "F5"), new KeyPollDef(0, 0x75, "F6"), new KeyPollDef(0, 0x76, "F7"), new KeyPollDef(0, 0x77, "F8"),
+        new KeyPollDef(0, 0x78, "F9"), new KeyPollDef(0, 0x79, "F10"), new KeyPollDef(0, 0x7A, "F11"), new KeyPollDef(0, 0x7B, "F12"),
+        new KeyPollDef(0, 0x2C, "PrintScreen"), new KeyPollDef(0, 0x91, "ScrollLock"), new KeyPollDef(0, 0x13, "Pause"),
+        new KeyPollDef(0x29, 0xC0, "Backquote"),
+        new KeyPollDef(0x02, 0x31, "Digit1"), new KeyPollDef(0x03, 0x32, "Digit2"), new KeyPollDef(0x04, 0x33, "Digit3"),
+        new KeyPollDef(0x05, 0x34, "Digit4"), new KeyPollDef(0x06, 0x35, "Digit5"), new KeyPollDef(0x07, 0x36, "Digit6"),
+        new KeyPollDef(0x08, 0x37, "Digit7"), new KeyPollDef(0x09, 0x38, "Digit8"), new KeyPollDef(0x0A, 0x39, "Digit9"),
+        new KeyPollDef(0x0B, 0x30, "Digit0"), new KeyPollDef(0x0C, 0xBD, "Minus"), new KeyPollDef(0x0D, 0xBB, "Equal"),
+        new KeyPollDef(0, 0x08, "Backspace"),
+        new KeyPollDef(0, 0x2D, "Insert"), new KeyPollDef(0, 0x24, "Home"), new KeyPollDef(0, 0x21, "PageUp"),
+        new KeyPollDef(0, 0x09, "Tab"),
+        new KeyPollDef(0x10, 0x51, "KeyQ"), new KeyPollDef(0x11, 0x57, "KeyW"), new KeyPollDef(0x12, 0x45, "KeyE"),
+        new KeyPollDef(0x13, 0x52, "KeyR"), new KeyPollDef(0x14, 0x54, "KeyT"), new KeyPollDef(0x15, 0x59, "KeyY"),
+        new KeyPollDef(0x16, 0x55, "KeyU"), new KeyPollDef(0x17, 0x49, "KeyI"), new KeyPollDef(0x18, 0x4F, "KeyO"),
+        new KeyPollDef(0x19, 0x50, "KeyP"), new KeyPollDef(0x1A, 0xDB, "BracketLeft"), new KeyPollDef(0x1B, 0xDD, "BracketRight"),
+        new KeyPollDef(0x2B, 0xDC, "Backslash"),
+        new KeyPollDef(0, 0x2E, "Delete"), new KeyPollDef(0, 0x23, "End"), new KeyPollDef(0, 0x22, "PageDown"),
+        new KeyPollDef(0, 0x14, "CapsLock"),
+        new KeyPollDef(0x1E, 0x41, "KeyA"), new KeyPollDef(0x1F, 0x53, "KeyS"), new KeyPollDef(0x20, 0x44, "KeyD"),
+        new KeyPollDef(0x21, 0x46, "KeyF"), new KeyPollDef(0x22, 0x47, "KeyG"), new KeyPollDef(0x23, 0x48, "KeyH"),
+        new KeyPollDef(0x24, 0x4A, "KeyJ"), new KeyPollDef(0x25, 0x4B, "KeyK"), new KeyPollDef(0x26, 0x4C, "KeyL"),
+        new KeyPollDef(0x27, 0xBA, "Semicolon"), new KeyPollDef(0x28, 0xDE, "Quote"),
+        new KeyPollDef(0, 0x0D, "Enter"),
+        new KeyPollDef(0, 0xA0, "ShiftLeft"), new KeyPollDef(0x56, 0xE2, "IntlBackslash"),
+        new KeyPollDef(0x2C, 0x5A, "KeyZ"), new KeyPollDef(0x2D, 0x58, "KeyX"), new KeyPollDef(0x2E, 0x43, "KeyC"),
+        new KeyPollDef(0x2F, 0x56, "KeyV"), new KeyPollDef(0x30, 0x42, "KeyB"), new KeyPollDef(0x31, 0x4E, "KeyN"),
+        new KeyPollDef(0x32, 0x4D, "KeyM"), new KeyPollDef(0x33, 0xBC, "Comma"), new KeyPollDef(0x34, 0xBE, "Period"),
+        new KeyPollDef(0x35, 0xBF, "Slash"), new KeyPollDef(0, 0xA1, "ShiftRight"),
+        new KeyPollDef(0, 0x26, "ArrowUp"),
+        new KeyPollDef(0, 0xA2, "ControlLeft"), new KeyPollDef(0, 0x5B, "MetaLeft"), new KeyPollDef(0, 0xA4, "AltLeft"),
+        new KeyPollDef(0, 0x20, "Space"), new KeyPollDef(0, 0xA5, "AltRight"), new KeyPollDef(0, 0x5D, "ContextMenu"),
+        new KeyPollDef(0, 0xA3, "ControlRight"),
+        new KeyPollDef(0, 0x25, "ArrowLeft"), new KeyPollDef(0, 0x28, "ArrowDown"), new KeyPollDef(0, 0x27, "ArrowRight")
+    };
+
+    private static readonly object KeyRingLock = new object();
+    private static readonly KeyEdgeItem[] KeyRing = new KeyEdgeItem[128];
+    private static long NextKeySeq = 1;
+    private static long LastKeyClientTicks = 0;
+    private static Thread KeyPollerThread = null;
+
+    private static void EnsureKeyPollerActive()
+    {
+        Interlocked.Exchange(ref LastKeyClientTicks, DateTime.UtcNow.Ticks);
+        if (KeyPollerThread != null) return;
+        lock (KeyRingLock)
+        {
+            if (KeyPollerThread == null)
+            {
+                Thread t = new Thread(KeyPollerLoop);
+                t.IsBackground = true;
+                t.Name = "WebSynapseReactiveKeyPoller";
+                KeyPollerThread = t;
+                t.Start();
+            }
+        }
+    }
+
+    private static void KeyPollerLoop()
+    {
+        int n = KeyPollDefs.Length;
+        bool[] prevDown = new bool[n];
+        int[] resolvedVk = new int[n];
+        long lastVkMapTicks = 0;
+        bool wasIdle = true;
+
+        while (true)
+        {
+            long nowTicks = DateTime.UtcNow.Ticks;
+            long lastClient = Interlocked.Read(ref LastKeyClientTicks);
+            if (nowTicks - lastClient > 30000000L) // > 3.0s idle -> sleep at 0% CPU
+            {
+                wasIdle = true;
+                Thread.Sleep(120);
+                continue;
+            }
+
+            if (wasIdle || (nowTicks - lastVkMapTicks > 25000000L))
+            {
+                for (int i = 0; i < n; i++)
+                {
+                    uint sc = KeyPollDefs[i].ScanCode;
+                    int vk = KeyPollDefs[i].FallbackVk;
+                    if (sc != 0)
+                    {
+                        uint m = MapVirtualKeyW(sc, 1);
+                        if (m > 0 && m < 255) vk = (int)m;
+                    }
+                    resolvedVk[i] = vk;
+                }
+                lastVkMapTicks = nowTicks;
+            }
+
+            if (wasIdle)
+            {
+                for (int i = 0; i < n; i++)
+                {
+                    prevDown[i] = (GetAsyncKeyState(resolvedVk[i]) & 0x8000) != 0;
+                }
+                wasIdle = false;
+                Thread.Sleep(8);
+                continue;
+            }
+
+            for (int i = 0; i < n; i++)
+            {
+                bool isDown = (GetAsyncKeyState(resolvedVk[i]) & 0x8000) != 0;
+                if (isDown != prevDown[i])
+                {
+                    prevDown[i] = isDown;
+                    lock (KeyRingLock)
+                    {
+                        long seq = NextKeySeq++;
+                        int idx = (int)(seq & 127);
+                        KeyRing[idx].Seq = seq;
+                        KeyRing[idx].Code = KeyPollDefs[i].Code;
+                        KeyRing[idx].Down = isDown;
+                    }
+                }
+            }
+            Thread.Sleep(8);
+        }
+    }
+
+    private static long ParseQueryLong(string queryStr, string key, long defaultVal)
+    {
+        if (string.IsNullOrEmpty(queryStr)) return defaultVal;
+        string prefix = key + "=";
+        string[] parts = queryStr.Split('&');
+        for (int i = 0; i < parts.Length; i++)
+        {
+            if (parts[i].StartsWith(prefix, StringComparison.Ordinal))
+            {
+                long v;
+                if (long.TryParse(parts[i].Substring(prefix.Length), out v)) return v;
+            }
+        }
+        return defaultVal;
+    }
+
+    public static string FormatKeyEventsJson(long sinceSeq)
+    {
+        EnsureKeyPollerActive();
+        var sb = new StringBuilder(192);
+        lock (KeyRingLock)
+        {
+            long latest = NextKeySeq - 1;
+            sb.Append("{\"ok\":true,\"seq\":");
+            sb.Append(latest);
+            sb.Append(",\"events\":[");
+            if (sinceSeq >= 0 && sinceSeq < latest)
+            {
+                long start = Math.Max(sinceSeq + 1, latest - 120);
+                bool first = true;
+                for (long s = start; s <= latest; s++)
+                {
+                    KeyEdgeItem item = KeyRing[(int)(s & 127)];
+                    if (item.Seq == s && item.Code != null)
+                    {
+                        if (!first) sb.Append(',');
+                        first = false;
+                        sb.Append("{\"c\":\"");
+                        sb.Append(item.Code);
+                        sb.Append("\",\"d\":");
+                        sb.Append(item.Down ? '1' : '0');
+                        sb.Append('}');
+                    }
+                }
+            }
+            sb.Append("]}");
+        }
         return sb.ToString();
     }
 
@@ -1020,6 +1224,7 @@ public static class RazerBridgeNative
                 string rawUrl = (reqParts.Length > 1) ? reqParts[1] : "/";
                 int qIdx = rawUrl.IndexOf('?');
                 string cleanPath = (qIdx >= 0) ? rawUrl.Substring(0, qIdx) : rawUrl;
+                string queryStr = (qIdx >= 0 && qIdx + 1 < rawUrl.Length) ? rawUrl.Substring(qIdx + 1) : "";
 
                 string origin = "";
                 string secSite = "";
@@ -1219,6 +1424,11 @@ public static class RazerBridgeNative
                                 }
                             }
                         }
+                    }
+                    else if (method == "GET" && cleanPath == "/keyevents")
+                    {
+                        long sinceSeq = ParseQueryLong(queryStr, "since", -1L);
+                        jsonOut = FormatKeyEventsJson(sinceSeq);
                     }
                     else if (method == "GET" && cleanPath == "/status")
                     {

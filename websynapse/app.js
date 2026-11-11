@@ -835,11 +835,26 @@
   let stagedQueue = []; // Used when uiPrefs.instantFlash === false
   let lastTestReport = null;
 
+  let studioStateSyncTimer = null;
   function persistDriverState() {
     try {
       localStorage.setItem(STORAGE_KEY_STATE, JSON.stringify(driverState));
     } catch {
       // ignore storage quota errors
+    }
+    if (typeof window !== "undefined" && window.location?.port === "5426") {
+      if (studioStateSyncTimer) clearTimeout(studioStateSyncTimer);
+      studioStateSyncTimer = setTimeout(() => {
+        studioStateSyncTimer = null;
+        void fetch("/api/studio-state", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            selectedPid: driverState.selectedPid,
+            profilesByPid: driverState.profilesByPid,
+          }),
+        }).catch(() => {});
+      }, 100);
     }
   }
 
@@ -1462,6 +1477,26 @@
       }
 
       if (!lampHostControlPids.has(pid)) continue;
+      if (typeof window !== "undefined" && window.location?.port === "5426") {
+        const dp = driverState.profilesByPid?.[pid];
+        const sl = dp?.slots?.[dp.activeSlot || 1];
+        const activeEff = sl?.lighting?.effect || "static";
+        if (!HARDWARE_NATIVE_CHROMA_EFFECTS.has(activeEff)) {
+          void fetch("/api/studio-handoff", {
+            method: "POST",
+            keepalive: true,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              pid,
+              slotId: dp?.activeSlot || 1,
+              lighting: sl?.lighting || null,
+            }),
+          }).catch(() => {});
+          lampHostControlPids.delete(pid);
+          dispatchedAny = true;
+          continue;
+        }
+      }
       const lampDev = findLampArrayDevice(pid);
       if (!lampDev || !lampDev.opened) continue;
 
@@ -1531,45 +1566,101 @@
     });
   }
 
+  let globalKeyPollTimer = null;
+  let lastBridgeKeySeq = -1;
+  let lastFocusedWarmupAt = 0;
+
   function ensureReactiveKeyListeners() {
-    if (reactiveKeyListenersBound) return;
-    reactiveKeyListenersBound = true;
+    if (!reactiveKeyListenersBound) {
+      reactiveKeyListenersBound = true;
 
-    window.addEventListener(
-      "keydown",
-      (ev) => {
-        for (const handler of reactiveTriggerByPid.values()) {
-          if (typeof handler.onKeyDown === "function") {
-            handler.onKeyDown(ev.code, ev.key);
+      window.addEventListener(
+        "keydown",
+        (ev) => {
+          for (const handler of reactiveTriggerByPid.values()) {
+            if (typeof handler.onKeyDown === "function") {
+              handler.onKeyDown(ev.code, ev.key);
+            }
           }
-        }
-      },
-      { passive: true }
-    );
+        },
+        { passive: true }
+      );
 
-    window.addEventListener(
-      "keyup",
-      (ev) => {
-        for (const handler of reactiveTriggerByPid.values()) {
-          if (typeof handler.onKeyUp === "function") {
-            handler.onKeyUp(ev.code, ev.key);
+      window.addEventListener(
+        "keyup",
+        (ev) => {
+          for (const handler of reactiveTriggerByPid.values()) {
+            if (typeof handler.onKeyUp === "function") {
+              handler.onKeyUp(ev.code, ev.key);
+            }
           }
-        }
-      },
-      { passive: true }
-    );
+        },
+        { passive: true }
+      );
 
-    window.addEventListener(
-      "blur",
-      () => {
-        for (const handler of reactiveTriggerByPid.values()) {
-          if (typeof handler.onReleaseAll === "function") {
-            handler.onReleaseAll();
+      window.addEventListener(
+        "blur",
+        () => {
+          for (const handler of reactiveTriggerByPid.values()) {
+            if (typeof handler.onReleaseAll === "function") {
+              handler.onReleaseAll();
+            }
           }
+        },
+        { passive: true }
+      );
+    }
+
+    if (!globalKeyPollTimer) {
+      globalKeyPollTimer = setLampInterval(async () => {
+        if (isPageUnloading || reactiveTriggerByPid.size === 0) return;
+        const isLocalPort =
+          typeof window !== "undefined" && (window.location?.port === "5426" || window.location?.port === "18925");
+        if (!localBridgeOnline && !isLocalPort) return;
+
+        const pageFocused =
+          typeof document !== "undefined" &&
+          document.visibilityState === "visible" &&
+          typeof document.hasFocus === "function" &&
+          document.hasFocus();
+
+        const now = performance.now();
+        if (pageFocused) {
+          if (now - lastFocusedWarmupAt < 450) return;
+          lastFocusedWarmupAt = now;
         }
-      },
-      { passive: true }
-    );
+
+        const reqSince = pageFocused ? -1 : lastBridgeKeySeq;
+        try {
+          const resp = await fetch(`${activeBridgeUrl}/keyevents?since=${reqSince}`, {
+            method: "GET",
+            headers: { "X-WebSynapse-Bridge": "1" },
+          });
+          if (!resp.ok) return;
+          const data = await resp.json();
+          if (!data?.ok) return;
+          const prevSeq = lastBridgeKeySeq;
+          if (typeof data.seq === "number") {
+            lastBridgeKeySeq = data.seq;
+          }
+          if (!pageFocused && prevSeq >= 0 && Array.isArray(data.events) && data.events.length > 0) {
+            for (let i = 0; i < data.events.length; i++) {
+              const ev = data.events[i];
+              if (!ev || !ev.c) continue;
+              for (const handler of reactiveTriggerByPid.values()) {
+                if (ev.d) {
+                  if (typeof handler.onKeyDown === "function") handler.onKeyDown(ev.c, "");
+                } else if (typeof handler.onKeyUp === "function") {
+                  handler.onKeyUp(ev.c, "");
+                }
+              }
+            }
+          }
+        } catch {
+          // ignore transient poll errors
+        }
+      }, 20);
+    }
   }
 
   function buildLampLayoutMeta(lampCount) {
@@ -5600,6 +5691,9 @@
   function decodeHardwareLighting(args, prev = {}) {
     if (!args || args.length < 3) return null;
     const [, , effectId, p1, p2, nColors] = args;
+    if (effectId !== 0x00 && prev?.effect && !HARDWARE_NATIVE_CHROMA_EFFECTS.has(prev.effect)) {
+      return { ...prev };
+    }
     const c1 = nColors >= 1 ? rgbToHex(args[6], args[7], args[8]) : prev.color1;
     const c2 = nColors >= 2 ? rgbToHex(args[9], args[10], args[11]) : prev.color2;
     const out = { ...prev };
@@ -5816,6 +5910,10 @@
     renderOverviewPanels();
     updateProfileKeyBox();
     updateWebHidStatusUI();
+    const activeEff = getActiveSlotData()?.lighting?.effect || "static";
+    if (!HARDWARE_NATIVE_CHROMA_EFFECTS.has(activeEff) && findLampArrayDevice(pid)) {
+      void applyLampArrayEffect(pid);
+    }
     if (!quiet) showToast(`Connected · keyboard is on onboard slot S${devProf.activeSlot || 1}`);
     return true;
   }
@@ -5872,6 +5970,10 @@
       const sData = getActiveSlotData();
       const now = performance.now();
       slotIndicatorOverlayByPid.set(Number(selectedPid), { slotId: numSlot, startedAt: now, until: now + 1650 });
+      const switchedEff = sData?.lighting?.effect || "static";
+      if (!HARDWARE_NATIVE_CHROMA_EFFECTS.has(switchedEff) && findLampArrayDevice(Number(selectedPid))) {
+        void applyLampArrayEffect(Number(selectedPid));
+      }
       showToast(`Keyboard switched to onboard slot S${numSlot} (${sData.name})`);
       void playUiTone("info");
     } catch (err) {
@@ -8699,6 +8801,37 @@
   // ==========================================================================
   async function init() {
     loadStoredState();
+    if (typeof window !== "undefined" && window.location?.port === "5426") {
+      try {
+        const stResp = await fetch("/api/status", { cache: "no-store" });
+        if (stResp.ok) {
+          const stData = await stResp.json();
+          const srvProfs = stData?.state?.profilesByPid;
+          if (srvProfs && typeof srvProfs === "object") {
+            for (const [pidStr, srvProf] of Object.entries(srvProfs)) {
+              const numPid = Number(pidStr);
+              const locSlots = driverState.profilesByPid?.[numPid]?.slots;
+              const srvSlots = srvProf?.slots;
+              if (!locSlots || !srvSlots) continue;
+              for (const [sStr, srvSlot] of Object.entries(srvSlots)) {
+                const sId = Number(sStr);
+                const srvEff = srvSlot?.lighting?.effect;
+                const locEff = locSlots[sId]?.lighting?.effect;
+                if (
+                  srvEff &&
+                  !HARDWARE_NATIVE_CHROMA_EFFECTS.has(srvEff) &&
+                  (!locEff || HARDWARE_NATIVE_CHROMA_EFFECTS.has(locEff))
+                ) {
+                  locSlots[sId].lighting = { ...locSlots[sId].lighting, ...srvSlot.lighting };
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        // ignore if offline
+      }
+    }
     // Don't trust a cached "driver" flag — the real mode is read from the keyboard on connect.
     driverState.deviceMode = "normal";
     ensureLifecycleExitListeners();
