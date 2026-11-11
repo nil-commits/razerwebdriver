@@ -666,10 +666,8 @@
     const hwtest = document.getElementById("viewHardwareTest");
     const navWorkspace = document.querySelector('[data-main-view="workspace"]');
     const navHwtest = document.querySelector('[data-main-view="hwtest"]');
-    const usbPairBtn = document.getElementById("btnWebUsbPair");
     const pairBtn = document.getElementById("btnWebHidPair");
     const bannerPairBtn = document.getElementById("btnBannerPair");
-    const compatUsbPair = document.getElementById("btnCompatWebUsb");
     const compatPair = document.getElementById("btnCompatPair");
     const compatCatalog = document.getElementById("btnCompatCatalog");
     const slotStrip = document.querySelector(".ws-slot-strip");
@@ -684,7 +682,6 @@
     const hid = !!navigator.hid;
     const usb = !!navigator.usb;
     const supportsUsb = hid || usb;
-    const preferWebUsb = usb && isWindowsPlatform();
 
     if (notice) notice.hidden = connected;
     if (navWorkspace) navWorkspace.disabled = !connected;
@@ -705,39 +702,24 @@
       }
     }
 
-    if (usbPairBtn) {
-      usbPairBtn.hidden = !usb || !secure;
-      usbPairBtn.classList.toggle("is-primary", preferWebUsb || !hid);
-    }
-    if (pairBtn) {
-      pairBtn.hidden = !hid || !secure;
-      pairBtn.classList.toggle("is-primary", !preferWebUsb);
-    }
+    if (pairBtn) pairBtn.hidden = !supportsUsb || !secure;
     if (bannerPairBtn) bannerPairBtn.hidden = !supportsUsb || !secure;
-    if (compatUsbPair) {
-      compatUsbPair.hidden = !usb || !secure;
-      compatUsbPair.classList.toggle("is-primary", preferWebUsb || !hid);
-    }
-    if (compatPair) {
-      compatPair.hidden = !hid || !secure;
-      compatPair.classList.toggle("is-primary", !preferWebUsb);
-    }
+    if (compatPair) compatPair.hidden = !supportsUsb || !secure;
     if (compatCatalog) compatCatalog.hidden = false;
 
     if (!title || !text) return;
     if (!secure) {
       title.textContent = "HTTPS is required";
       text.textContent =
-        "WebHID/WebUSB is only available in a secure context. Open https://websynap.se/ (or localhost for local testing) in a Chromium-based browser.";
+        "WebHID is only available in a secure context. Open https://websynap.se/ (or localhost for local testing) in a Chromium-based browser.";
     } else if (!supportsUsb) {
       title.textContent = "Chromium-based browser required";
       text.textContent =
-        "This site uses WebHID or WebUSB. Open it in Chrome, Edge, Brave, Opera, or Vivaldi. Firefox and Safari do not support these APIs.";
+        "This site uses WebHID. Open it in Chrome, Edge, Brave, Opera, or Vivaldi. Firefox and Safari do not support WebHID.";
     } else if (!anyRazer) {
       title.textContent = "No compatible Razer device detected";
-      text.textContent = isWindowsPlatform()
-        ? "Connect your Razer keyboard or mouse via USB and close Razer Synapse. To save profiles to onboard memory on Windows, bind WinUSB to Interface 3 (see the Windows Setup guide above) and click “⚡ Connect WebUSB (Onboard Save)”, or click “Connect WebHID” for live LampArray preview."
-        : "Connect a Razer keyboard or mouse with a data-capable USB cable, close Razer Synapse, then click “Connect WebHID” or “Connect WebUSB” and grant USB access.";
+      text.textContent =
+        "Connect a Razer keyboard or mouse via USB, close Razer Synapse, then click “⚡ Connect Razer Device” and grant browser access.";
     } else if (!connected) {
       title.textContent = "Connected Razer device is not supported";
       text.textContent =
@@ -868,6 +850,11 @@
     let score = 0;
     const cols = dev.collections || [];
     let hasReport0 = false;
+    // Matches Razer Synapse Web (synapse.razer.com): Protocol 25 feature-report interface has
+    // collections.length === 1 with usagePage 0x000C (Consumer) or 0x0001 (Generic Desktop).
+    if (cols.length === 1 && (cols[0].usagePage === 0x000c || cols[0].usagePage === 0x0001)) {
+      score += 600;
+    }
     for (const c of cols) {
       if (c.usagePage === 0x0059) {
         score += 50; // Keep LampArray accessible for findLampArrayDevice, sorted below Report 0
@@ -2276,26 +2263,6 @@
     }
   }
 
-  function updateWinUsbGuideLabels(pidKey) {
-    const numPid = Number(pidKey) || 679;
-    const meta = Protocol25.KNOWN_DEVICES[numPid] || Protocol25.KNOWN_DEVICES[679] || {};
-    const devEntry = devices.find((d) => Number(d.productId) === numPid);
-    const ifNum = Number(meta.interface ?? (meta.category === "mouse" ? 0 : 3));
-    const prodName = sanitizePlainText(
-      devEntry?.productName || meta.name || "Razer Huntsman V3 Pro TKL",
-      64,
-      "Razer Huntsman V3 Pro TKL"
-    );
-    const targetLabel = document.getElementById("winUsbTargetLabel");
-    const ifaceName = document.getElementById("winUsbInterfaceName");
-    const zadigEntry = document.getElementById("winUsbZadigEntry");
-    const miCode = document.getElementById("winUsbMiCode");
-    if (targetLabel) targetLabel.textContent = `Interface ${ifNum}`;
-    if (ifaceName) ifaceName.textContent = `${prodName} (Interface ${ifNum})`;
-    if (zadigEntry) zadigEntry.textContent = `${prodName} (Interface ${ifNum})`;
-    if (miCode) miCode.textContent = `Interface ${ifNum}`;
-  }
-
   function updateWebHidStatusUI() {
     const connDot = document.getElementById("connDot");
     const connText = document.getElementById("connText");
@@ -2303,14 +2270,9 @@
     const banner = document.getElementById("webHidStatusBanner");
     const bannerDot = document.getElementById("bannerDot");
     const bannerText = document.getElementById("bannerStatusText");
-    const usbPairBtn = document.getElementById("btnWebUsbPair");
     const pairBtn = document.getElementById("btnWebHidPair");
     const bannerPairBtn = document.getElementById("btnBannerPair");
     const bannerRecheckBtn = document.getElementById("btnBannerRecheck");
-    const guideEl = document.getElementById("winUsbSetupGuide");
-    const onWin = isWindowsPlatform();
-
-    updateWinUsbGuideLabels(selectedPid);
 
     if (!window.isSecureContext) {
       if (connDot) connDot.className = "ws-dot is-warn";
@@ -2320,31 +2282,27 @@
       if (bannerDot) bannerDot.className = "ws-dot is-warn";
       if (bannerText) {
         bannerText.innerHTML =
-          "<strong>HTTPS Secure Context Required</strong> — WebHID/WebUSB hardware access is blocked on plain <code>http://</code> origins. Access this server over <b>https://</b> (or <code>localhost</code>) to enable USB communication.";
+          "<strong>HTTPS Secure Context Required</strong> — WebHID hardware access is blocked on plain <code>http://</code> origins. Access this server over <b>https://</b> (or <code>localhost</code>) to enable USB communication.";
       }
-      if (usbPairBtn) usbPairBtn.disabled = true;
       if (pairBtn) pairBtn.disabled = true;
       if (bannerPairBtn) bannerPairBtn.hidden = true;
       if (bannerRecheckBtn) bannerRecheckBtn.hidden = true;
-      if (guideEl) guideEl.hidden = true;
       return;
     }
 
     if (!navigator.hid && !navigator.usb) {
       if (connDot) connDot.className = "ws-dot is-warn";
-      if (connText) connText.textContent = "WebHID/WebUSB Unsupported";
+      if (connText) connText.textContent = "WebHID Unsupported";
       if (fwBadge) fwBadge.textContent = "Use Chromium";
       if (banner) banner.style.borderColor = "rgba(255,171,64,0.5)";
       if (bannerDot) bannerDot.className = "ws-dot is-warn";
       if (bannerText) {
         bannerText.innerHTML =
-          "<strong>Browser Does Not Support WebHID/WebUSB</strong> — Please open <b>websynap.se</b> in a Chromium-based browser (Chrome, Edge, Brave, Opera, or Vivaldi) to configure your Razer devices directly from the cloud.";
+          "<strong>Browser Does Not Support WebHID</strong> — Please open <b>websynap.se</b> in a Chromium-based browser (Chrome, Edge, Brave, Opera, or Vivaldi) to configure your Razer devices directly from the browser.";
       }
-      if (usbPairBtn) usbPairBtn.disabled = true;
       if (pairBtn) pairBtn.disabled = true;
       if (bannerPairBtn) bannerPairBtn.hidden = true;
       if (bannerRecheckBtn) bannerRecheckBtn.hidden = true;
-      if (guideEl) guideEl.hidden = true;
       return;
     }
 
@@ -2384,29 +2342,16 @@
         }
         if (bannerRecheckBtn) bannerRecheckBtn.hidden = true;
         if (bannerPairBtn) bannerPairBtn.textContent = "+ Add Another Device";
-        if (guideEl) guideEl.hidden = true;
       } else if (probeErr) {
         if (connDot) connDot.className = "ws-dot is-warn";
         if (connText) connText.textContent = `Preview Only (${liveCount} device${liveCount > 1 ? "s" : ""})`;
         if (banner) banner.style.borderColor = "rgba(255,171,64,0.55)";
         if (bannerDot) bannerDot.className = "ws-dot is-warn";
         if (bannerText) {
-          bannerText.innerHTML = `<strong>Connected — onboard memory not yet writable</strong>: ${escapeHtml(probeErr)} Until then lighting is only a live preview and nothing is saved to <b>${safeNames}</b>.`;
+          bannerText.innerHTML = `<strong>Connected — onboard memory not reachable on this firmware/OS</strong>: ${escapeHtml(probeErr)} Until then lighting is only a live preview and nothing is saved to <b>${safeNames}</b>.`;
         }
         if (bannerRecheckBtn) bannerRecheckBtn.hidden = false;
-        if (bannerPairBtn) {
-          bannerPairBtn.textContent = navigator.usb
-            ? webUsbDevicesByPid.has(selPid)
-              ? "⚡ Pair / Retry WebUSB"
-              : "⚡ Connect WebUSB (Onboard Save)"
-            : "Connect Razer Device";
-        }
-        if (guideEl) {
-          guideEl.hidden = !onWin || !navigator.usb;
-          if (protocolUsbClaimBlockedByPid.get(selPid)) {
-            guideEl.open = true;
-          }
-        }
+        if (bannerPairBtn) bannerPairBtn.textContent = "⚡ Connect Razer Device";
       } else {
         if (connDot) connDot.className = "ws-dot is-ok";
         if (connText) {
@@ -2425,7 +2370,6 @@
         }
         if (bannerRecheckBtn) bannerRecheckBtn.hidden = true;
         if (bannerPairBtn) bannerPairBtn.textContent = "+ Add Another Device";
-        if (guideEl) guideEl.hidden = true;
       }
     } else if (liveCount > 0) {
       if (connDot) connDot.className = "ws-dot is-warn";
@@ -2439,24 +2383,18 @@
       }
       if (bannerRecheckBtn) bannerRecheckBtn.hidden = true;
       if (bannerPairBtn) bannerPairBtn.textContent = "+ Add Another Device";
-      if (guideEl) guideEl.hidden = true;
     } else {
       if (connDot) connDot.className = "ws-dot is-warn";
       if (connText) connText.textContent = "No device connected";
-      if (fwBadge) fwBadge.textContent = "USB";
+      if (fwBadge) fwBadge.textContent = "WebHID";
       if (banner) banner.style.borderColor = "rgba(255,171,64,0.45)";
       if (bannerDot) bannerDot.className = "ws-dot is-warn";
       if (bannerText) {
         bannerText.innerHTML =
-          onWin && navigator.usb
-            ? "<strong>No Razer device connected</strong> — Connect via USB, close Razer Synapse, then click <b>⚡ Connect WebUSB (Onboard Save)</b> to read &amp; save onboard memory slots (see Windows Setup below if pairing for the first time)."
-            : "<strong>No compatible Razer device detected</strong> — Connect a Razer keyboard or mouse via USB, close Razer Synapse, then click <b>⚡ Connect WebUSB</b> or <b>Connect WebHID</b>.";
+          "<strong>No compatible Razer device detected</strong> — Connect a Razer keyboard or mouse via USB, close Razer Synapse, then click <b>⚡ Connect Razer Device</b>.";
       }
       if (bannerRecheckBtn) bannerRecheckBtn.hidden = true;
-      if (bannerPairBtn) {
-        bannerPairBtn.textContent = onWin && navigator.usb ? "⚡ Connect WebUSB" : "⚡ Connect Razer Device";
-      }
-      if (guideEl) guideEl.hidden = !(onWin && navigator.usb);
+      if (bannerPairBtn) bannerPairBtn.textContent = "⚡ Connect Razer Device";
     }
   }
 
@@ -2608,24 +2546,17 @@
     } catch (err) {
       if (err?.name !== "NotAllowedError" && err?.name !== "NotFoundError") {
         showToast(`WebUSB pairing error: ${err.message}`, false);
-      } else if (err?.name === "NotFoundError") {
-        // User cancelled the WebUSB chooser, or no WinUSB-backed Razer device was listed
-        const guideEl = document.getElementById("winUsbSetupGuide");
-        if (guideEl && isWindowsPlatform()) {
-          guideEl.hidden = false;
-          guideEl.open = true;
-        }
       }
     }
   }
 
   async function pairWebHidDevices() {
     if (!window.isSecureContext) {
-      showToast("HTTPS is required for WebHID/WebUSB hardware access", false);
+      showToast("HTTPS is required for WebHID hardware access", false);
       return;
     }
     if (!navigator.hid && !navigator.usb) {
-      showToast("WebHID/WebUSB requires Chrome, Edge, Brave, Opera, or Vivaldi", false);
+      showToast("WebHID requires Chrome, Edge, Brave, Opera, or Vivaldi", false);
       return;
     }
     if (!navigator.hid && navigator.usb) {
@@ -2644,13 +2575,6 @@
   }
 
   function pairBannerSmart() {
-    const selPid = Number(selectedPid);
-    const needWebUsb =
-      navigator.usb &&
-      (isWindowsPlatform() || (webHidHandlesByPid.has(selPid) && !protocolDeviceByPid.has(selPid)));
-    if (needWebUsb) {
-      return pairWebUsbDevices();
-    }
     return pairWebHidDevices();
   }
 
@@ -2887,11 +2811,11 @@
         }
       }
 
-      // 2. Probe WebHID collections (works out-of-the-box on macOS / Linux / ChromeOS)
+      // 2. Probe WebHID collections (prioritise single-collection UsagePage 0x000C / 0x0001 Feature Report interface)
       const hidCandidates = hidList
         .filter((d) => d.vendorId === Protocol25.RAZER_VENDOR_ID)
         .filter((d) => (d.collections || []).some((c) => c.usagePage !== 0x0059 && c.usagePage < 0xff00))
-        .sort((a, b) => Number(deviceHasProtocol25FeatureReport(b)) - Number(deviceHasProtocol25FeatureReport(a)));
+        .sort((a, b) => scoreWebHidCollection(b) - scoreWebHidCollection(a));
 
       for (const d of hidCandidates) {
         try {
@@ -2923,15 +2847,12 @@
       const devName = meta.name || `Razer Device (0x${numPid.toString(16).toUpperCase()})`;
       const hasControlCandidate = hidList.some((d) => deviceHasProtocol25FeatureReport(d));
       let msg;
-      if (isWindowsPlatform() && usbClaimBlocked) {
-        protocolUsbClaimBlockedByPid.set(numPid, true);
-        msg = `Windows still has HidUsb bound to ${devName} (Interface ${preferredIf}), which blocks WebUSB access to onboard memory. Bind WinUSB to “${devName} (Interface ${preferredIf})” in Zadig (see Windows Setup below), then click “⚡ Pair / Retry WebUSB”.`;
-      } else if (isWindowsPlatform() && usbList.length === 0) {
-        msg = `Windows Chromium blocks WebHID Feature Reports on Interface ${preferredIf} (MI_0${preferredIf}). To read & save onboard memory slots, bind WinUSB to “${devName} (Interface ${preferredIf})” (see Windows Setup below) and click “⚡ Connect WebUSB (Onboard Save)”.`;
+      if (isWindowsPlatform() && !hasControlCandidate) {
+        msg = `${devName}'s current firmware declares USB Interface ${preferredIf} (MI_0${preferredIf}) as HID Feature (Constant), so Windows hidparse.sys + Chromium omit the Protocol 25 onboard-memory interface from WebHID (requires Razer's Synapse-Web firmware descriptor update on Windows, or macOS/Linux Chrome).`;
       } else if (hasControlCandidate || usbList.length > 0) {
         msg = "the device's Protocol 25 control interface did not respond. Close Razer Synapse or other RGB tools, unplug/replug the device, and click Re-check.";
       } else {
-        msg = `Protocol 25 USB Interface ${preferredIf} is not yet authorized. Click “⚡ Connect WebUSB (Onboard Save)” and select your Razer device.`;
+        msg = `Protocol 25 USB Interface ${preferredIf} is not yet authorized. Click “⚡ Connect Razer Device” and select your Razer device.`;
       }
       protocolProbeErrorByPid.set(numPid, msg);
       protocolProbeFailedSigByPid.set(numPid, probeSig);
@@ -5957,12 +5878,10 @@
       });
     });
 
-    // WebUSB + WebHID Pair Buttons
-    document.getElementById("btnWebUsbPair")?.addEventListener("click", pairWebUsbDevices);
+    // WebHID Pair Buttons
     document.getElementById("btnWebHidPair")?.addEventListener("click", pairWebHidDevices);
-    document.getElementById("btnBannerPair")?.addEventListener("click", pairBannerSmart);
+    document.getElementById("btnBannerPair")?.addEventListener("click", pairWebHidDevices);
     document.getElementById("btnBannerRecheck")?.addEventListener("click", recheckProtocol25);
-    document.getElementById("btnCompatWebUsb")?.addEventListener("click", pairWebUsbDevices);
     document.getElementById("btnCompatPair")?.addEventListener("click", pairWebHidDevices);
     document.getElementById("btnCompatCatalog")?.addEventListener("click", () => switchMainView("shelf"));
 
@@ -6165,8 +6084,7 @@
       document.getElementById("packetCountBadge").textContent = "0";
     });
 
-    // Shelf WebUSB / WebHID Pair + Complete Synapse 4 Catalog Search & Category Filter
-    document.getElementById("btnShelfPairWebUsb")?.addEventListener("click", pairWebUsbDevices);
+    // Shelf WebHID Pair + Complete Synapse 4 Catalog Search & Category Filter
     document.getElementById("btnShelfPairWebHid")?.addEventListener("click", pairWebHidDevices);
     document.getElementById("inpCatalogSearch")?.addEventListener("input", (ev) => {
       catalogSearchQuery = ev.target.value || "";
