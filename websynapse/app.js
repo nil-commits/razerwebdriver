@@ -1038,6 +1038,8 @@
   const protocolProbeErrorByPid = new Map();
   const protocolProbeFailedSigByPid = new Map();
   const protocolUsbClaimBlockedByPid = new Map();
+  const hidLimitationDismissedPids = new Set();
+  let hidLimitationModalPid = null;
 
   // ==========================================================================
   // Unthrottled Background Chroma Timer Worker + Web Lock Keep-Alive
@@ -2263,6 +2265,90 @@
     }
   }
 
+  function closeHidLimitationModal(markDismissed = true) {
+    const modal = document.getElementById("hidLimitationModal");
+    if (!modal) return;
+    if (markDismissed && hidLimitationModalPid !== null) {
+      hidLimitationDismissedPids.add(Number(hidLimitationModalPid));
+    }
+    modal.hidden = true;
+    hidLimitationModalPid = null;
+  }
+
+  function openHidLimitationModal(pidKey, { force = false } = {}) {
+    const modal = document.getElementById("hidLimitationModal");
+    if (!modal) return;
+    const numPid = Number(pidKey ?? selectedPid);
+    if (!Number.isFinite(numPid) || numPid <= 0) return;
+
+    const hidList = webHidHandlesByPid.get(numPid) || [];
+    const usbList = webUsbDevicesByPid.get(numPid) || [];
+    const isConnected = hidList.length > 0 || usbList.length > 0;
+    const meta = Protocol25.KNOWN_DEVICES[numPid];
+    if (!isConnected || !meta) return;
+
+    if (protocolDeviceByPid.has(numPid)) {
+      if (hidLimitationModalPid === numPid) closeHidLimitationModal(false);
+      return;
+    }
+    if (!force && hidLimitationDismissedPids.has(numPid)) return;
+
+    const devEntry = devices.find((d) => Number(d.productId) === numPid);
+    const devName = devEntry?.productName || meta.name || `Razer Device (0x${numPid.toString(16).toUpperCase()})`;
+    const hexPid = `0x${numPid.toString(16).toUpperCase().padStart(4, "0")}`;
+    const preferredIf = Number(
+      meta.interface ?? (meta.category === "keyboard-analog" || meta.category === "keyboard" ? 3 : 0)
+    );
+    const hasControlCandidate = hidList.some((d) => deviceHasProtocol25FeatureReport(d));
+
+    const tagEl = document.getElementById("hidModalDeviceTag");
+    const titleEl = document.getElementById("hidModalTitle");
+    const descEl = document.getElementById("hidModalDesc");
+    const techEl = document.getElementById("hidModalTechNote");
+
+    if (tagEl) {
+      tagEl.textContent = `${devName} · PID ${hexPid} · Interface MI_0${preferredIf}`;
+    }
+
+    if (isWindowsPlatform() && !hasControlCandidate) {
+      if (titleEl) titleEl.textContent = "Hardware / Firmware Does Not Expose Full WebHID";
+      if (descEl) {
+        descEl.textContent =
+          `Your ${devName}'s current firmware declares its onboard-memory USB interface (MI_0${preferredIf}) as a constant HID Feature Report, so Windows and Chromium hide full WebHID hardware control from websites. Until Razer ships a Synapse-Web firmware descriptor update for this model (or you open websynap.se on macOS, Linux, or ChromeOS), settings cannot be saved to onboard memory.`;
+      }
+      if (techEl) {
+        techEl.textContent =
+          `Technical detail: USB Interface ${preferredIf} (MI_0${preferredIf}) declares HID Feature (Constant) instead of Feature (Data,Var,Abs), causing Windows hidparse.sys + Chromium WebHID to omit 90-byte Protocol 25 Feature Report 0x00.`;
+      }
+    } else if (hasControlCandidate || usbList.length > 0) {
+      if (titleEl) titleEl.textContent = "Full WebHID Onboard Control Did Not Respond";
+      if (descEl) {
+        descEl.textContent =
+          `Your ${devName} exposed a USB interface, but its Protocol 25 onboard-memory controller did not reply. Close Razer Synapse or any background RGB utility that may hold exclusive access, unplug and replug the USB cable, then click Re-check Device.`;
+      }
+      if (techEl) {
+        techEl.textContent =
+          `Technical detail: ${protocolProbeErrorByPid.get(numPid) || "Protocol 25 probe (0x00/0x81) did not return a valid echo."}`;
+      }
+    } else {
+      if (titleEl) titleEl.textContent = "Full WebHID Control Interface Not Authorized";
+      if (descEl) {
+        descEl.textContent =
+          `Your ${devName} is currently connected in preview-only mode because USB Interface ${preferredIf} (Protocol 25 onboard memory) is not exposed to WebHID yet. Click Re-check Device or reconnect your Razer device.`;
+      }
+      if (techEl) {
+        techEl.textContent =
+          `Technical detail: ${protocolProbeErrorByPid.get(numPid) || `USB Interface ${preferredIf} is not yet authorized in WebHID.`}`;
+      }
+    }
+
+    hidLimitationModalPid = numPid;
+    modal.hidden = false;
+    setTimeout(() => {
+      document.getElementById("btnModalDismiss")?.focus();
+    }, 0);
+  }
+
   function updateWebHidStatusUI() {
     const connDot = document.getElementById("connDot");
     const connText = document.getElementById("connText");
@@ -2273,6 +2359,7 @@
     const pairBtn = document.getElementById("btnWebHidPair");
     const bannerPairBtn = document.getElementById("btnBannerPair");
     const bannerRecheckBtn = document.getElementById("btnBannerRecheck");
+    const bannerWarnDetailsBtn = document.getElementById("btnBannerWarnDetails");
 
     if (!window.isSecureContext) {
       if (connDot) connDot.className = "ws-dot is-warn";
@@ -2287,6 +2374,7 @@
       if (pairBtn) pairBtn.disabled = true;
       if (bannerPairBtn) bannerPairBtn.hidden = true;
       if (bannerRecheckBtn) bannerRecheckBtn.hidden = true;
+      if (bannerWarnDetailsBtn) bannerWarnDetailsBtn.hidden = true;
       return;
     }
 
@@ -2303,6 +2391,7 @@
       if (pairBtn) pairBtn.disabled = true;
       if (bannerPairBtn) bannerPairBtn.hidden = true;
       if (bannerRecheckBtn) bannerRecheckBtn.hidden = true;
+      if (bannerWarnDetailsBtn) bannerWarnDetailsBtn.hidden = true;
       return;
     }
 
@@ -2327,6 +2416,7 @@
         .join(" + ");
 
       if (verified) {
+        if (hidLimitationModalPid === selPid) closeHidLimitationModal(false);
         if (connDot) connDot.className = "ws-dot is-ok";
         if (connText) {
           connText.textContent = `${pHandle.mode === "webusb" ? "WebUSB" : "WebHID"} Live (${liveCount} device${liveCount > 1 ? "s" : ""})`;
@@ -2340,6 +2430,7 @@
           const viaLabel = escapeHtml(pHandle.label || (pHandle.mode === "webusb" ? "WebUSB" : "WebHID"));
           bannerText.innerHTML = `<strong>Onboard memory control verified via ${viaLabel} (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Protocol 25 replies OK. Slot switching, actuation and lighting are written directly to the onboard flash of <b>${safeNames}</b> and persist after you close this tab.`;
         }
+        if (bannerWarnDetailsBtn) bannerWarnDetailsBtn.hidden = true;
         if (bannerRecheckBtn) bannerRecheckBtn.hidden = true;
         if (bannerPairBtn) bannerPairBtn.textContent = "+ Add Another Device";
       } else if (probeErr) {
@@ -2350,6 +2441,7 @@
         if (bannerText) {
           bannerText.innerHTML = `<strong>Connected — onboard memory not reachable on this firmware/OS</strong>: ${escapeHtml(probeErr)} Until then lighting is only a live preview and nothing is saved to <b>${safeNames}</b>.`;
         }
+        if (bannerWarnDetailsBtn) bannerWarnDetailsBtn.hidden = false;
         if (bannerRecheckBtn) bannerRecheckBtn.hidden = false;
         if (bannerPairBtn) bannerPairBtn.textContent = "⚡ Connect Razer Device";
       } else {
@@ -2368,6 +2460,7 @@
             bannerText.innerHTML = `<strong>USB Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — USB Telemetry active for <b>${safeNames}</b>.`;
           }
         }
+        if (bannerWarnDetailsBtn) bannerWarnDetailsBtn.hidden = true;
         if (bannerRecheckBtn) bannerRecheckBtn.hidden = true;
         if (bannerPairBtn) bannerPairBtn.textContent = "+ Add Another Device";
       }
@@ -2381,9 +2474,11 @@
         bannerText.innerHTML =
           "<strong>Connected Razer device is not supported</strong> — It is not in the Protocol 25 catalog. Check the supported-devices list or try another model.";
       }
+      if (bannerWarnDetailsBtn) bannerWarnDetailsBtn.hidden = true;
       if (bannerRecheckBtn) bannerRecheckBtn.hidden = true;
       if (bannerPairBtn) bannerPairBtn.textContent = "+ Add Another Device";
     } else {
+      closeHidLimitationModal(false);
       if (connDot) connDot.className = "ws-dot is-warn";
       if (connText) connText.textContent = "No device connected";
       if (fwBadge) fwBadge.textContent = "WebHID";
@@ -2393,6 +2488,7 @@
         bannerText.innerHTML =
           "<strong>No compatible Razer device detected</strong> — Connect a Razer keyboard or mouse via USB, close Razer Synapse, then click <b>⚡ Connect Razer Device</b>.";
       }
+      if (bannerWarnDetailsBtn) bannerWarnDetailsBtn.hidden = true;
       if (bannerRecheckBtn) bannerRecheckBtn.hidden = true;
       if (bannerPairBtn) bannerPairBtn.textContent = "⚡ Connect Razer Device";
     }
@@ -2502,6 +2598,7 @@
     protocolProbeErrorByPid.clear();
     protocolProbeFailedSigByPid.clear();
     protocolUsbClaimBlockedByPid.clear();
+    hidLimitationDismissedPids.clear();
     await refreshAuthorizedWebHidDevices();
     if (pickedFirst) {
       const pid = Number(pickedFirst.productId);
@@ -2583,6 +2680,7 @@
     protocolProbeErrorByPid.clear();
     protocolProbeFailedSigByPid.clear();
     protocolUsbClaimBlockedByPid.clear();
+    hidLimitationDismissedPids.clear();
     await refreshAuthorizedWebHidDevices();
     if (hasCompatibleDevice()) {
       await syncActiveSlotFromHardware({ quiet: false });
@@ -2739,7 +2837,12 @@
     protocolDeviceByPid.delete(numPid);
 
     const probeSig = `${hidList.length}:${usbList.length}`;
-    if (protocolProbeFailedSigByPid.get(numPid) === probeSig) return null;
+    if (protocolProbeFailedSigByPid.get(numPid) === probeSig) {
+      if (Number(selectedPid) === numPid && (hidList.length > 0 || usbList.length > 0)) {
+        openHidLimitationModal(numPid);
+      }
+      return null;
+    }
     if (protocolProbeByPid.has(numPid)) return protocolProbeByPid.get(numPid);
 
     const probe = (async () => {
@@ -2859,6 +2962,10 @@
       console.warn(
         `[websynap.se] PID 0x${numPid.toString(16)}: ${msg}\n  probe results: ${tried.join("; ") || "(no candidates)"}`
       );
+      if (Number(selectedPid) === numPid && (hidList.length > 0 || usbList.length > 0) && Protocol25.KNOWN_DEVICES[numPid]) {
+        updateWebHidStatusUI();
+        openHidLimitationModal(numPid);
+      }
       return null;
     })();
     protocolProbeByPid.set(numPid, probe);
@@ -4200,6 +4307,10 @@
       if (!res?.ok) {
         showToast(`Slot switch failed → ${res?.error || "no reply"}`, false);
         void playUiTone("error");
+        const curPid = Number(selectedPid);
+        if (!protocolDeviceByPid.has(curPid) && (webHidHandlesByPid.has(curPid) || webUsbDevicesByPid.has(curPid))) {
+          openHidLimitationModal(curPid, { force: true });
+        }
         return;
       }
       // 2. Verify (0x05/0x84) — the keyboard must report the new slot
@@ -5878,10 +5989,30 @@
       });
     });
 
-    // WebHID Pair Buttons
+    // WebHID Pair & Limitation Warning Modal Buttons
     document.getElementById("btnWebHidPair")?.addEventListener("click", pairWebHidDevices);
     document.getElementById("btnBannerPair")?.addEventListener("click", pairWebHidDevices);
     document.getElementById("btnBannerRecheck")?.addEventListener("click", recheckProtocol25);
+    document.getElementById("btnBannerWarnDetails")?.addEventListener("click", () => {
+      openHidLimitationModal(selectedPid, { force: true });
+    });
+    document.getElementById("btnCloseHidModal")?.addEventListener("click", () => closeHidLimitationModal(true));
+    document.getElementById("btnModalDismiss")?.addEventListener("click", () => closeHidLimitationModal(true));
+    document.getElementById("btnModalRecheck")?.addEventListener("click", () => {
+      closeHidLimitationModal(false);
+      void recheckProtocol25();
+    });
+    document.getElementById("hidLimitationModal")?.addEventListener("click", (ev) => {
+      if (ev.target && ev.target.id === "hidLimitationModal") {
+        closeHidLimitationModal(true);
+      }
+    });
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") {
+        const modal = document.getElementById("hidLimitationModal");
+        if (modal && !modal.hidden) closeHidLimitationModal(true);
+      }
+    });
     document.getElementById("btnCompatPair")?.addEventListener("click", pairWebHidDevices);
     document.getElementById("btnCompatCatalog")?.addEventListener("click", () => switchMainView("shelf"));
 
@@ -5891,6 +6022,19 @@
       const slotId = devProf.activeSlot || 1;
       const slotData = getActiveSlotData();
       persistDriverState();
+      const curPid = Number(selectedPid);
+      const pHandle = await resolveProtocol25Device(curPid);
+      if (!pHandle) {
+        if (webHidHandlesByPid.has(curPid) || webUsbDevicesByPid.has(curPid)) {
+          showToast("Onboard memory unavailable on this firmware/OS — changes were not flashed", false);
+          void playUiTone("error");
+          openHidLimitationModal(curPid, { force: true });
+        } else {
+          showToast("Connect a Razer device first to flash onboard slots", false);
+          void playUiTone("error");
+        }
+        return;
+      }
       await flashFullSlotToHardware(slotId, slotData);
       showToast(`Flashed configuration to Onboard Slot S${slotId}`);
       void playUiTone("success");
@@ -5904,6 +6048,17 @@
       renderProfileSlotBar();
       syncControlsFromSlot();
       renderOverviewPanels();
+      const curPid = Number(selectedPid);
+      const pHandle = await resolveProtocol25Device(curPid);
+      if (!pHandle) {
+        if (webHidHandlesByPid.has(curPid) || webUsbDevicesByPid.has(curPid)) {
+          showToast(`Reset local preview — onboard Slot S${slotId} was not modified`, false);
+          openHidLimitationModal(curPid, { force: true });
+        } else {
+          showToast(`Slot S${slotId} reset locally`);
+        }
+        return;
+      }
       await flashFullSlotToHardware(slotId, devProf.slots[slotId]);
       showToast(`Slot S${slotId} reset to factory defaults`);
     });

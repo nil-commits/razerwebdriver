@@ -2143,3 +2143,150 @@ select option {
   fill: rgb(var(--accent-rgb) / 0.28) !important;
   stroke: var(--accent) !important;
 }
+
+/* Limited WebHID Hardware / Firmware Warning Modal */
+.ws-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgb(5 7 10 / 0.76);
+  backdrop-filter: blur(8px);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  overflow-y: auto;
+}
+.ws-modal-backdrop[hidden] {
+  display: none !important;
+}
+.ws-modal-dialog {
+  width: min(620px, 100%);
+  border-radius: var(--r-lg);
+  background: var(--solid-1);
+  border: 1px solid rgb(255 179 0 / 0.48);
+  box-shadow: var(--lit), 0 24px 64px rgb(0 0 0 / 0.72);
+  overflow: hidden;
+  animation: wsModalPop 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes wsModalPop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.ws-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  background: linear-gradient(90deg, rgb(255 179 0 / 0.12), transparent 70%);
+  border-bottom: 1px solid var(--line-1);
+}
+.ws-modal-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ws-modal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--warn);
+  background: rgb(255 179 0 / 0.14);
+  border: 1px solid rgb(255 179 0 / 0.38);
+}
+.ws-modal-body {
+  padding: 18px 20px;
+  display: grid;
+  gap: 14px;
+}
+.ws-modal-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text-1);
+}
+.ws-modal-desc {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.ws-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 640px) {
+  .ws-modal-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.ws-modal-box {
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--well);
+  box-shadow: var(--inset-shadow);
+  border: 1px solid var(--line-1);
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.ws-modal-box.is-ok {
+  border-color: rgb(0 230 118 / 0.28);
+}
+.ws-modal-box.is-warn {
+  border-color: rgb(255 179 0 / 0.32);
+}
+.ws-modal-box-title {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text-1);
+}
+.ws-modal-box.is-ok .ws-modal-box-title {
+  color: var(--ok);
+}
+.ws-modal-box.is-warn .ws-modal-box-title {
+  color: var(--warn);
+}
+.ws-modal-list {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 6px;
+  font-size: 12.5px;
+  line-height: 1.48;
+  color: var(--text-2);
+}
+.ws-modal-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--surface-1);
+  border: 1px solid var(--line-1);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.ws-modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 12px 18px;
+  background: var(--solid-2);
+  border-top: 1px solid var(--line-1);
+}

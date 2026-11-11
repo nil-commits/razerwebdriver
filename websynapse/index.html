@@ -128,6 +128,7 @@
           </span>
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <button id="btnBannerWarnDetails" type="button" class="ws-btn is-sm" hidden title="View WebHID hardware &amp; firmware limitation details">⚠ Why can't I save?</button>
           <button id="btnBannerRecheck" type="button" class="ws-btn is-sm" hidden title="Re-check Protocol 25 onboard memory connection">↻ Re-check</button>
           <button id="btnBannerPair" type="button" class="ws-btn is-primary is-sm">⚡ Connect Razer Device</button>
         </div>
@@ -1435,6 +1436,48 @@
       </header>
       <div id="packetList" class="packet-list"></div>
     </aside>
+
+    <!-- Limited WebHID Hardware / Firmware Warning Popup Modal -->
+    <div id="hidLimitationModal" class="ws-modal-backdrop" role="alertdialog" aria-modal="true" aria-labelledby="hidModalTitle" aria-describedby="hidModalDesc" hidden>
+      <div class="ws-modal-dialog">
+        <header class="ws-modal-head">
+          <div class="ws-modal-badge-row">
+            <span class="ws-modal-badge">⚠ Limited WebHID Support</span>
+            <span id="hidModalDeviceTag" class="ws-meta">Razer USB Device</span>
+          </div>
+          <button id="btnCloseHidModal" type="button" class="ws-icon-btn" aria-label="Close warning dialog">✕</button>
+        </header>
+        <div class="ws-modal-body">
+          <h2 id="hidModalTitle" class="ws-modal-title">Hardware / Firmware Does Not Expose Full WebHID</h2>
+          <p id="hidModalDesc" class="ws-modal-desc">
+            Your connected Razer device's current firmware hides its onboard-memory control interface from the browser on this operating system, so permanent hardware writes are unavailable without a Razer firmware descriptor update.
+          </p>
+          <div class="ws-modal-grid">
+            <div class="ws-modal-box is-ok">
+              <div class="ws-modal-box-title">✓ Works in Preview Mode</div>
+              <ul class="ws-modal-list">
+                <li>Live Chroma RGB lighting preview via USB <code>LampArray</code> while this browser tab stays open.</li>
+                <li>Safe exit handoff — closing this tab returns your device to its stored hardware lighting without resetting your active slot.</li>
+              </ul>
+            </div>
+            <div class="ws-modal-box is-warn">
+              <div class="ws-modal-box-title">✕ Unavailable Without Full WebHID</div>
+              <ul class="ws-modal-list">
+                <li>Switching or saving onboard memory slots (<code>S1</code>–<code>S6</code>) so settings persist after closing the browser.</li>
+                <li>Key actuation point, Rapid Trigger, Snap Tap, polling rate, DPI stages, and hardware key remaps.</li>
+              </ul>
+            </div>
+          </div>
+          <p id="hidModalTechNote" class="ws-modal-note">
+            Technical detail: USB Protocol 25 Feature Report <code>0x00</code> is unreachable from browser WebHID on this firmware/OS combination.
+          </p>
+        </div>
+        <footer class="ws-modal-foot">
+          <button id="btnModalRecheck" type="button" class="ws-btn is-sm">↻ Re-check Device</button>
+          <button id="btnModalDismiss" type="button" class="ws-btn is-primary is-sm">Continue in Preview Mode</button>
+        </footer>
+      </div>
+    </div>
 
     <div id="toastContainer" class="toast-stack"></div>
   </div>
