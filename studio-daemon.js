@@ -474,15 +474,10 @@ function createStudioDaemon({ callNativeBridgeFast, getDriverState, saveDriverSt
         keyHookFn = (code) => {
           const ids = layout.byCode.get(code);
           if (!ids || ids.length === 0) return;
-          const origin = layout.lamps[ids[0]];
-          if (!origin) return;
-          for (let i = 0; i < lampCount; i++) {
-            const lm = layout.lamps[i];
-            const d = Math.hypot(lm.x - origin.x, lm.y - origin.y);
-            if (d < 1) {
-              heatCells[i] = Math.min(1, heatCells[i] + 0.58);
-            } else if (d < 44) {
-              heatCells[i] = Math.min(1, heatCells[i] + 0.28 * (1 - d / 44));
+          for (let i = 0; i < ids.length; i++) {
+            const id = ids[i];
+            if (id >= 0 && id < lampCount) {
+              heatCells[id] = Math.min(1, heatCells[id] + 0.55);
             }
           }
         };

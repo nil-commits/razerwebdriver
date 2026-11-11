@@ -3366,40 +3366,21 @@
         return true;
       }
 
-      // TYPING HEATMAP (Wootility Heatmap / QMK TYPING_HEATMAP): Keys heat up Secondary -> Primary -> White-hot as you type
+      // TYPING HEATMAP: Only the exact pressed key heats up Secondary -> Primary -> Hot as you press it
       if (effect === "heatmap") {
         ensureReactiveKeyListeners();
         const heatCells = new Float32Array(lampCount);
-        for (const seedLbl of ["W", "A", "S", "D", "SPACE", "F", "J", "E", "R"]) {
-          const ids = layout.byLabel.get(seedLbl);
-          if (ids && ids.length > 0) {
-            const origin = layout.lamps[ids[0]];
-            for (let i = 0; i < lampCount; i++) {
-              const lm = layout.lamps[i];
-              if (!lm || !origin) continue;
-              const d = Math.hypot(lm.x - origin.x, lm.y - origin.y);
-              if (d < 44) {
-                heatCells[i] = Math.min(1, heatCells[i] + 0.48 * Math.pow(1 - d / 44, 1.5));
-              }
-            }
-          }
-        }
 
         const injectHeat = (lampIds) => {
           if (isPageUnloading || !lampIds || lampIds.length === 0 || lampArrayGenByPid.get(numPid) !== gen) return;
-          const origin = layout.lamps[lampIds[0]];
-          if (!origin) return;
-          for (let i = 0; i < lampCount; i++) {
-            const lm = layout.lamps[i];
-            if (!lm) continue;
-            const d = Math.hypot(lm.x - origin.x, lm.y - origin.y);
-            if (d < 1) {
-              heatCells[i] = Math.min(1, heatCells[i] + 0.58);
-            } else if (d < 44) {
-              heatCells[i] = Math.min(1, heatCells[i] + 0.28 * (1 - d / 44));
+          for (let i = 0; i < lampIds.length; i++) {
+            const id = lampIds[i];
+            if (id >= 0 && id < lampCount) {
+              heatCells[id] = Math.min(1, heatCells[id] + 0.55);
             }
           }
-          if (origin.label) {
+          const origin = layout.lamps[lampIds[0]];
+          if (origin?.label) {
             const keyEl = document.querySelector(`.keycap[data-key="${CSS.escape(origin.label)}"]`);
             if (keyEl) {
               keyEl.classList.add("is-reactive-lit");
