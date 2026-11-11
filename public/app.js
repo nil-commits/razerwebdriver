@@ -1032,6 +1032,45 @@
     ];
   }
 
+  function parseFlexibleHex(raw) {
+    const cleaned = String(raw ?? "").trim().replace(/^#/, "");
+    if (/^[0-9a-fA-F]{6}$/.test(cleaned)) {
+      return `#${cleaned.toLowerCase()}`;
+    }
+    if (/^[0-9a-fA-F]{3}$/.test(cleaned)) {
+      return `#${cleaned[0]}${cleaned[0]}${cleaned[1]}${cleaned[1]}${cleaned[2]}${cleaned[2]}`.toLowerCase();
+    }
+    return null;
+  }
+
+  function hexToRgbTuple(hex, fallback = [0, 230, 118]) {
+    const safe = parseFlexibleHex(hex);
+    if (!safe) return fallback;
+    return [
+      parseInt(safe.slice(1, 3), 16),
+      parseInt(safe.slice(3, 5), 16),
+      parseInt(safe.slice(5, 7), 16),
+    ];
+  }
+
+  function rgbToHsv(r, g, b, fallbackHue = 0) {
+    const rn = clampNum(r, 0, 255, 0) / 255;
+    const gn = clampNum(g, 0, 255, 0) / 255;
+    const bn = clampNum(b, 0, 255, 0) / 255;
+    const max = Math.max(rn, gn, bn);
+    const min = Math.min(rn, gn, bn);
+    const d = max - min;
+    let h = fallbackHue;
+    if (d > 1e-6) {
+      if (max === rn) h = 60 * (((gn - bn) / d) % 6);
+      else if (max === gn) h = 60 * ((bn - rn) / d + 2);
+      else h = 60 * ((rn - gn) / d + 4);
+      h = ((h % 360) + 360) % 360;
+    }
+    const s = max <= 1e-6 ? 0 : d / max;
+    return { h, s, v: max };
+  }
+
   // Hardware-verified 87-Lamp Coordinate & Input-Binding Table for Razer Huntsman V3 Pro TKL (PID 0x02A7)
   // Extracted from USB HID LampArray Report IDs 1..3 (x/y in mm, usage = USB HID Keyboard Usage Page 0x07)
   const TKL_87_LAMPS = [
@@ -2288,7 +2327,7 @@
                 const randId = Math.floor(Math.random() * lampCount);
                 if (!stars.has(randId)) {
                   const dur = (speedMult === 1 ? 1500 : speedMult === 3 ? 650 : 1050) * (0.75 + Math.random() * 0.5);
-                  stars.set(randId, { bornAt: now, durationMs: dur, useSec: Math.random() < 0.35 });
+                  stars.set(randId, { bornAt: now, durationMs: dur, useSec: false });
                 }
               }
             }
@@ -5196,6 +5235,185 @@
     strip.innerHTML = cells.join("");
   }
 
+  const CUSTOM_SWATCHES_STORAGE_KEY = "websynapse.customSwatches.v1";
+  const NON_COLOR_CHROMA_EFFECTS = new Set(["off", "wave", "spectrum", "wheel", "fire", "disco"]);
+  const DUAL_COLOR_CHROMA_EFFECTS = new Set(["breathingDual", "scanner", "aurora", "gradient"]);
+  let activeChromaColorChannel = 1;
+  const chromaPickerHsv = {
+    1: { h: 151, s: 1, v: 0.902 },
+    2: { h: 191, s: 1, v: 1 },
+  };
+
+  function loadCustomSwatches() {
+    try {
+      const raw = localStorage.getItem(CUSTOM_SWATCHES_STORAGE_KEY);
+      if (!raw) return [];
+      const arr = safeJsonParse(raw, 4096);
+      if (!Array.isArray(arr)) return [];
+      const seen = new Set();
+      const out = [];
+      for (const item of arr) {
+        const safe = parseFlexibleHex(item);
+        if (safe && !seen.has(safe) && out.length < 10) {
+          seen.add(safe);
+          out.push(safe);
+        }
+      }
+      return out;
+    } catch {
+      return [];
+    }
+  }
+
+  function saveCustomSwatches(swatches) {
+    try {
+      localStorage.setItem(CUSTOM_SWATCHES_STORAGE_KEY, JSON.stringify(swatches.slice(0, 10)));
+    } catch {
+      // ignore storage quota errors
+    }
+  }
+
+  let customChromaSwatches = loadCustomSwatches();
+  let onCustomSwatchSelected = null;
+
+  function renderCustomSwatches(activeHex = "") {
+    const wrap = document.getElementById("customSwatchesWrap");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    const normActive = String(activeHex || "").toLowerCase();
+    customChromaSwatches.forEach((hex, idx) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `swatch custom-swatch${hex === normActive ? " active" : ""}`;
+      btn.dataset.color = hex;
+      btn.style.setProperty("--sw", hex);
+      btn.title = `Saved color ${hex.toUpperCase()} — Click to apply, Right-click or Shift+Click to delete`;
+      btn.addEventListener("click", (ev) => {
+        if (ev.shiftKey) {
+          ev.preventDefault();
+          customChromaSwatches.splice(idx, 1);
+          saveCustomSwatches(customChromaSwatches);
+          renderCustomSwatches(normActive);
+          return;
+        }
+        if (typeof onCustomSwatchSelected === "function") {
+          onCustomSwatchSelected(hex);
+        }
+      });
+      btn.addEventListener("contextmenu", (ev) => {
+        ev.preventDefault();
+        customChromaSwatches.splice(idx, 1);
+        saveCustomSwatches(customChromaSwatches);
+        renderCustomSwatches(normActive);
+      });
+      wrap.appendChild(btn);
+    });
+  }
+
+  function syncChromaColorStudioUi({ preserveActiveInputs = false, fromHsv = false } = {}) {
+    const slot = getActiveSlotData();
+    const light = slot?.lighting || {};
+    const c1 = sanitizeHexColor(light.color1, "#00e676");
+    const c2 = sanitizeHexColor(light.color2, "#00d2ff");
+    const eff = light.effect || "static";
+
+    const inpColor1 = document.getElementById("inpChromaColor");
+    const inpColor2 = document.getElementById("inpChromaColor2");
+    if (inpColor1) {
+      inpColor1.value = c1;
+      inpColor1.hidden = activeChromaColorChannel !== 1;
+    }
+    if (inpColor2) {
+      inpColor2.value = c2;
+      inpColor2.hidden = activeChromaColorChannel !== 2;
+    }
+
+    const chip1 = document.getElementById("chipChromaColor1");
+    if (chip1) chip1.style.setProperty("--chip", c1);
+    const chip2 = document.getElementById("chipChromaColor2");
+    if (chip2) chip2.style.setProperty("--chip", c2);
+    const lbl1 = document.getElementById("lblChromaHex1");
+    if (lbl1) lbl1.textContent = c1.toUpperCase();
+    const lbl2 = document.getElementById("lblChromaHex2");
+    if (lbl2) lbl2.textContent = c2.toUpperCase();
+
+    document.getElementById("btnColorChannel1")?.classList.toggle("active", activeChromaColorChannel === 1);
+    document.getElementById("btnColorChannel2")?.classList.toggle("active", activeChromaColorChannel === 2);
+
+    const activeHex = activeChromaColorChannel === 2 ? c2 : c1;
+    const [r, g, b] = hexToRgbTuple(activeHex, activeChromaColorChannel === 2 ? [0, 210, 255] : [0, 230, 118]);
+
+    if (!fromHsv) {
+      const curHsv = chromaPickerHsv[activeChromaColorChannel] || { h: 151, s: 1, v: 1 };
+      const [hr, hg, hb] = hsvToRgb(curHsv.h, curHsv.s, curHsv.v);
+      if (rgbToHex(hr, hg, hb).toLowerCase() !== activeHex.toLowerCase()) {
+        chromaPickerHsv[activeChromaColorChannel] = rgbToHsv(r, g, b, curHsv.h);
+      }
+    }
+
+    const hsv = chromaPickerHsv[activeChromaColorChannel] || { h: 151, s: 1, v: 1 };
+    const hueDeg = Math.round(((hsv.h % 360) + 360) % 360);
+    const plane = document.getElementById("chromaSvPlane");
+    if (plane) {
+      plane.style.setProperty("--picker-hue", String(hueDeg));
+    }
+    const thumb = document.getElementById("chromaSvThumb");
+    if (thumb) {
+      thumb.style.left = `${(hsv.s * 100).toFixed(2)}%`;
+      thumb.style.top = `${((1 - hsv.v) * 100).toFixed(2)}%`;
+      thumb.style.setProperty("--thumb-color", activeHex);
+    }
+    const rngHue = document.getElementById("rngChromaHue");
+    if (rngHue) {
+      rngHue.value = String(hueDeg);
+      rngHue.style.setProperty("--hue-thumb", `hsl(${hueDeg}, 100%, 50%)`);
+    }
+
+    const activeEl = document.activeElement;
+    const inpHex = document.getElementById("inpExactHex");
+    if (inpHex && (!preserveActiveInputs || activeEl !== inpHex)) {
+      inpHex.value = activeHex.toUpperCase();
+      inpHex.closest(".chroma-hex-field")?.classList.remove("is-invalid");
+    }
+    const inpR = document.getElementById("inpExactR");
+    if (inpR && (!preserveActiveInputs || activeEl !== inpR)) inpR.value = String(r);
+    const inpG = document.getElementById("inpExactG");
+    if (inpG && (!preserveActiveInputs || activeEl !== inpG)) inpG.value = String(g);
+    const inpB = document.getElementById("inpExactB");
+    if (inpB && (!preserveActiveInputs || activeEl !== inpB)) inpB.value = String(b);
+
+    document.querySelectorAll("#swatchRow > .swatch").forEach((s) => {
+      s.classList.toggle("active", (s.dataset.color || "").toLowerCase() === activeHex.toLowerCase());
+    });
+    renderCustomSwatches(activeHex);
+
+    const hintEl = document.getElementById("chromaColorModeHint");
+    if (hintEl) {
+      if (NON_COLOR_CHROMA_EFFECTS.has(eff)) {
+        hintEl.textContent =
+          activeChromaColorChannel === 2
+            ? "Preset effect — pick a color to switch to Dual Gradient"
+            : "Preset effect — pick a color to switch to Static";
+      } else if (DUAL_COLOR_CHROMA_EFFECTS.has(eff)) {
+        hintEl.textContent = "Uses Primary + Secondary colors";
+      } else if (activeChromaColorChannel === 2) {
+        hintEl.textContent = "Secondary applies to Dual / Aurora / Gradient / Scanner";
+      } else {
+        hintEl.textContent = `Editing Primary (${activeHex.toUpperCase()})`;
+      }
+    }
+
+    // Also sync ARGB Accessory exact color fields
+    const inpAccColor = document.getElementById("inpAccColor");
+    if (inpAccColor) inpAccColor.value = c1;
+    const chipAcc = document.getElementById("chipAccColor");
+    if (chipAcc) chipAcc.style.setProperty("--chip", c1);
+    const inpAccHex = document.getElementById("inpAccHex");
+    if (inpAccHex && (!preserveActiveInputs || activeEl !== inpAccHex)) {
+      inpAccHex.value = c1.toUpperCase();
+    }
+  }
+
   function syncControlsFromSlot() {
     const meta = getDeviceMeta(selectedPid);
     const cat = meta.category || "keyboard";
@@ -5230,16 +5448,10 @@
       document.getElementById("valBrightness").textContent = `${rngBr.value}%`;
       document.getElementById("valBrightnessOut").textContent = `${rngBr.value}%`;
     }
-    const inpColor = document.getElementById("inpChromaColor");
-    if (inpColor) inpColor.value = light.color1 || "#00e676";
-    const inpColor2 = document.getElementById("inpChromaColor2");
-    if (inpColor2) inpColor2.value = light.color2 || "#00d2ff";
     document.querySelectorAll("#effectGrid .preset-btn").forEach((b) => {
       b.classList.toggle("active", b.dataset.effect === (light.effect || "static"));
     });
-    document.querySelectorAll("#swatchRow .swatch").forEach((s) => {
-      s.classList.toggle("active", (s.dataset.color || "").toLowerCase() === (light.color1 || "#00e676").toLowerCase());
-    });
+    syncChromaColorStudioUi();
     document.querySelectorAll("#chromaDirGroup [data-chroma-dir]").forEach((b) => {
       b.classList.toggle("active", Number(b.dataset.chromaDir) === Number(light.waveDirection || 1));
     });
@@ -5514,9 +5726,9 @@
       const unlinked = showXY || st.x !== st.y;
       const row = document.createElement("div");
       row.className = `dpi-editor-row ${isActive ? "is-active" : ""}`;
-      if (!unlinked) {
-        row.style.gridTemplateColumns = "28px 46px 86px minmax(0, 1fr)";
-      }
+      row.style.gridTemplateColumns = unlinked
+        ? "28px 24px 42px 78px 28px 78px minmax(0, 1fr)"
+        : "28px 24px 42px 86px minmax(0, 1fr)";
 
       const safeStageColor = sanitizeHexColor(st.color, "#00e676");
       const safeX = clampNum(st.x, 100, 45000, 1600);
@@ -5525,8 +5737,11 @@
 
       row.innerHTML = `
         <input type="checkbox" class="dpi-enable-chk" ${st.enabled !== false ? "checked" : ""} title="Enable Stage ${stageNum}" />
+        <label class="dpi-stage-color-wrap" title="Pick exact indicator color for Stage ${stageNum} (${safeStageColor.toUpperCase()})">
+          <span class="dpi-stage-swatch" style="background:${safeStageColor};color:${safeStageColor}"></span>
+          <input type="color" class="dpi-stage-color-in" value="${safeStageColor}" aria-label="Stage ${stageNum} color" />
+        </label>
         <button type="button" class="dpi-editor-index" title="Click to set Stage ${stageNum} active">
-          <span class="dpi-stage-swatch" style="background:${safeStageColor}"></span>
           <span>0${stageNum}</span>
         </button>
         <input type="number" class="dpi-axis-input dpi-x-in" min="100" max="35000" step="50" value="${safeX}" title="X Axis DPI" />
@@ -5538,6 +5753,26 @@
         }
         <input type="range" class="dpi-row-rng" min="100" max="35000" step="50" value="${safeX}" style="--fill:${pct}%" />
       `;
+
+      const stageColorIn = row.querySelector(".dpi-stage-color-in");
+      const stageSwatchEl = row.querySelector(".dpi-stage-swatch");
+      const stageColorWrap = row.querySelector(".dpi-stage-color-wrap");
+      stageColorIn?.addEventListener("input", (ev) => {
+        const nextHex = sanitizeHexColor(ev.target.value, safeStageColor);
+        st.color = nextHex;
+        if (stageSwatchEl) {
+          stageSwatchEl.style.background = nextHex;
+          stageSwatchEl.style.color = nextHex;
+        }
+        if (stageColorWrap) {
+          stageColorWrap.title = `Pick exact indicator color for Stage ${stageNum} (${nextHex.toUpperCase()})`;
+        }
+      });
+      stageColorIn?.addEventListener("change", (ev) => {
+        st.color = sanitizeHexColor(ev.target.value, safeStageColor);
+        persistDriverState();
+        renderOverviewPanels();
+      });
 
       row.querySelector(".dpi-editor-index").addEventListener("click", () => {
         slot.activeStageIndex = stageNum;
@@ -6215,6 +6450,7 @@
         slot.lighting.brightness = Number(document.getElementById("rngBrightness")?.value ?? 100);
       }
       updateChromaVisuals();
+      syncChromaColorStudioUi({ preserveActiveInputs: true });
       if (!HARDWARE_NATIVE_CHROMA_EFFECTS.has(effect)) {
         persistDriverState();
         updateProfileKeyBox();
@@ -6321,66 +6557,283 @@
       });
     });
 
-    document.querySelectorAll("#swatchRow .swatch").forEach((sw) => {
+    // Precision Chroma Color Studio (2D HSV Plane + 360° Hue + Exact HEX/RGB + Eyedropper + Swatches)
+    let chromaDispatchTimer = null;
+    let lastChromaDispatchTs = 0;
+
+    const resolveColorizableEffect = (currentEff, channel) => {
+      if (!NON_COLOR_CHROMA_EFFECTS.has(currentEff)) return currentEff;
+      const nextEff = channel === 2 ? "gradient" : "static";
+      document.querySelectorAll("#effectGrid .preset-btn").forEach((b) => {
+        b.classList.toggle("active", b.dataset.effect === nextEff);
+      });
+      return nextEff;
+    };
+
+    const commitChromaChannelColor = (rawHex, { channel = activeChromaColorChannel, immediate = false, preserveActiveInputs = false, fromHsv = false } = {}) => {
+      const hex = sanitizeHexColor(rawHex, channel === 2 ? "#00d2ff" : "#00e676");
+      const slot = getActiveSlotData();
+      if (!slot.lighting) {
+        slot.lighting = { effect: "static", color1: "#00e676", color2: "#00d2ff", brightness: 100, speed: 2, waveDirection: 1 };
+      }
+      if (channel === 2) {
+        slot.lighting.color2 = hex;
+      } else {
+        slot.lighting.color1 = hex;
+      }
+      const curEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || slot.lighting.effect || "static";
+      const targetEff = resolveColorizableEffect(curEff, channel);
+      slot.lighting.effect = targetEff;
+
+      updateChromaVisuals();
+      syncChromaColorStudioUi({ preserveActiveInputs, fromHsv });
+
+      const c1 = slot.lighting.color1 || "#00e676";
+      const c2 = slot.lighting.color2 || "#00d2ff";
+      const dispatchNow = () => {
+        clearTimeout(chromaDispatchTimer);
+        chromaDispatchTimer = null;
+        lastChromaDispatchTs = performance.now();
+        sendChroma(targetEff, c1, c2, { silentParamUpdate: true });
+      };
+
+      if (immediate) {
+        dispatchNow();
+        return;
+      }
+      const elapsed = performance.now() - lastChromaDispatchTs;
+      if (elapsed >= 42) {
+        dispatchNow();
+      } else {
+        clearTimeout(chromaDispatchTimer);
+        chromaDispatchTimer = setTimeout(dispatchNow, Math.max(12, 42 - elapsed));
+      }
+    };
+
+    onCustomSwatchSelected = (hex) => {
+      commitChromaChannelColor(hex, { immediate: true });
+    };
+
+    document.getElementById("btnColorChannel1")?.addEventListener("click", () => {
+      activeChromaColorChannel = 1;
+      syncChromaColorStudioUi();
+    });
+    document.getElementById("btnColorChannel2")?.addEventListener("click", () => {
+      activeChromaColorChannel = 2;
+      syncChromaColorStudioUi();
+    });
+
+    document.getElementById("btnSwapChromaColors")?.addEventListener("click", () => {
+      const slot = getActiveSlotData();
+      if (!slot.lighting) slot.lighting = {};
+      const prev1 = sanitizeHexColor(slot.lighting.color1, "#00e676");
+      const prev2 = sanitizeHexColor(slot.lighting.color2, "#00d2ff");
+      slot.lighting.color1 = prev2;
+      slot.lighting.color2 = prev1;
+      const tmpHsv = { ...chromaPickerHsv[1] };
+      chromaPickerHsv[1] = { ...chromaPickerHsv[2] };
+      chromaPickerHsv[2] = tmpHsv;
+      const curEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || slot.lighting.effect || "static";
+      const targetEff = resolveColorizableEffect(curEff, activeChromaColorChannel);
+      sendChroma(targetEff, prev2, prev1, { silentParamUpdate: true });
+    });
+
+    // Interactive 2D Saturation/Value (Brightness) Spectrum Plane
+    const svPlane = document.getElementById("chromaSvPlane");
+    if (svPlane) {
+      let draggingSv = false;
+      const updateFromPointer = (ev, immediate = false) => {
+        const rect = svPlane.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        const s = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+        const v = Math.max(0, Math.min(1, 1 - (ev.clientY - rect.top) / rect.height));
+        const hsv = chromaPickerHsv[activeChromaColorChannel] || { h: 151, s: 1, v: 1 };
+        hsv.s = s;
+        hsv.v = v;
+        chromaPickerHsv[activeChromaColorChannel] = hsv;
+        const [r, g, b] = hsvToRgb(hsv.h, hsv.s, hsv.v);
+        commitChromaChannelColor(rgbToHex(r, g, b), { immediate, fromHsv: true });
+      };
+
+      svPlane.addEventListener("pointerdown", (ev) => {
+        if (ev.button !== 0 && ev.pointerType === "mouse") return;
+        draggingSv = true;
+        try {
+          svPlane.setPointerCapture(ev.pointerId);
+        } catch {
+          // ignore pointer capture failure
+        }
+        svPlane.focus({ preventScroll: true });
+        updateFromPointer(ev, false);
+      });
+      svPlane.addEventListener("pointermove", (ev) => {
+        if (!draggingSv) return;
+        updateFromPointer(ev, false);
+      });
+      const finishSvDrag = (ev) => {
+        if (!draggingSv) return;
+        draggingSv = false;
+        try {
+          svPlane.releasePointerCapture(ev.pointerId);
+        } catch {
+          // ignore
+        }
+        updateFromPointer(ev, true);
+      };
+      svPlane.addEventListener("pointerup", finishSvDrag);
+      svPlane.addEventListener("pointercancel", finishSvDrag);
+
+      svPlane.addEventListener("keydown", (ev) => {
+        const step = ev.shiftKey ? 0.05 : 0.01;
+        const hsv = chromaPickerHsv[activeChromaColorChannel] || { h: 151, s: 1, v: 1 };
+        let handled = true;
+        if (ev.key === "ArrowLeft") hsv.s = Math.max(0, hsv.s - step);
+        else if (ev.key === "ArrowRight") hsv.s = Math.min(1, hsv.s + step);
+        else if (ev.key === "ArrowUp") hsv.v = Math.min(1, hsv.v + step);
+        else if (ev.key === "ArrowDown") hsv.v = Math.max(0, hsv.v - step);
+        else handled = false;
+        if (handled) {
+          ev.preventDefault();
+          chromaPickerHsv[activeChromaColorChannel] = hsv;
+          const [r, g, b] = hsvToRgb(hsv.h, hsv.s, hsv.v);
+          commitChromaChannelColor(rgbToHex(r, g, b), { immediate: true, fromHsv: true });
+        }
+      });
+    }
+
+    // 360-degree Hue Slider
+    const rngHue = document.getElementById("rngChromaHue");
+    const applyHueSlider = (immediate) => {
+      if (!rngHue) return;
+      const hue = clampNum(rngHue.value, 0, 360, 151);
+      const hsv = chromaPickerHsv[activeChromaColorChannel] || { h: hue, s: 1, v: 1 };
+      hsv.h = hue;
+      // If user was on pure white/black/gray (s=0 or v=0) and drags Hue, give full saturation/value so hue change is immediately visible
+      if (hsv.s < 0.02) hsv.s = 1;
+      if (hsv.v < 0.05) hsv.v = 1;
+      chromaPickerHsv[activeChromaColorChannel] = hsv;
+      const [r, g, b] = hsvToRgb(hsv.h, hsv.s, hsv.v);
+      commitChromaChannelColor(rgbToHex(r, g, b), { immediate, fromHsv: true });
+    };
+    rngHue?.addEventListener("input", () => applyHueSlider(false));
+    rngHue?.addEventListener("change", () => applyHueSlider(true));
+
+    // Exact #RRGGBB Hex Input
+    const inpExactHex = document.getElementById("inpExactHex");
+    inpExactHex?.addEventListener("input", () => {
+      const raw = inpExactHex.value.trim();
+      const cleaned = raw.replace(/^#/, "");
+      const fieldWrap = inpExactHex.closest(".chroma-hex-field");
+      if (/^[0-9a-fA-F]{6}$/.test(cleaned)) {
+        fieldWrap?.classList.remove("is-invalid");
+        commitChromaChannelColor(`#${cleaned.toLowerCase()}`, { immediate: false, preserveActiveInputs: true });
+      } else {
+        fieldWrap?.classList.toggle("is-invalid", cleaned.length > 0 && !/^[0-9a-fA-F]{1,6}$/.test(cleaned));
+      }
+    });
+    const finalizeExactHex = () => {
+      if (!inpExactHex) return;
+      const parsed = parseFlexibleHex(inpExactHex.value);
+      const fieldWrap = inpExactHex.closest(".chroma-hex-field");
+      fieldWrap?.classList.remove("is-invalid");
+      if (parsed) {
+        inpExactHex.value = parsed.toUpperCase();
+        commitChromaChannelColor(parsed, { immediate: true });
+      } else {
+        syncChromaColorStudioUi();
+      }
+    };
+    inpExactHex?.addEventListener("change", finalizeExactHex);
+    inpExactHex?.addEventListener("blur", finalizeExactHex);
+    inpExactHex?.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        finalizeExactHex();
+      }
+    });
+
+    // Exact R / G / B (0–255) Numeric Inputs
+    const inpExactR = document.getElementById("inpExactR");
+    const inpExactG = document.getElementById("inpExactG");
+    const inpExactB = document.getElementById("inpExactB");
+    const handleExactRgbInput = (immediate) => {
+      const r = clampNum(inpExactR?.value, 0, 255, 0);
+      const g = clampNum(inpExactG?.value, 0, 255, 0);
+      const b = clampNum(inpExactB?.value, 0, 255, 0);
+      if (immediate) {
+        if (inpExactR) inpExactR.value = String(Math.round(r));
+        if (inpExactG) inpExactG.value = String(Math.round(g));
+        if (inpExactB) inpExactB.value = String(Math.round(b));
+      }
+      commitChromaChannelColor(rgbToHex(Math.round(r), Math.round(g), Math.round(b)), {
+        immediate,
+        preserveActiveInputs: !immediate,
+      });
+    };
+    [inpExactR, inpExactG, inpExactB].forEach((el) => {
+      el?.addEventListener("input", () => handleExactRgbInput(false));
+      el?.addEventListener("change", () => handleExactRgbInput(true));
+    });
+
+    // Screen Eyedropper (Chromium EyeDropper API)
+    const btnEyedropper = document.getElementById("btnChromaEyedropper");
+    if (btnEyedropper) {
+      if (typeof window.EyeDropper !== "function") {
+        btnEyedropper.hidden = true;
+      } else {
+        btnEyedropper.addEventListener("click", async () => {
+          try {
+            const dropper = new window.EyeDropper();
+            const res = await dropper.open();
+            const picked = parseFlexibleHex(res?.sRGBHex);
+            if (picked) {
+              commitChromaChannelColor(picked, { immediate: true });
+              showToast(`${activeChromaColorChannel === 2 ? "Secondary" : "Primary"} color → ${picked.toUpperCase()}`);
+            }
+          } catch {
+            // user cancelled eyedropper
+          }
+        });
+      }
+    }
+
+    // Preset Swatches & Custom Saved Swatches
+    document.querySelectorAll("#swatchRow > .swatch").forEach((sw) => {
       sw.addEventListener("click", () => {
-        document.querySelectorAll("#swatchRow .swatch").forEach((s) => s.classList.remove("active"));
-        sw.classList.add("active");
-        const c = sw.dataset.color;
-        document.getElementById("inpChromaColor").value = c;
-        const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
-        sendChroma(activeEff, c, document.getElementById("inpChromaColor2")?.value || "#00d2ff", { silentParamUpdate: true });
+        const c = parseFlexibleHex(sw.dataset.color);
+        if (c) {
+          commitChromaChannelColor(c, { immediate: true });
+        }
       });
     });
 
-    let chromaColorTimer = null;
+    document.getElementById("btnSaveCustomSwatch")?.addEventListener("click", () => {
+      const slot = getActiveSlotData();
+      const hex = sanitizeHexColor(
+        activeChromaColorChannel === 2 ? slot.lighting?.color2 : slot.lighting?.color1,
+        "#00e676"
+      );
+      if (!customChromaSwatches.includes(hex)) {
+        if (customChromaSwatches.length >= 10) customChromaSwatches.shift();
+        customChromaSwatches.push(hex);
+        saveCustomSwatches(customChromaSwatches);
+      }
+      renderCustomSwatches(hex);
+      showToast(`Saved custom swatch ${hex.toUpperCase()}`);
+    });
+
+    // Native OS Color Dialog inputs (#inpChromaColor & #inpChromaColor2)
     document.getElementById("inpChromaColor")?.addEventListener("input", (ev) => {
-      const c = ev.target.value;
-      const slot = getActiveSlotData();
-      if (!slot.lighting) slot.lighting = {};
-      slot.lighting.color1 = c;
-      document.querySelectorAll("#swatchRow .swatch").forEach((s) => {
-        s.classList.toggle("active", (s.dataset.color || "").toLowerCase() === c.toLowerCase());
-      });
-      updateChromaVisuals();
-      clearTimeout(chromaColorTimer);
-      chromaColorTimer = setTimeout(() => {
-        const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
-        sendChroma(activeEff, c, document.getElementById("inpChromaColor2")?.value || slot.lighting.color2 || "#00d2ff", {
-          silentParamUpdate: true,
-        });
-      }, 45);
+      commitChromaChannelColor(ev.target.value, { channel: 1, immediate: false });
     });
-
     document.getElementById("inpChromaColor")?.addEventListener("change", (ev) => {
-      clearTimeout(chromaColorTimer);
-      const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
-      sendChroma(activeEff, ev.target.value, document.getElementById("inpChromaColor2")?.value || "#00d2ff", {
-        silentParamUpdate: true,
-      });
+      commitChromaChannelColor(ev.target.value, { channel: 1, immediate: true });
     });
-
-    let chromaColor2Timer = null;
     document.getElementById("inpChromaColor2")?.addEventListener("input", (ev) => {
-      const c2 = ev.target.value;
-      const slot = getActiveSlotData();
-      if (!slot.lighting) slot.lighting = {};
-      slot.lighting.color2 = c2;
-      updateChromaVisuals();
-      clearTimeout(chromaColor2Timer);
-      chromaColor2Timer = setTimeout(() => {
-        const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
-        sendChroma(activeEff, document.getElementById("inpChromaColor")?.value || slot.lighting.color1 || "#00e676", c2, {
-          silentParamUpdate: true,
-        });
-      }, 45);
+      commitChromaChannelColor(ev.target.value, { channel: 2, immediate: false });
     });
-
     document.getElementById("inpChromaColor2")?.addEventListener("change", (ev) => {
-      clearTimeout(chromaColor2Timer);
-      const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
-      sendChroma(activeEff, document.getElementById("inpChromaColor")?.value || "#00e676", ev.target.value, {
-        silentParamUpdate: true,
-      });
+      commitChromaChannelColor(ev.target.value, { channel: 2, immediate: true });
     });
 
     const rngBr = document.getElementById("rngBrightness");
@@ -7194,13 +7647,51 @@
       });
     });
 
-    document.getElementById("inpAccColor")?.addEventListener("change", (ev) => {
-      const c = ev.target.value;
+    const applyAccExactColor = (rawHex, immediate = true) => {
+      const parsed = parseFlexibleHex(rawHex);
+      if (!parsed) return;
       const slot = getActiveSlotData();
       if (!slot.lighting) slot.lighting = {};
-      slot.lighting.color1 = c;
+      slot.lighting.color1 = parsed;
+      const curEff = slot.lighting.effect || "wave";
+      if (NON_COLOR_CHROMA_EFFECTS.has(curEff)) {
+        slot.lighting.effect = "static";
+        document.querySelectorAll("#accEffectRow [data-acc-effect]").forEach((b) => {
+          b.classList.toggle("active", b.dataset.accEffect === "static");
+        });
+      }
+      const chipAcc = document.getElementById("chipAccColor");
+      if (chipAcc) chipAcc.style.setProperty("--chip", parsed);
+      const inpAccColor = document.getElementById("inpAccColor");
+      if (inpAccColor) inpAccColor.value = parsed;
+      const inpAccHex = document.getElementById("inpAccHex");
+      if (inpAccHex && document.activeElement !== inpAccHex) inpAccHex.value = parsed.toUpperCase();
       renderAccessoryZoneStrip();
-      sendChroma(slot.lighting.effect || "wave", c);
+      if (immediate) {
+        sendChroma(slot.lighting.effect || "static", parsed);
+      }
+    };
+
+    document.getElementById("inpAccColor")?.addEventListener("input", (ev) => {
+      applyAccExactColor(ev.target.value, false);
+    });
+    document.getElementById("inpAccColor")?.addEventListener("change", (ev) => {
+      applyAccExactColor(ev.target.value, true);
+    });
+    document.getElementById("inpAccHex")?.addEventListener("input", (ev) => {
+      const cleaned = ev.target.value.trim().replace(/^#/, "");
+      if (/^[0-9a-fA-F]{6}$/.test(cleaned)) {
+        applyAccExactColor(`#${cleaned.toLowerCase()}`, false);
+      }
+    });
+    document.getElementById("inpAccHex")?.addEventListener("change", (ev) => {
+      const parsed = parseFlexibleHex(ev.target.value);
+      if (parsed) {
+        ev.target.value = parsed.toUpperCase();
+        applyAccExactColor(parsed, true);
+      } else {
+        syncChromaColorStudioUi();
+      }
     });
 
     window.addEventListener("resize", () => renderChromaBackdrop(false));

@@ -649,21 +649,76 @@
                   </div>
                 </div>
 
-                <div class="swatch-row" id="swatchRow">
-                  <button type="button" class="swatch active" data-color="#00e676" style="--sw:#00e676" title="Razer Green"></button>
-                  <button type="button" class="swatch" data-color="#00d2ff" style="--sw:#00d2ff" title="Cyber Cyan"></button>
-                  <button type="button" class="swatch" data-color="#a78bfa" style="--sw:#a78bfa" title="Ultraviolet"></button>
-                  <button type="button" class="swatch" data-color="#ff3b30" style="--sw:#ff3b30" title="Crimson Red"></button>
-                  <button type="button" class="swatch" data-color="#ffcc00" style="--sw:#ffcc00" title="Optical Amber"></button>
-                  <button type="button" class="swatch" data-color="#ffffff" style="--sw:#ffffff" title="Mercury White"></button>
-                  <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text-3);margin-left:4px;" title="Primary Color">
-                    <span>1st</span>
-                    <input type="color" id="inpChromaColor" value="#00e676" style="width:28px;height:28px;cursor:pointer;" />
-                  </label>
-                  <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text-3);" title="Secondary Color (Breathing Dual, Starlight, Aurora, Gradient, Scanner)">
-                    <span>2nd</span>
-                    <input type="color" id="inpChromaColor2" value="#00d2ff" style="width:28px;height:28px;cursor:pointer;" />
-                  </label>
+                <div class="chroma-color-studio" id="chromaColorStudio">
+                  <div class="chroma-studio-top">
+                    <div class="chroma-channel-bar" role="tablist" aria-label="Color channels">
+                      <button type="button" class="chroma-channel-pill active" id="btnColorChannel1" data-color-channel="1" title="Edit Primary Color (Color 1)">
+                        <span class="chroma-channel-dot" id="chipChromaColor1" style="--chip:#00e676"></span>
+                        <span class="chroma-channel-meta">
+                          <span class="chroma-channel-title">Primary</span>
+                          <span class="chroma-channel-hex" id="lblChromaHex1">#00E676</span>
+                        </span>
+                      </button>
+                      <button type="button" class="chroma-swap-btn" id="btnSwapChromaColors" title="Swap Primary &amp; Secondary colors" aria-label="Swap Primary and Secondary colors">⇄</button>
+                      <button type="button" class="chroma-channel-pill" id="btnColorChannel2" data-color-channel="2" title="Edit Secondary Color (Breathing Dual, Cyber Scanner, Northern Aurora, Dual Gradient)">
+                        <span class="chroma-channel-dot" id="chipChromaColor2" style="--chip:#00d2ff"></span>
+                        <span class="chroma-channel-meta">
+                          <span class="chroma-channel-title">Secondary</span>
+                          <span class="chroma-channel-hex" id="lblChromaHex2">#00D2FF</span>
+                        </span>
+                      </button>
+                    </div>
+                    <span class="chroma-mode-hint" id="chromaColorModeHint">Editing Primary color</span>
+                  </div>
+
+                  <div class="chroma-sv-plane" id="chromaSvPlane" tabindex="0" role="slider" aria-label="Saturation and brightness picker" style="--picker-hue:151">
+                    <div class="chroma-sv-thumb" id="chromaSvThumb" style="left:100%;top:9.8%;--thumb-color:#00e676"></div>
+                  </div>
+
+                  <div class="chroma-hue-wrap">
+                    <input type="range" class="chroma-hue-slider" id="rngChromaHue" min="0" max="360" step="1" value="151" aria-label="Color hue (0 to 360 degrees)" />
+                  </div>
+
+                  <div class="chroma-exact-inputs">
+                    <label class="chroma-hex-field" title="Exact 24-bit Hex color (#RRGGBB)">
+                      <span class="chroma-field-tag">HEX</span>
+                      <input type="text" id="inpExactHex" value="#00E676" maxlength="7" spellcheck="false" autocomplete="off" />
+                    </label>
+                    <label class="chroma-rgb-field" title="Red channel (0–255)">
+                      <span class="chroma-field-tag">R</span>
+                      <input type="number" id="inpExactR" min="0" max="255" step="1" value="0" />
+                    </label>
+                    <label class="chroma-rgb-field" title="Green channel (0–255)">
+                      <span class="chroma-field-tag">G</span>
+                      <input type="number" id="inpExactG" min="0" max="255" step="1" value="230" />
+                    </label>
+                    <label class="chroma-rgb-field" title="Blue channel (0–255)">
+                      <span class="chroma-field-tag">B</span>
+                      <input type="number" id="inpExactB" min="0" max="255" step="1" value="118" />
+                    </label>
+                    <button type="button" class="chroma-tool-btn" id="btnChromaEyedropper" title="Pick exact pixel color from screen" aria-label="Screen Eyedropper">💧</button>
+                    <label class="chroma-tool-btn chroma-native-well" id="lblNativeColorWell" title="Open OS color dialog">
+                      <span>🎨</span>
+                      <input type="color" id="inpChromaColor" value="#00e676" aria-label="Primary OS color picker" />
+                      <input type="color" id="inpChromaColor2" value="#00d2ff" aria-label="Secondary OS color picker" hidden />
+                    </label>
+                  </div>
+
+                  <div class="swatch-row" id="swatchRow">
+                    <button type="button" class="swatch active" data-color="#00e676" style="--sw:#00e676" title="Razer Green (#00E676)"></button>
+                    <button type="button" class="swatch" data-color="#00d2ff" style="--sw:#00d2ff" title="Cyber Cyan (#00D2FF)"></button>
+                    <button type="button" class="swatch" data-color="#2979ff" style="--sw:#2979ff" title="Electric Blue (#2979FF)"></button>
+                    <button type="button" class="swatch" data-color="#a78bfa" style="--sw:#a78bfa" title="Ultraviolet (#A78BFA)"></button>
+                    <button type="button" class="swatch" data-color="#ff007f" style="--sw:#ff007f" title="Neon Rose (#FF007F)"></button>
+                    <button type="button" class="swatch" data-color="#ff3b30" style="--sw:#ff3b30" title="Crimson Red (#FF3B30)"></button>
+                    <button type="button" class="swatch" data-color="#ff6d00" style="--sw:#ff6d00" title="Solar Orange (#FF6D00)"></button>
+                    <button type="button" class="swatch" data-color="#ffcc00" style="--sw:#ffcc00" title="Optical Amber (#FFCC00)"></button>
+                    <button type="button" class="swatch" data-color="#c6ff00" style="--sw:#c6ff00" title="Acid Volt (#C6FF00)"></button>
+                    <button type="button" class="swatch" data-color="#ffffff" style="--sw:#ffffff" title="Mercury White (#FFFFFF)"></button>
+                    <span class="swatch-divider" aria-hidden="true"></span>
+                    <div class="custom-swatches-wrap" id="customSwatchesWrap"></div>
+                    <button type="button" class="swatch-add-btn" id="btnSaveCustomSwatch" title="Save current exact color as a custom preset (right-click saved swatch to remove)">+</button>
+                  </div>
                 </div>
 
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
@@ -1060,7 +1115,26 @@
                 <output id="valAccLedCountBadge" class="val-pill">15 Addressable Zones</output>
               </div>
               <div style="display:grid;gap:14px;">
-                <div id="accessoryZoneStrip" style="display:grid;grid-template-columns:repeat(15,1fr);gap:6px;padding:12px;background:rgba(0,0,0,0.35);border-radius:10px;border:1px solid var(--line-1);"></div>
+                <div id="accZonePreviewStrip" style="display:flex;flex-wrap:wrap;gap:6px;padding:12px;background:rgba(0,0,0,0.35);border-radius:10px;border:1px solid var(--line-1);"></div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                  <div class="preset-group" id="accEffectRow">
+                    <button type="button" class="preset-btn active" data-acc-effect="wave">Wave</button>
+                    <button type="button" class="preset-btn" data-acc-effect="spectrum">Spectrum</button>
+                    <button type="button" class="preset-btn" data-acc-effect="static">Static</button>
+                    <button type="button" class="preset-btn" data-acc-effect="breathing">Breathing</button>
+                    <button type="button" class="preset-btn" data-acc-effect="off">Off</button>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:8px;">
+                    <label class="chroma-hex-field" title="Exact Hex color (#RRGGBB)">
+                      <span class="chroma-field-tag">HEX</span>
+                      <input type="text" id="inpAccHex" value="#00E676" maxlength="7" spellcheck="false" autocomplete="off" />
+                    </label>
+                    <label class="chroma-tool-btn chroma-native-well" title="Pick Accessory RGB color">
+                      <span class="chroma-channel-dot" id="chipAccColor" style="--chip:#00e676"></span>
+                      <input type="color" id="inpAccColor" value="#00e676" aria-label="Accessory color picker" />
+                    </label>
+                  </div>
+                </div>
                 <div class="stepper-slider">
                   <div class="stepper-slider-head">
                     <span class="stepper-slider-title">Addressable LED Zone Count</span>
