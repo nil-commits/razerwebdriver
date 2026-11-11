@@ -21,6 +21,7 @@ const PUBLIC_ALLOWLIST = new Set([
   "/app.js",
   "/protocol25.js",
   "/timer-worker.js",
+  "/websynapse-bridge.cmd",
   "/LICENSE",
   "/fonts/DMSans-Variable.ttf",
   "/fonts/DM-Sans-OFL.txt",
@@ -31,6 +32,7 @@ const MIME = {
   ".css": "text/css; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".cmd": "application/octet-stream",
   ".ttf": "font/ttf",
   ".txt": "text/plain; charset=utf-8",
   ".svg": "image/svg+xml",
@@ -69,7 +71,7 @@ http
     res.writeHead(200, {
       "Content-Type": MIME[ext] || "text/plain; charset=utf-8",
       "Content-Security-Policy":
-        "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; font-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; frame-src 'none'; frame-ancestors 'none'; worker-src 'self' blob:; base-uri 'none'; form-action 'none';",
+        "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:18925 http://localhost:18925; font-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; frame-src 'none'; frame-ancestors 'none'; worker-src 'self' blob:; base-uri 'none'; form-action 'none';",
       "Permissions-Policy":
         "hid=(self), usb=(self), serial=(), bluetooth=(), camera=(), microphone=(), geolocation=(), payment=()",
       "X-Content-Type-Options": "nosniff",

@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; font-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; frame-src 'none'; worker-src 'self' blob:; base-uri 'none'; form-action 'none';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:18925 http://localhost:18925; font-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; frame-src 'none'; worker-src 'self' blob:; base-uri 'none'; form-action 'none';" />
   <meta name="referrer" content="no-referrer" />
   <meta name="color-scheme" content="dark" />
-  <title>websynap.se · Zero-Install Razer WebHID/WebUSB Configurator</title>
+  <title>websynap.se · Zero-Install Razer WebHID Configurator</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
@@ -100,10 +100,10 @@
           <span id="activeProfileNameTag" class="slot-name-tag">Default Profile</span>
         </div>
         <div class="ws-topbar-actions">
-          <button id="btnWebUsbPair" type="button" class="ws-btn is-primary is-sm" title="Pair Razer Protocol 25 control interface via WebUSB to read &amp; save onboard memory slots">
-            ⚡ Connect WebUSB (Onboard Save)
+          <button id="btnConnectBridge" type="button" class="ws-btn is-primary is-sm" title="Connect to local websynapse-bridge.cmd (127.0.0.1:18925) to read &amp; save onboard memory slots on Windows">
+            ⚡ Connect Local Bridge
           </button>
-          <button id="btnWebHidPair" type="button" class="ws-btn is-sm" title="Pair Razer HID / LampArray interface via WebHID">
+          <button id="btnWebHidPair" type="button" class="ws-btn is-sm" title="Pair Razer HID / LampArray interface directly via WebHID">
             Connect WebHID
           </button>
           <button id="btnSaveSlot" type="button" class="ws-btn is-sm" title="Flash current slot to device onboard memory">
@@ -122,35 +122,38 @@
         </div>
       </header>
 
-      <!-- WebHID / WebUSB Status & Onboard Memory Setup Banner -->
+      <!-- WebHID / Local Bridge Status & Onboard Memory Setup Banner -->
       <div id="webHidStatusBanner" class="ws-panel" style="margin:14px 22px 0;padding:12px 16px;display:flex;flex-direction:column;gap:8px;border-color:rgba(93,222,137,0.35);">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
           <div style="display:flex;align-items:center;gap:10px;font-size:13px;flex:1;min-width:240px;">
             <span class="ws-dot" id="bannerDot"></span>
             <span id="bannerStatusText">
-              <strong>Checking WebHID/WebUSB compatibility…</strong> — This configurator runs in any Chromium-based browser via WebHID or WebUSB.
+              <strong>Checking browser &amp; local USB bridge…</strong> — Configure Razer onboard memory via WebHID or the lightweight Windows Local Bridge.
             </span>
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <button id="btnBannerWarnDetails" type="button" class="ws-btn is-sm" hidden title="View WebHID hardware &amp; Zadig WebUSB setup details">⚠ Setup / Why can't I save?</button>
+            <button id="btnBannerWarnDetails" type="button" class="ws-btn is-sm" hidden title="View WebHID hardware &amp; Local Bridge setup details">⚠ Setup / Why can't I save?</button>
             <button id="btnBannerRecheck" type="button" class="ws-btn is-sm" hidden title="Re-check Protocol 25 onboard memory connection">↻ Re-check</button>
-            <button id="btnBannerPair" type="button" class="ws-btn is-primary is-sm">⚡ Connect WebUSB</button>
+            <button id="btnBannerPair" type="button" class="ws-btn is-primary is-sm">⚡ Connect Device</button>
           </div>
         </div>
         <details id="winUsbSetupGuide" hidden style="padding-top:8px;border-top:1px solid var(--line-1);font-size:12.5px;line-height:1.55;color:var(--text-2);">
           <summary style="cursor:pointer;font-weight:600;color:var(--text-1);user-select:none;">
-            Windows Setup (30s one-time): Enable Onboard Memory Saving via Zadig + WebUSB (<code id="winUsbTargetLabel">Interface 3</code>)
+            Windows 1.xx Firmware? Enable Full Onboard Slot Saving with Zero-Admin Local Bridge (<code id="winUsbTargetLabel">Interface 3</code>)
           </summary>
-          <div style="margin-top:8px;display:grid;gap:6px;">
+          <div style="margin-top:8px;display:grid;gap:8px;">
             <div>
-              On 1st-gen firmware, Windows hides Razer's Protocol 25 onboard-memory interface (<code>MI_03</code>) from WebHID. Binding <b>WinUSB</b> to <b id="winUsbInterfaceName">Razer Huntsman V3 Pro Tenkeyless (Interface 3)</b> unlocks full onboard NVRAM read/write (slots <code>S1</code>–<code>S6</code>, Chroma, actuation, Rapid Trigger, Snap Tap) while keeping normal typing (<code>Interface 0</code>) and LampArray RGB (<code>Interface 4</code>) completely untouched:
+              On 1st-gen firmware, Windows hides Razer's Protocol 25 onboard-memory interface (<code>MI_03</code>) from WebHID and blocks WebUSB <code>claimInterface</code> on HID class <code>0x03</code>. Our tiny single-file <b>Local USB Bridge</b> (<code>websynapse-bridge.cmd</code>) uses built-in Windows HID/WinUSB APIs with <b>no admin prompt, no Zadig/driver changes, and no installs</b>:
             </div>
             <ol style="margin:2px 0 2px 18px;padding:0;display:grid;gap:3px;">
-              <li>Open <a href="https://zadig.akeo.ie/" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:underline;">Zadig (zadig.akeo.ie)</a> and click <b>Options → List All Devices</b> (keep <i>Ignore Hubs or Composite Parents</i> checked).</li>
-              <li>In the dropdown, select <code id="winUsbZadigEntry">Razer Huntsman V3 Pro Tenkeyless (Interface 3)</code> — <b>only</b> choose <code id="winUsbMiCode">Interface 3</code> (<code>MI_03</code>), <i>never</i> <code>Interface 0</code> or the composite parent.</li>
-              <li>Select target driver <b>WinUSB</b> and click <b>Replace Driver</b>.</li>
-              <li>Click <b>⚡ Connect WebUSB (Onboard Save)</b> above and select your Razer device. Your settings will save directly to onboard flash and persist after closing the browser.</li>
+              <li>Download <code>websynapse-bridge.cmd</code> below and double-click it (supports both standard Windows <code>HidUsb</code> and <code>WinUSB</code>).</li>
+              <li>It automatically opens <code>http://localhost:18925</code> with your Razer devices already connected — or click <b>⚡ Connect Local Bridge</b> above.</li>
+              <li>Configure your onboard slots (<code>S1</code>–<code>S6</code>), actuation, Rapid Trigger, Snap Tap, and Chroma, click <b>💾 Flash to slot</b>, then close both the bridge and browser anytime.</li>
             </ol>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <a id="lnkBannerDownloadBridge" href="./websynapse-bridge.cmd" download="websynapse-bridge.cmd" class="ws-btn is-primary is-sm" style="text-decoration:none;">⬇ Download Local Bridge (.cmd)</a>
+              <a id="lnkBannerOpenLocalhost" href="http://localhost:18925/" class="ws-btn is-sm" style="text-decoration:none;">↗ Open Bridge Workspace (localhost:18925)</a>
+            </div>
           </div>
         </details>
       </div>
@@ -160,10 +163,11 @@
         <section id="compatNotice" class="ws-panel" role="status" aria-live="polite" style="margin:14px 22px;padding:18px 20px;border-color:rgba(255,171,64,0.5);">
           <h2 id="compatTitle" style="margin:0 0 6px;font-size:18px;">Checking browser compatibility…</h2>
           <p id="compatText" class="ws-meta" style="line-height:1.55;margin:0 0 12px;">
-            This configurator requires a Chromium-based browser with WebHID or WebUSB and a compatible Razer device connected via USB.
+            This configurator connects directly via WebHID or our zero-admin Windows Local USB Bridge for 1st-gen firmware devices.
           </p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button id="btnCompatWebUsb" type="button" class="ws-btn is-primary is-sm">⚡ Connect WebUSB (Onboard Save)</button>
+            <button id="btnCompatBridge" type="button" class="ws-btn is-primary is-sm">⚡ Connect Local Bridge</button>
+            <a id="lnkCompatDownloadBridge" href="./websynapse-bridge.cmd" download="websynapse-bridge.cmd" class="ws-btn is-sm" style="text-decoration:none;">⬇ Download Local Bridge (.cmd)</a>
             <button id="btnCompatPair" type="button" class="ws-btn is-sm">Connect WebHID</button>
             <button id="btnCompatCatalog" type="button" class="ws-btn is-sm">Check supported devices</button>
           </div>
@@ -1080,7 +1084,7 @@
               <p class="ws-meta">Devices currently loaded in your workspace or paired via WebHID/WebUSB (`0x1532`)</p>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <button id="btnShelfPairWebUsb" type="button" class="ws-btn is-primary is-sm">⚡ Pair via WebUSB (Onboard Save)</button>
+              <button id="btnShelfConnectBridge" type="button" class="ws-btn is-primary is-sm">⚡ Connect Local Bridge</button>
               <button id="btnShelfPairWebHid" type="button" class="ws-btn is-sm">Pair via WebHID</button>
             </div>
           </header>
@@ -1491,23 +1495,26 @@
               </ul>
             </div>
           </div>
-          <div id="hidModalZadigBox" class="ws-modal-box is-zadig">
-            <div class="ws-modal-box-title">⚡ Enable Full Onboard Save on Windows (30s One-Time Zadig WebUSB Setup)</div>
+          <div id="hidModalBridgeBox" class="ws-modal-box is-zadig">
+            <div class="ws-modal-box-title">⚡ Unlock Full Onboard Slot Saving on Windows (No Admin · No Zadig · No Install)</div>
             <ol class="ws-modal-list">
-              <li>Download &amp; open <a href="https://zadig.akeo.ie/" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:underline;">Zadig (zadig.akeo.ie)</a>, then click <b>Options → List All Devices</b> (keep <i>Ignore Hubs or Composite Parents</i> checked).</li>
-              <li>In the dropdown, select <code id="modalZadigEntry">Razer Huntsman V3 Pro Tenkeyless (Interface 3)</code> — <b>only</b> select <code id="modalMiCode">Interface 3</code> (<code>MI_03</code>), <i>never</i> <code>Interface 0</code> or the composite parent (normal typing &amp; LampArray stay untouched).</li>
-              <li>Set target driver to <b>WinUSB</b> and click <b>Replace Driver</b>.</li>
-              <li>Click <b>⚡ Connect WebUSB (Onboard Save)</b> below and pick your Razer device to unlock full onboard memory flashing.</li>
+              <li>Download <code>websynapse-bridge.cmd</code> below and double-click it — zero admin rights, zero driver changes, works with both standard Windows <code>HidUsb</code> and <code>WinUSB</code>.</li>
+              <li>It opens <code>http://localhost:18925</code> automatically (or click <b>⚡ Connect Local Bridge</b> below) with full Protocol 25 access to <code id="modalMiCode">Interface 3</code>.</li>
+              <li>Switch &amp; customize slots <code>S1</code>–<code>S6</code>, click <b>💾 Flash to slot</b>, then close both the bridge and browser — your settings remain saved in hardware.</li>
             </ol>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+              <a id="lnkModalDownloadBridge" href="./websynapse-bridge.cmd" download="websynapse-bridge.cmd" class="ws-btn is-primary is-sm" style="text-decoration:none;">⬇ Download Local Bridge (.cmd)</a>
+              <a id="lnkModalOpenLocalhost" href="http://localhost:18925/" class="ws-btn is-sm" style="text-decoration:none;">↗ Open Bridge Workspace (localhost:18925)</a>
+            </div>
           </div>
           <p id="hidModalTechNote" class="ws-modal-note">
-            Technical detail: USB Protocol 25 Feature Report <code>0x00</code> is unreachable from browser WebHID on this firmware/OS combination.
+            Technical detail: USB Protocol 25 Feature Report <code>0x00</code> is unreachable from browser sandboxes on this firmware/OS combination.
           </p>
         </div>
         <footer class="ws-modal-foot">
           <button id="btnModalDismiss" type="button" class="ws-btn is-sm">Preview Only</button>
           <button id="btnModalRecheck" type="button" class="ws-btn is-sm">↻ Re-check Device</button>
-          <button id="btnModalWebUsb" type="button" class="ws-btn is-primary is-sm">⚡ Connect WebUSB (Onboard Save)</button>
+          <button id="btnModalConnectBridge" type="button" class="ws-btn is-primary is-sm">⚡ Connect Local Bridge</button>
         </footer>
       </div>
     </div>
