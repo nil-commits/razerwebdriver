@@ -302,6 +302,10 @@
     62, 64, 75, 76, 79, 80, 81, 83, 84, 85, 86, 89, 110, 112, 113,
     114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 129,
   ];
+  const ALL_TKL_KEY_LABELS = TKL_ROWS.flatMap((row) =>
+    row.filter((k) => !k.spacer && !k.hidden && k.label).map((k) => k.label)
+  );
+  const ALL_TKL_KEY_SET = new Set(ALL_TKL_KEY_LABELS);
 
   function getDeviceMeta(pid) {
     const numPid = Number(pid || selectedPid || 679);
@@ -550,9 +554,47 @@
     if (rawSlot.continuousRt !== undefined) out.continuousRt = Boolean(rawSlot.continuousRt);
     if (rawSlot.rtDownMm !== undefined) out.rtDownMm = clampNum(rawSlot.rtDownMm, 0.1, 4.0, 0.3);
     if (rawSlot.rtUpMm !== undefined) out.rtUpMm = clampNum(rawSlot.rtUpMm, 0.1, 4.0, 0.3);
+    if (rawSlot.perKeyOverrides && typeof rawSlot.perKeyOverrides === "object") {
+      const cleanOverrides = {};
+      for (const [kLabel, ov] of Object.entries(rawSlot.perKeyOverrides)) {
+        if (!ALL_TKL_KEY_SET.has(kLabel) || !ov || typeof ov !== "object") continue;
+        cleanOverrides[kLabel] = {
+          act: Math.round(clampNum(ov.act, 0.1, 4.0, out.actuationMm ?? 1.2) * 10) / 10,
+          rt: ov.rt !== undefined ? Boolean(ov.rt) : Boolean(out.rtEnabled),
+          down: Math.round(clampNum(ov.down, 0.1, 4.0, out.rtDownMm ?? 0.3) * 100) / 100,
+          up: Math.round(clampNum(ov.up, 0.1, 4.0, out.rtUpMm ?? 0.3) * 100) / 100,
+        };
+      }
+      out.perKeyOverrides = cleanOverrides;
+    }
     if (rawSlot.snapTapEnabled !== undefined) out.snapTapEnabled = Boolean(rawSlot.snapTapEnabled);
     if (rawSlot.snapKeyA !== undefined) out.snapKeyA = sanitizePlainText(rawSlot.snapKeyA, 8, "A");
     if (rawSlot.snapKeyB !== undefined) out.snapKeyB = sanitizePlainText(rawSlot.snapKeyB, 8, "D");
+    if (rawSlot.gamingMode && typeof rawSlot.gamingMode === "object") {
+      out.gamingMode = {
+        enabled: Boolean(rawSlot.gamingMode.enabled),
+        disableWin: rawSlot.gamingMode.disableWin !== false,
+        disableAltTab: Boolean(rawSlot.gamingMode.disableAltTab),
+        disableAltF4: Boolean(rawSlot.gamingMode.disableAltF4),
+      };
+    }
+    if (rawSlot.keyBindings && typeof rawSlot.keyBindings === "object") {
+      const cleanLayer = (layerObj) => {
+        const res = {};
+        if (layerObj && typeof layerObj === "object") {
+          for (const [k, v] of Object.entries(layerObj)) {
+            if (ALL_TKL_KEY_SET.has(k) && typeof v === "string") {
+              res[k] = sanitizePlainText(v, 48, "Default");
+            }
+          }
+        }
+        return res;
+      };
+      out.keyBindings = {
+        standard: cleanLayer(rawSlot.keyBindings.standard),
+        hypershift: cleanLayer(rawSlot.keyBindings.hypershift),
+      };
+    }
 
     if (Array.isArray(rawSlot.dpiStages)) {
       out.dpiStages = rawSlot.dpiStages.slice(0, 5).map((st, idx) => ({
@@ -4481,44 +4523,6 @@
         return data;
       }
 
-      // If this was a Huntsman V3 Pro TKL Actuation command (0x02/0x19),
-      // also dispatch the remaining key chunks + Rapid Trigger (0x02/0x1A) + Continuous RT (0x02/0x20)
-      const body90 = packet90.length === 91 ? packet90.slice(1) : packet90;
-      if (body90[6] === 0x02 && body90[7] === 0x19 && slotPatch) {
-        const slotId = getActiveDeviceProfileObj().activeSlot || 1;
-        const slot = getActiveSlotData();
-        const actMm = slotPatch.chunkActMm ?? slotPatch.actuationMm ?? slot.actuationMm ?? 1.2;
-        const rtEnabled = slotPatch.chunkRtEnabled ?? slotPatch.rtEnabled ?? slot.rtEnabled ?? false;
-        const rtDownMm = slotPatch.chunkRtDownMm ?? slotPatch.rtDownMm ?? slot.rtDownMm ?? 0.3;
-        const rtUpMm = slotPatch.chunkRtUpMm ?? slotPatch.rtUpMm ?? slot.rtUpMm ?? 0.3;
-        const continuousRt = slotPatch.continuousRt ?? slot.continuousRt ?? true;
-
-        const targetKeys =
-          selectedKeys.size > 0
-            ? Array.from(selectedKeys).map((k) => Protocol25.keyLabelToMatrixId(k))
-            : ALL_TKL_ANALOG_KEY_IDS;
-
-        const followUps = [];
-        for (let i = 15; i < targetKeys.length; i += 15) {
-          followUps.push(Protocol25.Builders.setAnalogActuation({ slotId, actuationMm: actMm, keyIds: targetKeys.slice(i, i + 15) }));
-        }
-        for (let i = 0; i < targetKeys.length; i += 13) {
-          followUps.push(
-            Protocol25.Builders.setAnalogRapidTrigger({ slotId, rtEnabled, rtDownMm, rtUpMm, keyIds: targetKeys.slice(i, i + 13) })
-          );
-        }
-        followUps.push(Protocol25.Builders.setContinuousRapidTrigger({ slotId, continuousRt }));
-        let failed = 0;
-        for (const pkt of followUps) {
-          const r = await sendRawWebHid90(Number(selectedPid), pkt).catch(() => null);
-          if (!r?.ok) failed++;
-        }
-        if (failed) {
-          showToast(`${label} → ${failed} of ${followUps.length + 1} actuation packets were rejected`, false);
-          return data;
-        }
-      }
-
       const status = data.parsedRx?.statusName || "OK";
       showToast(`${label} → ${status}`);
       void playUiTone("success");
@@ -4527,6 +4531,180 @@
     } catch (err) {
       showToast(`Error: ${err.message}`, false);
       void playUiTone("error");
+      return { ok: false, error: err.message };
+    }
+  }
+
+  function buildSlotActuationPackets(slotId, slot, onlyLabels = null) {
+    const gAct = Math.round(clampNum(slot.actuationMm, 0.1, 4.0, 1.2) * 10) / 10;
+    const gRt = Boolean(slot.rtEnabled);
+    const gDown = Math.round(clampNum(slot.rtDownMm, 0.1, 4.0, 0.3) * 100) / 100;
+    const gUp = Math.round(clampNum(slot.rtUpMm, 0.1, 4.0, 0.3) * 100) / 100;
+    const gCont = slot.continuousRt !== false;
+    const overrides = slot.perKeyOverrides && typeof slot.perKeyOverrides === "object" ? slot.perKeyOverrides : {};
+    const packets = [];
+
+    const appendGroupedPackets = (groupsMap) => {
+      for (const grp of groupsMap.values()) {
+        for (let i = 0; i < grp.keyIds.length; i += 15) {
+          packets.push(
+            Protocol25.Builders.setAnalogActuation({
+              slotId,
+              actuationMm: grp.act,
+              keyIds: grp.keyIds.slice(i, i + 15),
+            })
+          );
+        }
+        for (let i = 0; i < grp.keyIds.length; i += 13) {
+          packets.push(
+            Protocol25.Builders.setAnalogRapidTrigger({
+              slotId,
+              rtEnabled: grp.rt,
+              rtDownMm: grp.down,
+              rtUpMm: grp.up,
+              keyIds: grp.keyIds.slice(i, i + 13),
+            })
+          );
+        }
+      }
+    };
+
+    const addKeyToGroup = (groupsMap, keyId, act, rt, down, up) => {
+      const sig = `${act.toFixed(1)}|${rt ? 1 : 0}|${down.toFixed(2)}|${up.toFixed(2)}`;
+      let grp = groupsMap.get(sig);
+      if (!grp) {
+        grp = { act, rt, down, up, keyIds: [] };
+        groupsMap.set(sig, grp);
+      }
+      grp.keyIds.push(keyId);
+    };
+
+    if (Array.isArray(onlyLabels) && onlyLabels.length > 0) {
+      const seenIds = new Set();
+      const groups = new Map();
+      for (const kLabel of onlyLabels) {
+        if (!ALL_TKL_KEY_SET.has(kLabel)) continue;
+        const kId = Protocol25.keyLabelToMatrixId(kLabel);
+        if (seenIds.has(kId)) continue;
+        seenIds.add(kId);
+        const ov = overrides[kLabel];
+        const act = ov ? Math.round(clampNum(ov.act, 0.1, 4.0, gAct) * 10) / 10 : gAct;
+        const rt = ov && ov.rt !== undefined ? Boolean(ov.rt) : gRt;
+        const down = ov ? Math.round(clampNum(ov.down, 0.1, 4.0, gDown) * 100) / 100 : gDown;
+        const up = ov ? Math.round(clampNum(ov.up, 0.1, 4.0, gUp) * 100) / 100 : gUp;
+        addKeyToGroup(groups, kId, act, rt, down, up);
+      }
+      appendGroupedPackets(groups);
+      return packets;
+    }
+
+    const overriddenIds = new Set();
+    const overrideGroups = new Map();
+    for (const [kLabel, ov] of Object.entries(overrides)) {
+      if (!ALL_TKL_KEY_SET.has(kLabel) || !ov || typeof ov !== "object") continue;
+      const kId = Protocol25.keyLabelToMatrixId(kLabel);
+      overriddenIds.add(kId);
+      const act = Math.round(clampNum(ov.act, 0.1, 4.0, gAct) * 10) / 10;
+      const rt = ov.rt !== undefined ? Boolean(ov.rt) : gRt;
+      const down = Math.round(clampNum(ov.down, 0.1, 4.0, gDown) * 100) / 100;
+      const up = Math.round(clampNum(ov.up, 0.1, 4.0, gUp) * 100) / 100;
+      addKeyToGroup(overrideGroups, kId, act, rt, down, up);
+    }
+
+    const globalKeyIds = ALL_TKL_ANALOG_KEY_IDS.filter((id) => !overriddenIds.has(id));
+    for (let i = 0; i < globalKeyIds.length; i += 15) {
+      packets.push(
+        Protocol25.Builders.setAnalogActuation({
+          slotId,
+          actuationMm: gAct,
+          keyIds: globalKeyIds.slice(i, i + 15),
+        })
+      );
+    }
+    for (let i = 0; i < globalKeyIds.length; i += 13) {
+      packets.push(
+        Protocol25.Builders.setAnalogRapidTrigger({
+          slotId,
+          rtEnabled: gRt,
+          rtDownMm: gDown,
+          rtUpMm: gUp,
+          keyIds: globalKeyIds.slice(i, i + 13),
+        })
+      );
+    }
+    appendGroupedPackets(overrideGroups);
+    packets.push(Protocol25.Builders.setContinuousRapidTrigger({ slotId, continuousRt: gCont }));
+    return packets;
+  }
+
+  async function syncSlotActuationToHardware({
+    slotId = getActiveDeviceProfileObj().activeSlot || 1,
+    slot = getActiveSlotData(),
+    onlyLabels = null,
+    label = "Actuation",
+    forceImmediate = false,
+    quiet = false,
+  } = {}) {
+    if (!hasCompatibleDevice()) {
+      if (!quiet) showToast("No compatible Razer device connected. Click Connect Razer Device first.", false);
+      return { ok: false, error: "No compatible Razer device connected" };
+    }
+    persistDriverState();
+
+    if (!uiPrefs.instantFlash && !forceImmediate) {
+      if (stagedQueue.length >= 64) stagedQueue.shift();
+      stagedQueue.push({
+        type: "actuation-sync",
+        productId: selectedPid,
+        slotId,
+        onlyLabels: Array.isArray(onlyLabels) ? [...onlyLabels] : null,
+        label,
+      });
+      renderPendingApplyBar();
+      renderOverviewPanels();
+      updateProfileKeyBox();
+      return { ok: true, staged: true };
+    }
+
+    renderProfileSlotBar();
+    renderOverviewPanels();
+
+    const packets = buildSlotActuationPackets(slotId, slot, onlyLabels);
+    if (packets.length === 0) return { ok: true };
+
+    try {
+      let failed = 0;
+      let lastRes = null;
+      for (let i = 0; i < packets.length; i++) {
+        const r = await sendRawWebHid90(Number(selectedPid), packets[i]);
+        if (i === 0 && r?.logItem) prependPacketLog(r.logItem);
+        if (!r?.ok) failed++;
+        lastRes = r;
+      }
+      updateProfileKeyBox();
+      if (failed > 0) {
+        if (!quiet) {
+          showToast(
+            failed === packets.length
+              ? `${label} → ${lastRes?.error || "failed"}`
+              : `${label} → ${failed} of ${packets.length} actuation packets were rejected`,
+            false
+          );
+          void playUiTone("error");
+        }
+        return { ok: false, failed, total: packets.length };
+      }
+      if (!quiet) {
+        const status = lastRes?.parsedRx?.statusName || "OK";
+        showToast(`${label} → ${status}`);
+        void playUiTone("success");
+      }
+      return { ok: true, total: packets.length };
+    } catch (err) {
+      if (!quiet) {
+        showToast(`Error: ${err.message}`, false);
+        void playUiTone("error");
+      }
       return { ok: false, error: err.message };
     }
   }
@@ -5306,46 +5484,14 @@
 
     if (cat === "keyboard-analog" || cat === "keyboard") {
       if (cat === "keyboard-analog") {
-        await sendPacket90(
-          Protocol25.Builders.setAnalogActuation({
-            slotId,
-            actuationMm: slotData.actuationMm ?? 1.2,
-            rtEnabled: !!slotData.rtEnabled,
-            rtDownMm: slotData.rtDownMm ?? 0.3,
-            rtUpMm: slotData.rtUpMm ?? 0.3,
-            continuousRt: slotData.continuousRt !== false,
-            keyIds: ALL_TKL_ANALOG_KEY_IDS.slice(0, 15),
-          }),
-          `Slot S${slotId} Actuation (${slotData.actuationMm ?? 1.2}mm)`,
-          slotData,
-          null,
-          true
-        );
-        // Also flash any per-key actuation overrides for this slot
-        if (slotData.perKeyOverrides && typeof slotData.perKeyOverrides === "object") {
-          for (const [kLabel, ov] of Object.entries(slotData.perKeyOverrides)) {
-            if (!ov) continue;
-            const kId = Protocol25.keyLabelToMatrixId(kLabel);
-            await sendRawWebHid90(
-              Number(selectedPid),
-              Protocol25.Builders.setAnalogActuation({
-                slotId,
-                actuationMm: ov.act ?? slotData.actuationMm ?? 1.2,
-                keyIds: [kId],
-              })
-            );
-            await sendRawWebHid90(
-              Number(selectedPid),
-              Protocol25.Builders.setAnalogRapidTrigger({
-                slotId,
-                rtEnabled: ov.rt !== undefined ? !!ov.rt : !!slotData.rtEnabled,
-                rtDownMm: ov.down ?? slotData.rtDownMm ?? 0.3,
-                rtUpMm: ov.up ?? slotData.rtUpMm ?? 0.3,
-                keyIds: [kId],
-              })
-            );
-          }
-        }
+        const ovCount = slotData.perKeyOverrides ? Object.keys(slotData.perKeyOverrides).length : 0;
+        await syncSlotActuationToHardware({
+          slotId,
+          slot: slotData,
+          onlyLabels: null,
+          label: `Slot S${slotId} Actuation (${slotData.actuationMm ?? 1.2}mm${ovCount ? ` + ${ovCount} key overrides` : ""})`,
+          forceImmediate: true,
+        });
       }
       await sendPacket90(
         Protocol25.Builders.setSnapTap({
@@ -5441,8 +5587,7 @@
   function razerKeyIdToLabel(id) {
     if (!razerKeyIdToLabelCache) {
       razerKeyIdToLabelCache = new Map();
-      const labels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").concat(["SPACE", "LSHIFT", "LCTRL", "LALT", "TAB", "CAPS"]);
-      for (const l of labels) {
+      for (const l of ALL_TKL_KEY_LABELS) {
         const k = Protocol25.keyLabelToMatrixId(l);
         if (!razerKeyIdToLabelCache.has(k)) razerKeyIdToLabelCache.set(k, l);
       }
@@ -5526,27 +5671,106 @@
     }
 
     if (cat === "keyboard-analog") {
-      const keyA = Protocol25.keyLabelToMatrixId("A");
-      const act = await queryProtocol25(
-        pid,
-        Protocol25.buildPacket({ commandClass: 0x02, commandId: 0x99, dataSize: 0x07, args: [0x00, n, keyA] })
-      );
-      if (act?.args?.length >= 7) {
-        const make = (act.args[5] << 8) | act.args[6];
-        if (make > 0) slot.actuationMm = Math.round((make / P25_MM_UNITS) * 10) / 10;
-        gotAny = true;
+      const readLabels = ALL_TKL_KEY_LABELS;
+      const readIds = readLabels.map((lbl) => Protocol25.keyLabelToMatrixId(lbl));
+      const actByKeyId = new Map();
+      const rtByKeyId = new Map();
+
+      for (let i = 0; i < readIds.length; i += 15) {
+        const chunk = readIds.slice(i, i + 15);
+        const args = [0x00, n];
+        for (const kId of chunk) args.push(kId, 0, 0, 0, 0);
+        const act = await queryProtocol25(
+          pid,
+          Protocol25.buildPacket({ commandClass: 0x02, commandId: 0x99, dataSize: 2 + chunk.length * 5, args })
+        );
+        if (act?.args?.length >= 2 + chunk.length * 5) {
+          for (let j = 0; j < chunk.length; j++) {
+            const base = 2 + j * 5;
+            const kId = act.args[base];
+            const make = (act.args[base + 3] << 8) | act.args[base + 4];
+            if (make > 0) {
+              actByKeyId.set(kId, Math.round((make / P25_MM_UNITS) * 10) / 10);
+            }
+          }
+          gotAny = true;
+        }
       }
-      const rt = await queryProtocol25(
-        pid,
-        Protocol25.buildPacket({ commandClass: 0x02, commandId: 0x9a, dataSize: 0x08, args: [0x00, n, keyA] })
-      );
-      if (rt?.args?.length >= 8) {
-        slot.rtEnabled = rt.args[3] === 0x01;
-        const up = (rt.args[4] << 8) | rt.args[5];
-        const down = (rt.args[6] << 8) | rt.args[7];
-        if (up > 0) slot.rtUpMm = Math.round((up / P25_MM_UNITS) * 100) / 100;
-        if (down > 0) slot.rtDownMm = Math.round((down / P25_MM_UNITS) * 100) / 100;
+
+      for (let i = 0; i < readIds.length; i += 13) {
+        const chunk = readIds.slice(i, i + 13);
+        const args = [0x00, n];
+        for (const kId of chunk) args.push(kId, 0, 0, 0, 0, 0);
+        const rt = await queryProtocol25(
+          pid,
+          Protocol25.buildPacket({ commandClass: 0x02, commandId: 0x9a, dataSize: 2 + chunk.length * 6, args })
+        );
+        if (rt?.args?.length >= 2 + chunk.length * 6) {
+          for (let j = 0; j < chunk.length; j++) {
+            const base = 2 + j * 6;
+            const kId = rt.args[base];
+            const rtOn = rt.args[base + 1] === 0x01;
+            const upRaw = (rt.args[base + 2] << 8) | rt.args[base + 3];
+            const downRaw = (rt.args[base + 4] << 8) | rt.args[base + 5];
+            rtByKeyId.set(kId, {
+              rt: rtOn,
+              up: upRaw > 0 ? Math.round((upRaw / P25_MM_UNITS) * 100) / 100 : (slot.rtUpMm ?? 0.3),
+              down: downRaw > 0 ? Math.round((downRaw / P25_MM_UNITS) * 100) / 100 : (slot.rtDownMm ?? 0.3),
+            });
+          }
+          gotAny = true;
+        }
       }
+
+      if (actByKeyId.size > 0) {
+        const tupleCounts = new Map();
+        const perKeyEntries = [];
+        for (let idx = 0; idx < readLabels.length; idx++) {
+          const lbl = readLabels[idx];
+          const kId = readIds[idx];
+          const actVal = actByKeyId.get(kId);
+          if (actVal === undefined) continue;
+          const rtInfo = rtByKeyId.get(kId) || {
+            rt: Boolean(slot.rtEnabled),
+            down: Math.round(clampNum(slot.rtDownMm, 0.1, 4.0, 0.3) * 100) / 100,
+            up: Math.round(clampNum(slot.rtUpMm, 0.1, 4.0, 0.3) * 100) / 100,
+          };
+          const sig = `${actVal.toFixed(1)}|${rtInfo.rt ? 1 : 0}|${rtInfo.down.toFixed(2)}|${rtInfo.up.toFixed(2)}`;
+          const entry = tupleCounts.get(sig) || { count: 0, act: actVal, rt: rtInfo.rt, down: rtInfo.down, up: rtInfo.up };
+          entry.count++;
+          tupleCounts.set(sig, entry);
+          perKeyEntries.push({ lbl, sig, act: actVal, rt: rtInfo.rt, down: rtInfo.down, up: rtInfo.up });
+        }
+
+        let modeSig = null;
+        let modeTuple = null;
+        for (const [sig, info] of tupleCounts.entries()) {
+          if (!modeTuple || info.count > modeTuple.count) {
+            modeSig = sig;
+            modeTuple = info;
+          }
+        }
+
+        if (modeTuple) {
+          slot.actuationMm = modeTuple.act;
+          slot.rtEnabled = modeTuple.rt;
+          slot.rtDownMm = modeTuple.down;
+          slot.rtUpMm = modeTuple.up;
+          const reconstructedOverrides = {};
+          for (const item of perKeyEntries) {
+            if (item.sig !== modeSig) {
+              reconstructedOverrides[item.lbl] = {
+                act: item.act,
+                rt: item.rt,
+                down: item.down,
+                up: item.up,
+              };
+            }
+          }
+          slot.perKeyOverrides = reconstructedOverrides;
+        }
+      }
+
       const crt = await queryProtocol25(pid, Protocol25.Builders.getContinuousRapidTrigger({ varStore: n }));
       if (crt?.args?.length >= 2) slot.continuousRt = crt.args[1] === 0x01;
       const snap = await queryProtocol25(pid, Protocol25.Builders.getSnapTap({ varStore: n }));
@@ -5757,7 +5981,6 @@
 
           keyEl.addEventListener("click", (ev) => {
             reactiveTriggerByPid.get(Number(selectedPid))?.onLabelTrigger?.(keyId);
-            const slot = getActiveSlotData();
             if (ev.ctrlKey || ev.metaKey || ev.shiftKey) {
               if (selectedKeys.has(keyId)) selectedKeys.delete(keyId);
               else selectedKeys.add(keyId);
@@ -5768,43 +5991,12 @@
                 selectedKeys.add(keyId);
               }
             }
+            syncToolbarSelectionChips(selectedKeys.size === 0 ? "all" : "");
             focusedRemapKey = keyId;
             const remapIn = document.getElementById("txtRemapTargetKey");
             if (remapIn) remapIn.value = keyId;
             syncRemapControlsForFocusedKey();
-
-            const singleKey = selectedKeys.size === 1 ? Array.from(selectedKeys)[0] : null;
-            const keyOv = singleKey ? slot.perKeyOverrides?.[singleKey] : null;
-            const displayAct = keyOv ? keyOv.act : (slot.actuationMm ?? 1.2);
-            const displayRt = keyOv ? !!keyOv.rt : !!slot.rtEnabled;
-            const displayDown = keyOv ? keyOv.down : (slot.rtDownMm ?? 0.3);
-            const displayUp = keyOv ? keyOv.up : (slot.rtUpMm ?? 0.3);
-
-            const rngAct = document.getElementById("rngActuation");
-            if (rngAct) {
-              rngAct.value = displayAct;
-              updateRangeFill(rngAct);
-              updateActuationVisuals(displayAct);
-            }
-            const chkRt = document.getElementById("chkRapidTrigger");
-            if (chkRt) chkRt.checked = displayRt;
-            syncSwitchTile("tileRtEnable", displayRt);
-
-            const rngDown = document.getElementById("rngRtDown");
-            if (rngDown) {
-              rngDown.value = displayDown;
-              updateRangeFill(rngDown);
-              document.getElementById("valRtDown").textContent = `${Number(displayDown).toFixed(2)} mm`;
-              document.getElementById("valRtDownText").textContent = `${Number(displayDown).toFixed(2)} mm`;
-            }
-            const rngUp = document.getElementById("rngRtUp");
-            if (rngUp) {
-              rngUp.value = displayUp;
-              updateRangeFill(rngUp);
-              document.getElementById("valRtUp").textContent = `${Number(displayUp).toFixed(2)} mm`;
-            }
-            updateActuationPresetHighlight(displayAct, displayRt);
-            updateSelectionScopeBadge();
+            syncActuationControlsForSelection();
             renderKeyboardMatrix();
           });
 
@@ -5859,6 +6051,57 @@
       const anyOverride = list.some((k) => slot.perKeyOverrides && slot.perKeyOverrides[k]);
       if (clearBtn) clearBtn.hidden = !anyOverride;
     }
+  }
+
+  function syncActuationControlsForSelection() {
+    const slot = getActiveSlotData();
+    const selList = Array.from(selectedKeys);
+    let displayAct = slot.actuationMm ?? 1.2;
+    let displayRt = Boolean(slot.rtEnabled);
+    let displayDown = slot.rtDownMm ?? 0.3;
+    let displayUp = slot.rtUpMm ?? 0.3;
+
+    if (selList.length > 0) {
+      const firstKey = selList[0];
+      const ov = slot.perKeyOverrides?.[firstKey];
+      if (ov) {
+        displayAct = ov.act ?? displayAct;
+        displayRt = ov.rt !== undefined ? Boolean(ov.rt) : displayRt;
+        displayDown = ov.down ?? displayDown;
+        displayUp = ov.up ?? displayUp;
+      }
+    }
+
+    const rngAct = document.getElementById("rngActuation");
+    if (rngAct) {
+      rngAct.value = displayAct;
+      updateRangeFill(rngAct);
+      updateActuationVisuals(displayAct);
+    }
+    const chkRt = document.getElementById("chkRapidTrigger");
+    if (chkRt) chkRt.checked = displayRt;
+    syncSwitchTile("tileRtEnable", displayRt);
+
+    const chkCont = document.getElementById("chkContinuousRt");
+    const contVal = slot.continuousRt !== false;
+    if (chkCont) chkCont.checked = contVal;
+    syncSwitchTile("tileRtContinuous", contVal);
+
+    const rngDown = document.getElementById("rngRtDown");
+    if (rngDown) {
+      rngDown.value = displayDown;
+      updateRangeFill(rngDown);
+      document.getElementById("valRtDown").textContent = `${Number(displayDown).toFixed(2)} mm`;
+      document.getElementById("valRtDownText").textContent = `${Number(displayDown).toFixed(2)} mm`;
+    }
+    const rngUp = document.getElementById("rngRtUp");
+    if (rngUp) {
+      rngUp.value = displayUp;
+      updateRangeFill(rngUp);
+      document.getElementById("valRtUp").textContent = `${Number(displayUp).toFixed(2)} mm`;
+    }
+    updateActuationPresetHighlight(displayAct, displayRt);
+    updateSelectionScopeBadge();
   }
 
   function syncToolbarSelectionChips(mode) {
@@ -6205,36 +6448,7 @@
     });
 
     if (isKbd) {
-      const actMm = slot.actuationMm ?? 1.2;
-      const rngAct = document.getElementById("rngActuation");
-      if (rngAct) {
-        rngAct.value = actMm;
-        updateRangeFill(rngAct);
-        updateActuationVisuals(actMm);
-      }
-
-      const chkRt = document.getElementById("chkRapidTrigger");
-      if (chkRt) chkRt.checked = !!slot.rtEnabled;
-      syncSwitchTile("tileRtEnable", !!slot.rtEnabled);
-      updateActuationPresetHighlight(actMm, !!slot.rtEnabled);
-
-      const chkCont = document.getElementById("chkContinuousRt");
-      if (chkCont) chkCont.checked = slot.continuousRt !== false;
-      syncSwitchTile("tileRtContinuous", slot.continuousRt !== false);
-
-      const rngDown = document.getElementById("rngRtDown");
-      if (rngDown) {
-        rngDown.value = slot.rtDownMm ?? 0.3;
-        updateRangeFill(rngDown);
-        document.getElementById("valRtDown").textContent = `${Number(rngDown.value).toFixed(2)} mm`;
-        document.getElementById("valRtDownText").textContent = `${Number(rngDown.value).toFixed(2)} mm`;
-      }
-      const rngUp = document.getElementById("rngRtUp");
-      if (rngUp) {
-        rngUp.value = slot.rtUpMm ?? 0.3;
-        updateRangeFill(rngUp);
-        document.getElementById("valRtUp").textContent = `${Number(rngUp.value).toFixed(2)} mm`;
-      }
+      syncActuationControlsForSelection();
 
       const chkSnap = document.getElementById("chkSnapTap");
       if (chkSnap) chkSnap.checked = !!slot.snapTapEnabled;
@@ -6945,12 +7159,12 @@
     document.querySelectorAll("[data-select-keys]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const mode = btn.dataset.selectKeys;
-        syncToolbarSelectionChips(mode);
+        syncToolbarSelectionChips(mode === "clear" ? "all" : mode);
         selectedKeys.clear();
         if (mode === "wasd") ["W", "A", "S", "D"].forEach((k) => selectedKeys.add(k));
         else if (mode === "movement") ["W", "A", "S", "D", "↑", "←", "↓", "→", "SPACE", "LSHIFT"].forEach((k) => selectedKeys.add(k));
         else if (mode === "numbers") ["1", "2", "3", "4", "5", "6"].forEach((k) => selectedKeys.add(k));
-        updateSelectionScopeBadge();
+        syncActuationControlsForSelection();
         renderKeyboardMatrix();
       });
     });
@@ -6963,63 +7177,43 @@
     const rngUp = document.getElementById("rngRtUp");
 
     const commitActuationChange = () => {
+      const slotId = getActiveDeviceProfileObj().activeSlot || 1;
       const slot = getActiveSlotData();
-      const actMm = Number(rngAct.value);
+      const actMm = Math.round(clampNum(rngAct.value, 0.1, 4.0, 1.2) * 10) / 10;
       const rtEnabled = chkRt.checked;
       const continuousRt = chkCont.checked;
-      const rtDownMm = Number(rngDown.value);
-      const rtUpMm = Number(rngUp.value);
+      const rtDownMm = Math.round(clampNum(rngDown.value, 0.1, 4.0, 0.3) * 100) / 100;
+      const rtUpMm = Math.round(clampNum(rngUp.value, 0.1, 4.0, 0.3) * 100) / 100;
 
       syncSwitchTile("tileRtEnable", rtEnabled);
       syncSwitchTile("tileRtContinuous", continuousRt);
       updateActuationPresetHighlight(actMm, rtEnabled);
+      slot.continuousRt = continuousRt;
 
-      if (selectedKeys.size > 0) {
+      const targetLabels = selectedKeys.size > 0 ? Array.from(selectedKeys) : null;
+      if (targetLabels) {
         if (!slot.perKeyOverrides) slot.perKeyOverrides = {};
-        selectedKeys.forEach((k) => {
+        targetLabels.forEach((k) => {
           slot.perKeyOverrides[k] = { act: actMm, rt: rtEnabled, down: rtDownMm, up: rtUpMm };
         });
       } else {
         slot.actuationMm = actMm;
         slot.rtEnabled = rtEnabled;
-        slot.continuousRt = continuousRt;
         slot.rtDownMm = rtDownMm;
         slot.rtUpMm = rtUpMm;
       }
 
       renderKeyboardMatrix();
       updateSelectionScopeBadge();
-      const targetKeys =
-        selectedKeys.size > 0
-          ? Array.from(selectedKeys).map((k) => Protocol25.keyLabelToMatrixId(k))
-          : ALL_TKL_ANALOG_KEY_IDS;
-      const pkt = Protocol25.Builders.setAnalogActuation({
-        slotId: getActiveDeviceProfileObj().activeSlot || 1,
-        actuationMm: actMm,
-        rtEnabled,
-        rtDownMm,
-        rtUpMm,
-        continuousRt,
-        keyIds: targetKeys.slice(0, 15),
+      const ovCount = slot.perKeyOverrides ? Object.keys(slot.perKeyOverrides).length : 0;
+      void syncSlotActuationToHardware({
+        slotId,
+        slot,
+        onlyLabels: targetLabels,
+        label: targetLabels
+          ? `Per-Key Actuation (${targetLabels.slice(0, 4).join(", ")}${targetLabels.length > 4 ? "…" : ""} → ${actMm.toFixed(1)}mm)`
+          : `Global Actuation (${actMm.toFixed(1)}mm, RT: ${rtEnabled ? "ON" : "OFF"}${ovCount ? `, ${ovCount} key overrides kept` : ""})`,
       });
-      sendPacket90(
-        pkt,
-        selectedKeys.size > 0
-          ? `Per-Key Actuation (${selectedKeys.size} keys: ${actMm}mm)`
-          : `Global Actuation (${actMm}mm, RT: ${rtEnabled ? "ON" : "OFF"})`,
-        {
-          actuationMm: slot.actuationMm,
-          rtEnabled: slot.rtEnabled,
-          continuousRt: slot.continuousRt,
-          rtDownMm: slot.rtDownMm,
-          rtUpMm: slot.rtUpMm,
-          perKeyOverrides: slot.perKeyOverrides,
-          chunkActMm: actMm,
-          chunkRtEnabled: rtEnabled,
-          chunkRtDownMm: rtDownMm,
-          chunkRtUpMm: rtUpMm,
-        }
-      );
     };
 
     rngAct?.addEventListener("input", () => {
@@ -7029,7 +7223,18 @@
     });
     rngAct?.addEventListener("change", commitActuationChange);
     chkRt?.addEventListener("change", commitActuationChange);
-    chkCont?.addEventListener("change", commitActuationChange);
+    chkCont?.addEventListener("change", () => {
+      const slotId = getActiveDeviceProfileObj().activeSlot || 1;
+      const slot = getActiveSlotData();
+      const continuousRt = Boolean(chkCont.checked);
+      slot.continuousRt = continuousRt;
+      syncSwitchTile("tileRtContinuous", continuousRt);
+      void sendPacket90(
+        Protocol25.Builders.setContinuousRapidTrigger({ slotId, continuousRt }),
+        `Continuous Rapid Trigger → ${continuousRt ? "ON" : "OFF"}`,
+        { continuousRt }
+      );
+    });
 
     rngDown?.addEventListener("input", () => {
       updateRangeFill(rngDown);
@@ -7046,13 +7251,26 @@
 
     // Clear Per-Key Overrides
     document.getElementById("btnClearKeyOverride")?.addEventListener("click", () => {
+      const slotId = getActiveDeviceProfileObj().activeSlot || 1;
       const slot = getActiveSlotData();
+      const keysToReset = Array.from(selectedKeys);
       if (slot.perKeyOverrides) {
-        selectedKeys.forEach((k) => delete slot.perKeyOverrides[k]);
+        keysToReset.forEach((k) => delete slot.perKeyOverrides[k]);
       }
-      syncControlsFromSlot();
+      syncActuationControlsForSelection();
+      renderKeyboardMatrix();
       renderOverviewPanels();
-      showToast("Reset selected keys to global slot actuation");
+      if (keysToReset.length > 0 && hasCompatibleDevice()) {
+        void syncSlotActuationToHardware({
+          slotId,
+          slot,
+          onlyLabels: keysToReset,
+          label: `Reset ${keysToReset.length} key(s) to Global (${Number(slot.actuationMm ?? 1.2).toFixed(1)}mm)`,
+        });
+      } else {
+        persistDriverState();
+        showToast("Reset selected keys to global slot actuation");
+      }
     });
 
     // Actuation Presets
@@ -8022,7 +8240,10 @@
       stagedQueue = [];
       renderPendingApplyBar();
       for (const item of queue) {
-        await sendPacket90(item.packet90, item.label, item.slotPatch, item.statePatch, true);
+        if (item.type === "actuation-sync") continue; // Handled cleanly by flashFullSlotToHardware below
+        if (item.packet90) {
+          await sendPacket90(item.packet90, item.label, item.slotPatch, item.statePatch, true);
+        }
       }
       const devProf = getActiveDeviceProfileObj();
       const slotId = devProf.activeSlot || 1;

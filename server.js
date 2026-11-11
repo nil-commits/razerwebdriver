@@ -928,6 +928,102 @@ const ALL_TKL_ANALOG_KEY_IDS = [
   115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 129,
 ];
 
+async function syncKeyboardSlotActuationServer({ pid, slotId, slotObj, interfaceNum = 3, reportId = 0, skipFirstGlobalActChunk = false }) {
+  const gAct = slotObj.actuationMm ?? 1.2;
+  const gRt = !!slotObj.rtEnabled;
+  const gDown = slotObj.rtDownMm ?? 0.3;
+  const gUp = slotObj.rtUpMm ?? 0.3;
+  const overrides = slotObj.perKeyOverrides && typeof slotObj.perKeyOverrides === "object" ? slotObj.perKeyOverrides : {};
+
+  const overriddenIds = new Set();
+  const overrideGroups = new Map();
+  for (const [kLabel, ov] of Object.entries(overrides)) {
+    if (!ov || typeof ov !== "object") continue;
+    const kId = Protocol25.keyLabelToMatrixId(kLabel);
+    if (!kId) continue;
+    overriddenIds.add(kId);
+    const act = ov.act ?? gAct;
+    const rt = ov.rt !== undefined ? !!ov.rt : gRt;
+    const down = ov.down ?? gDown;
+    const up = ov.up ?? gUp;
+    const sig = `${Number(act).toFixed(1)}|${rt ? 1 : 0}|${Number(down).toFixed(2)}|${Number(up).toFixed(2)}`;
+    let grp = overrideGroups.get(sig);
+    if (!grp) {
+      grp = { act, rt, down, up, keyIds: [] };
+      overrideGroups.set(sig, grp);
+    }
+    grp.keyIds.push(kId);
+  }
+
+  const globalKeyIds = ALL_TKL_ANALOG_KEY_IDS.filter((id) => !overriddenIds.has(id));
+  for (let i = skipFirstGlobalActChunk ? 15 : 0; i < globalKeyIds.length; i += 15) {
+    await sendProtocol25Command({
+      productId: pid,
+      interfaceNum,
+      reportId,
+      packet90: Protocol25.Builders.setAnalogActuation({
+        slotId,
+        actuationMm: gAct,
+        keyIds: globalKeyIds.slice(i, i + 15),
+      }),
+    }).catch(() => null);
+  }
+
+  for (let i = 0; i < globalKeyIds.length; i += 13) {
+    await sendProtocol25Command({
+      productId: pid,
+      interfaceNum,
+      reportId,
+      packet90: Protocol25.Builders.setAnalogRapidTrigger({
+        slotId,
+        rtEnabled: gRt,
+        rtDownMm: gDown,
+        rtUpMm: gUp,
+        keyIds: globalKeyIds.slice(i, i + 13),
+      }),
+    }).catch(() => null);
+  }
+
+  for (const grp of overrideGroups.values()) {
+    for (let i = 0; i < grp.keyIds.length; i += 15) {
+      await sendProtocol25Command({
+        productId: pid,
+        interfaceNum,
+        reportId,
+        packet90: Protocol25.Builders.setAnalogActuation({
+          slotId,
+          actuationMm: grp.act,
+          keyIds: grp.keyIds.slice(i, i + 15),
+        }),
+      }).catch(() => null);
+    }
+    for (let i = 0; i < grp.keyIds.length; i += 13) {
+      await sendProtocol25Command({
+        productId: pid,
+        interfaceNum,
+        reportId,
+        packet90: Protocol25.Builders.setAnalogRapidTrigger({
+          slotId,
+          rtEnabled: grp.rt,
+          rtDownMm: grp.down,
+          rtUpMm: grp.up,
+          keyIds: grp.keyIds.slice(i, i + 13),
+        }),
+      }).catch(() => null);
+    }
+  }
+
+  await sendProtocol25Command({
+    productId: pid,
+    interfaceNum,
+    reportId,
+    packet90: Protocol25.Builders.setContinuousRapidTrigger({
+      slotId,
+      enabled: slotObj.continuousRt !== false,
+    }),
+  }).catch(() => null);
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") {
     res.writeHead(204, CORS_HEADERS);
@@ -1079,43 +1175,11 @@ const server = http.createServer(async (req, res) => {
 
         // Also sync the slot's actuation, Rapid Trigger, Snap Tap, Gaming Mode, and lighting to hardware
         if (!isMouse && activeSlotData) {
-          for (let i = 0; i < ALL_TKL_ANALOG_KEY_IDS.length; i += 15) {
-            const chunk = ALL_TKL_ANALOG_KEY_IDS.slice(i, i + 15);
-            await sendProtocol25Command({
-              productId: pid,
-              packet90: Protocol25.Builders.setAnalogActuation({
-                slotId,
-                actuationMm: activeSlotData.actuationMm ?? 1.2,
-                rtEnabled: !!activeSlotData.rtEnabled,
-                rtDownMm: activeSlotData.rtDownMm ?? 0.3,
-                rtUpMm: activeSlotData.rtUpMm ?? 0.3,
-                continuousRt: activeSlotData.continuousRt !== false,
-                keyIds: chunk,
-              }),
-            }).catch(() => null);
-          }
-
-          for (let i = 0; i < ALL_TKL_ANALOG_KEY_IDS.length; i += 13) {
-            const chunk = ALL_TKL_ANALOG_KEY_IDS.slice(i, i + 13);
-            await sendProtocol25Command({
-              productId: pid,
-              packet90: Protocol25.Builders.setAnalogRapidTrigger({
-                slotId,
-                rtEnabled: !!activeSlotData.rtEnabled,
-                rtDownMm: activeSlotData.rtDownMm ?? 0.3,
-                rtUpMm: activeSlotData.rtUpMm ?? 0.3,
-                keyIds: chunk,
-              }),
-            }).catch(() => null);
-          }
-
-          await sendProtocol25Command({
-            productId: pid,
-            packet90: Protocol25.Builders.setContinuousRapidTrigger({
-              slotId,
-              enabled: activeSlotData.continuousRt !== false,
-            }),
-          }).catch(() => null);
+          await syncKeyboardSlotActuationServer({
+            pid,
+            slotId,
+            slotObj: activeSlotData,
+          });
 
           await sendProtocol25Command({
             productId: pid,
@@ -1288,51 +1352,15 @@ const server = http.createServer(async (req, res) => {
           }).catch(() => null);
         }
       } else if (norm90[6] === 0x02 && norm90[7] === 0x19 && body.slotPatch && !body.autoChunked && driverState.profilesByPid[pid]) {
-        // When setAnalogActuation (0x02 / 0x19) is sent with slotPatch, also sync remaining 87-key chunks,
-        // Multi Rapid Trigger (0x02 / 0x1A), and Continuous Rapid Trigger (0x02 / 0x20) from the active slot.
         const activeSlot = driverState.profilesByPid[pid].activeSlot || 1;
         const slotObj = driverState.profilesByPid[pid].slots[activeSlot] || {};
-        const actMm = slotObj.actuationMm ?? 1.2;
-        const rtEnabled = !!slotObj.rtEnabled;
-        const rtDownMm = slotObj.rtDownMm ?? 0.3;
-        const rtUpMm = slotObj.rtUpMm ?? 0.3;
-        for (let i = 15; i < ALL_TKL_ANALOG_KEY_IDS.length; i += 15) {
-          const chunk = ALL_TKL_ANALOG_KEY_IDS.slice(i, i + 15);
-          await sendProtocol25Command({
-            productId: pid,
-            interfaceNum: body.interfaceNum ?? 3,
-            reportId: body.reportId ?? 0,
-            packet90: Protocol25.Builders.setAnalogActuation({
-              slotId: activeSlot,
-              actuationMm: actMm,
-              keyIds: chunk,
-            }),
-          }).catch(() => null);
-        }
-        for (let i = 0; i < ALL_TKL_ANALOG_KEY_IDS.length; i += 13) {
-          const chunk = ALL_TKL_ANALOG_KEY_IDS.slice(i, i + 13);
-          await sendProtocol25Command({
-            productId: pid,
-            interfaceNum: body.interfaceNum ?? 3,
-            reportId: body.reportId ?? 0,
-            packet90: Protocol25.Builders.setAnalogRapidTrigger({
-              slotId: activeSlot,
-              rtEnabled,
-              rtDownMm,
-              rtUpMm,
-              keyIds: chunk,
-            }),
-          }).catch(() => null);
-        }
-        await sendProtocol25Command({
-          productId: pid,
+        await syncKeyboardSlotActuationServer({
+          pid,
+          slotId: activeSlot,
+          slotObj,
           interfaceNum: body.interfaceNum ?? 3,
           reportId: body.reportId ?? 0,
-          packet90: Protocol25.Builders.setContinuousRapidTrigger({
-            slotId: activeSlot,
-            enabled: slotObj.continuousRt !== false,
-          }),
-        }).catch(() => null);
+        });
       } else if (norm90[6] === 0x07 && norm90[7] === 0x03 && body.slotPatch?.powerSaving?.lowPowerPercent !== undefined) {
         await sendProtocol25Command({
           productId: pid,
