@@ -646,6 +646,7 @@
   const lampArrayTimerByPid = new Map(); // pid -> intervalId for animated LampArray effects
   const lampArrayGenByPid = new Map(); // pid -> monotonic generation counter to cancel stale effect frames
   const lampArrayMutexByPid = new Map(); // pid -> Promise serializing Report ID 4/6 transfers
+  const activeLampEffectByPid = new Map(); // pid -> currently running LampArray effect name
 
   if (typeof document !== "undefined") {
     document.addEventListener("securitypolicyviolation", (ev) => {
@@ -1211,19 +1212,53 @@
 
   function setLampInterval(fn, intervalMs) {
     ensureChromaWakeLock();
+    const targetMs = Math.max(16, Number(intervalMs) || 28);
+    const heartbeatMs = Math.min(16, targetMs);
+    const handle = { isWorker: false, id: 0, stopped: false };
+    let running = false;
+    let pending = false;
+    let lastStart = 0;
+
+    const pump = () => {
+      if (handle.stopped) return;
+      if (running) {
+        pending = true;
+        return;
+      }
+      const now = performance.now();
+      if (lastStart > 0 && now - lastStart < targetMs - 4) return;
+      running = true;
+      pending = false;
+      lastStart = now;
+      Promise.resolve()
+        .then(fn)
+        .catch(() => {})
+        .finally(() => {
+          running = false;
+          if (!handle.stopped && pending && performance.now() - lastStart >= targetMs - 4) {
+            setTimeout(pump, 0);
+          }
+        });
+    };
+
     const worker = getChromaTimerWorker();
     if (worker) {
       const id = nextLampTimerId++;
-      lampTimerCallbacks.set(id, fn);
-      worker.postMessage({ cmd: "start", id, intervalMs });
-      return { isWorker: true, id };
+      handle.isWorker = true;
+      handle.id = id;
+      lampTimerCallbacks.set(id, pump);
+      worker.postMessage({ cmd: "start", id, intervalMs: heartbeatMs });
+      return handle;
     }
-    const nativeId = setInterval(fn, intervalMs);
-    return { isWorker: false, id: nativeId };
+    handle.id = setInterval(pump, heartbeatMs);
+    return handle;
   }
 
   function clearLampInterval(handle) {
     if (!handle) return;
+    if (typeof handle === "object") {
+      handle.stopped = true;
+    }
     if (typeof handle === "object" && handle.isWorker) {
       lampTimerCallbacks.delete(handle.id);
       if (chromaTimerWorker) {
@@ -1258,6 +1293,7 @@
       clearLampInterval(prevTimer);
       lampArrayTimerByPid.delete(numPid);
     }
+    activeLampEffectByPid.delete(numPid);
     reactiveTriggerByPid.delete(numPid);
     // Only hand LampArray back if this page actually took host control, so we never
     // poke the lighting engine of a keyboard that is already running autonomously.
@@ -1284,6 +1320,7 @@
       lampArrayGenByPid.set(pid, (lampArrayGenByPid.get(pid) || 0) + 1);
     }
     lampArrayTimerByPid.clear();
+    activeLampEffectByPid.clear();
 
     // 2. Hand the keyboard back exactly as Synapse 4 does on exit (A.jf.onunload -> setDeviceMode(0, 0)),
     // but ONLY for state this page actually changed. Everything configured through Protocol 25 already
@@ -1502,6 +1539,7 @@
       clearLampInterval(prevTimer);
       lampArrayTimerByPid.delete(numPid);
     }
+    activeLampEffectByPid.delete(numPid);
     reactiveTriggerByPid.delete(numPid);
     document.querySelectorAll(".keycap.is-reactive-lit").forEach((el) => el.classList.remove("is-reactive-lit"));
 
@@ -1535,27 +1573,32 @@
         lampLayoutCacheByPid.set(numPid, layout);
       }
 
-      const devProf = driverState.profilesByPid?.[numPid] || buildDefaultDeviceProfile(numPid);
-      const slot = devProf.slots?.[devProf.activeSlot || 1] || {};
-      const light = slot.lighting || {
-        effect: "static",
-        color1: "#00e676",
-        color2: "#00d2ff",
-        brightness: 100,
-        speed: 2,
-        waveDirection: 1,
-      };
-      const effect = light.effect || "static";
-      const brScale = Math.max(0, Math.min(1, Number(light.brightness ?? 100) / 100));
-      const hex = sanitizeHexColor(light.color1, "#00e676").slice(1);
-      const baseR = parseInt(hex.slice(0, 2), 16) || 0;
-      const baseG = parseInt(hex.slice(2, 4), 16) || 230;
-      const baseB = parseInt(hex.slice(4, 6), 16) || 118;
+      let effect = "static";
+      let brScale = 1;
+      let baseR = 0, baseG = 230, baseB = 118;
+      let secR = 0, secG = 210, secB = 255;
+      let speedMult = 2;
+      let dirSign = 1;
 
-      const hex2 = sanitizeHexColor(light.color2, "#00d2ff").slice(1);
-      const secR = parseInt(hex2.slice(0, 2), 16) || 0;
-      const secG = parseInt(hex2.slice(2, 4), 16) || 210;
-      const secB = parseInt(hex2.slice(4, 6), 16) || 255;
+      const syncLiveLightingParams = () => {
+        const dp = driverState.profilesByPid?.[numPid] || buildDefaultDeviceProfile(numPid);
+        const sl = dp.slots?.[dp.activeSlot || 1] || {};
+        const lt = sl.lighting || {};
+        effect = lt.effect || "static";
+        brScale = Math.max(0, Math.min(1, Number(lt.brightness ?? 100) / 100));
+        const h1 = sanitizeHexColor(lt.color1, "#00e676").slice(1);
+        baseR = parseInt(h1.slice(0, 2), 16) || 0;
+        baseG = parseInt(h1.slice(2, 4), 16) || 0;
+        baseB = parseInt(h1.slice(4, 6), 16) || 0;
+        const h2 = sanitizeHexColor(lt.color2, "#00d2ff").slice(1);
+        secR = parseInt(h2.slice(0, 2), 16) || 0;
+        secG = parseInt(h2.slice(2, 4), 16) || 0;
+        secB = parseInt(h2.slice(4, 6), 16) || 0;
+        speedMult = Number(lt.speed || 2);
+        dirSign = Number(lt.waveDirection || 1) === 2 ? -1 : 1;
+      };
+      syncLiveLightingParams();
+      activeLampEffectByPid.set(numPid, effect);
 
       // Serialize LampArray feature report batches per device so profile switches never collide on MI_04
       const runExclusiveLampBatch = async (fn) => {
@@ -1582,40 +1625,85 @@
       });
       if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) return false;
 
+      // Per-lamp RGBA state cache for lossless delta compression across frames:
+      // Frame 1 sends all 87 lamps (11 packets); subsequent frames only pack lamps whose
+      // 8-bit quantized [sr, sg, sb, si] actually changed, cutting Matrix Rain / Scanner /
+      // Ripple / Starlight USB transfers from 11 packets (~32ms) down to 1-4 packets (~3-11ms).
+      const lastSentRgbi = new Int16Array(lampCount * 4).fill(-1);
+
+      const writeScaledLampEntriesLocked = async (scaledEntries) => {
+        if (!scaledEntries || scaledEntries.length === 0) return;
+        const batchedWithId = typeof lampDev.sendFeatureReportBatch === "function" ? [] : null;
+        for (let baseIdx = 0; baseIdx < scaledEntries.length; baseIdx += 8) {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
+          const count = Math.min(8, scaledEntries.length - baseIdx);
+          const isLast = baseIdx + 8 >= scaledEntries.length;
+          const rep4 = new Uint8Array(50);
+          rep4[0] = count;
+          rep4[1] = isLast ? 1 : 0;
+          for (let i = 0; i < count; i++) {
+            const item = scaledEntries[baseIdx + i];
+            const lampId = item.id;
+            rep4[2 + i * 2] = lampId & 0xff;
+            rep4[2 + i * 2 + 1] = (lampId >> 8) & 0xff;
+            const colOff = 18 + i * 4;
+            rep4[colOff] = item.sr;
+            rep4[colOff + 1] = item.sg;
+            rep4[colOff + 2] = item.sb;
+            rep4[colOff + 3] = item.si;
+          }
+          if (batchedWithId) {
+            const raw51 = new Uint8Array(51);
+            raw51[0] = 4;
+            raw51.set(rep4, 1);
+            batchedWithId.push(raw51);
+          } else {
+            await lampDev.sendFeatureReport(4, rep4);
+          }
+        }
+        if (batchedWithId && batchedWithId.length > 0) {
+          await lampDev.sendFeatureReportBatch(batchedWithId);
+        }
+        for (let i = 0; i < scaledEntries.length; i++) {
+          const item = scaledEntries[i];
+          if (item.id >= 0 && item.id < lampCount) {
+            const stOff = item.id * 4;
+            lastSentRgbi[stOff] = item.sr;
+            lastSentRgbi[stOff + 1] = item.sg;
+            lastSentRgbi[stOff + 2] = item.sb;
+            lastSentRgbi[stOff + 3] = item.si;
+          }
+        }
+      };
+
       // Send a subset of lamps via Report ID 4 (8 lamps per 50-byte packet, LampUpdateComplete=1 on final packet)
       const sendLampSubset = async (entries) => {
         if (!entries || entries.length === 0 || isPageUnloading) return;
         await runExclusiveLampBatch(async () => {
-          const batchedWithId = typeof lampDev.sendFeatureReportBatch === "function" ? [] : null;
-          for (let baseIdx = 0; baseIdx < entries.length; baseIdx += 8) {
-            if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
-            const count = Math.min(8, entries.length - baseIdx);
-            const isLast = baseIdx + 8 >= entries.length;
-            const rep4 = new Uint8Array(50);
-            rep4[0] = count;
-            rep4[1] = isLast ? 1 : 0;
-            for (let i = 0; i < count; i++) {
-              const item = entries[baseIdx + i];
-              const lampId = item.id;
-              rep4[2 + i * 2] = lampId & 0xff;
-              rep4[2 + i * 2 + 1] = (lampId >> 8) & 0xff;
-              const colOff = 18 + i * 4;
-              rep4[colOff] = Math.round(item.r * brScale) & 0xff;
-              rep4[colOff + 1] = Math.round(item.g * brScale) & 0xff;
-              rep4[colOff + 2] = Math.round(item.b * brScale) & 0xff;
-              rep4[colOff + 3] = (item.i ?? 255) & 0xff;
+          syncLiveLightingParams();
+          const changed = [];
+          for (let i = 0; i < entries.length; i++) {
+            const item = entries[i];
+            const lampId = item.id;
+            const sr = Math.round(item.r * brScale) & 0xff;
+            const sg = Math.round(item.g * brScale) & 0xff;
+            const sb = Math.round(item.b * brScale) & 0xff;
+            const si = (item.i ?? 255) & 0xff;
+            if (lampId >= 0 && lampId < lampCount) {
+              const stOff = lampId * 4;
+              if (
+                lastSentRgbi[stOff] === sr &&
+                lastSentRgbi[stOff + 1] === sg &&
+                lastSentRgbi[stOff + 2] === sb &&
+                lastSentRgbi[stOff + 3] === si
+              ) {
+                continue;
+              }
             }
-            if (batchedWithId) {
-              const raw51 = new Uint8Array(51);
-              raw51[0] = 4;
-              raw51.set(rep4, 1);
-              batchedWithId.push(raw51);
-            } else {
-              await lampDev.sendFeatureReport(4, rep4);
-            }
+            changed.push({ id: lampId, sr, sg, sb, si });
           }
-          if (batchedWithId && batchedWithId.length > 0) {
-            await lampDev.sendFeatureReportBatch(batchedWithId);
+          if (changed.length > 0) {
+            await writeScaledLampEntriesLocked(changed);
           }
         });
       };
@@ -1663,43 +1751,39 @@
         return [r, g, b];
       };
 
-      // Send a full 87-lamp frame computed by a per-lamp callback (lampMeta => [r, g, b])
-      const sendComputedFrame = async (computeRgbFn) => {
+      // Send a computed 87-lamp frame using error-accumulating per-lamp delta compression
+      const sendComputedFrame = async (computeRgbFn, minChannelDelta = 2) => {
         if (isPageUnloading) return;
         const ids = layout.sortedIdsByX;
         await runExclusiveLampBatch(async () => {
-          const batchedWithId = typeof lampDev.sendFeatureReportBatch === "function" ? [] : null;
-          for (let baseIdx = 0; baseIdx < ids.length; baseIdx += 8) {
-            if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
-            const count = Math.min(8, ids.length - baseIdx);
-            const isLast = baseIdx + 8 >= ids.length;
-            const rep4 = new Uint8Array(50);
-            rep4[0] = count;
-            rep4[1] = isLast ? 1 : 0;
-            for (let i = 0; i < count; i++) {
-              const lampId = ids[baseIdx + i];
-              const lampMeta = layout.lamps[lampId] || { id: lampId, x: 16, y: 14, nx: 0, ny: 0 };
-              const rawRgb = computeRgbFn(lampMeta);
-              const [r, g, b] = blendSlotIndicatorOverlay(lampMeta, rawRgb[0], rawRgb[1], rawRgb[2]);
-              rep4[2 + i * 2] = lampId & 0xff;
-              rep4[2 + i * 2 + 1] = (lampId >> 8) & 0xff;
-              const colOff = 18 + i * 4;
-              rep4[colOff] = Math.round(r * brScale) & 0xff;
-              rep4[colOff + 1] = Math.round(g * brScale) & 0xff;
-              rep4[colOff + 2] = Math.round(b * brScale) & 0xff;
-              rep4[colOff + 3] = 255;
+          syncLiveLightingParams();
+          const changed = [];
+          for (let idx = 0; idx < ids.length; idx++) {
+            const lampId = ids[idx];
+            const lampMeta = layout.lamps[lampId] || { id: lampId, x: 16, y: 14, nx: 0, ny: 0 };
+            const rawRgb = computeRgbFn(lampMeta);
+            const [r, g, b] = blendSlotIndicatorOverlay(lampMeta, rawRgb[0], rawRgb[1], rawRgb[2]);
+            const sr = Math.round(r * brScale) & 0xff;
+            const sg = Math.round(g * brScale) & 0xff;
+            const sb = Math.round(b * brScale) & 0xff;
+            const si = 255;
+            if (lampId >= 0 && lampId < lampCount && lastSentRgbi[lampId * 4] >= 0) {
+              const stOff = lampId * 4;
+              const isTargetBlack = sr === 0 && sg === 0 && sb === 0;
+              const maxDiff = Math.max(
+                Math.abs(lastSentRgbi[stOff] - sr),
+                Math.abs(lastSentRgbi[stOff + 1] - sg),
+                Math.abs(lastSentRgbi[stOff + 2] - sb),
+                Math.abs(lastSentRgbi[stOff + 3] - si)
+              );
+              if (maxDiff === 0 || (!isTargetBlack && maxDiff < minChannelDelta)) {
+                continue;
+              }
             }
-            if (batchedWithId) {
-              const raw51 = new Uint8Array(51);
-              raw51[0] = 4;
-              raw51.set(rep4, 1);
-              batchedWithId.push(raw51);
-            } else {
-              await lampDev.sendFeatureReport(4, rep4);
-            }
+            changed.push({ id: lampId, sr, sg, sb, si });
           }
-          if (batchedWithId && batchedWithId.length > 0) {
-            await lampDev.sendFeatureReportBatch(batchedWithId);
+          if (changed.length > 0) {
+            await writeScaledLampEntriesLocked(changed);
           }
         });
       };
@@ -1707,6 +1791,7 @@
       // Send uniform color across all lamps (ordered Left-to-Right), respecting any active slot-switch indicator
       const sendAllLampsColor = async (r, g, b, intensity = 255) => {
         if (isPageUnloading) return;
+        syncLiveLightingParams();
         const ov = slotIndicatorOverlayByPid.get(numPid);
         if (ov && performance.now() < ov.until) {
           await sendComputedFrame(() => [r, g, b]);
@@ -1718,41 +1803,28 @@
         const si = intensity & 0xff;
         const ids = layout.sortedIdsByX;
         await runExclusiveLampBatch(async () => {
-          const batchedWithId = typeof lampDev.sendFeatureReportBatch === "function" ? [] : null;
-          for (let baseIdx = 0; baseIdx < ids.length; baseIdx += 8) {
-            if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
-            const count = Math.min(8, ids.length - baseIdx);
-            const isLast = baseIdx + 8 >= ids.length;
-            const rep4 = new Uint8Array(50);
-            rep4[0] = count;
-            rep4[1] = isLast ? 1 : 0;
-            for (let i = 0; i < count; i++) {
-              const lampId = ids[baseIdx + i];
-              rep4[2 + i * 2] = lampId & 0xff;
-              rep4[2 + i * 2 + 1] = (lampId >> 8) & 0xff;
-              const colOff = 18 + i * 4;
-              rep4[colOff] = sr;
-              rep4[colOff + 1] = sg;
-              rep4[colOff + 2] = sb;
-              rep4[colOff + 3] = si;
+          const changed = [];
+          for (let idx = 0; idx < ids.length; idx++) {
+            const lampId = ids[idx];
+            if (lampId >= 0 && lampId < lampCount) {
+              const stOff = lampId * 4;
+              if (
+                lastSentRgbi[stOff] === sr &&
+                lastSentRgbi[stOff + 1] === sg &&
+                lastSentRgbi[stOff + 2] === sb &&
+                lastSentRgbi[stOff + 3] === si
+              ) {
+                continue;
+              }
             }
-            if (batchedWithId) {
-              const raw51 = new Uint8Array(51);
-              raw51[0] = 4;
-              raw51.set(rep4, 1);
-              batchedWithId.push(raw51);
-            } else {
-              await lampDev.sendFeatureReport(4, rep4);
-            }
+            changed.push({ id: lampId, sr, sg, sb, si });
           }
-          if (batchedWithId && batchedWithId.length > 0) {
-            await lampDev.sendFeatureReportBatch(batchedWithId);
+          if (changed.length > 0) {
+            await writeScaledLampEntriesLocked(changed);
           }
         });
       };
 
-      const speedMult = Number(light.speed || 2);
-      const dirSign = Number(light.waveDirection || 1) === 2 ? -1 : 1;
       const t0 = performance.now();
       let busy = false;
 
@@ -1807,7 +1879,7 @@
               Math.round(baseG * (1 - t) + secG * t),
               Math.round(baseB * (1 - t) + secB * t),
             ];
-          })
+          }, 0)
         );
       }
 
@@ -2027,7 +2099,7 @@
           } finally {
             busy = false;
           }
-        }, 36);
+        }, 33);
 
         lampArrayTimerByPid.set(numPid, timer);
         return true;
@@ -2053,7 +2125,7 @@
           } finally {
             busy = false;
           }
-        }, 42);
+        }, 33);
         lampArrayTimerByPid.set(numPid, timer);
         return true;
       }
@@ -2092,7 +2164,7 @@
           } finally {
             busy = false;
           }
-        }, 42);
+        }, 33);
         lampArrayTimerByPid.set(numPid, timer);
         return true;
       }
@@ -2122,7 +2194,7 @@
           } finally {
             busy = false;
           }
-        }, 42);
+        }, 33);
         lampArrayTimerByPid.set(numPid, timer);
         return true;
       }
@@ -2156,7 +2228,7 @@
           } finally {
             busy = false;
           }
-        }, 42);
+        }, 33);
         lampArrayTimerByPid.set(numPid, timer);
         return true;
       }
@@ -2189,7 +2261,7 @@
           } finally {
             busy = false;
           }
-        }, 42);
+        }, 33);
         lampArrayTimerByPid.set(numPid, timer);
         return true;
       }
@@ -2251,7 +2323,7 @@
           } finally {
             busy = false;
           }
-        }, 42);
+        }, 33);
         lampArrayTimerByPid.set(numPid, timer);
         return true;
       }
@@ -2259,12 +2331,10 @@
       // MATRIX RAIN (Extra Studio Effect): Digital raindrops falling down keyboard columns (top y=14mm -> bottom y=115mm)
       if (effect === "rain") {
         await sendAllLampsColor(0, 0, 0, 0);
-        const dropCount = speedMult === 1 ? 7 : speedMult === 3 ? 14 : 10;
-        const speedScale = speedMult === 1 ? 0.08 : speedMult === 3 ? 0.22 : 0.14;
-        const drops = Array.from({ length: dropCount }, (_, idx) => ({
+        const drops = Array.from({ length: 14 }, (_, idx) => ({
           x: 16 + ((idx * 37) % 334),
           y: -Math.random() * 120,
-          v: speedScale * (0.8 + Math.random() * 0.45),
+          vJitter: 0.8 + Math.random() * 0.45,
         }));
         let lastTick = performance.now();
 
@@ -2276,22 +2346,26 @@
           if (busy || !lampDev.opened) return;
           busy = true;
           try {
+            syncLiveLightingParams();
             const now = performance.now();
             const dt = Math.min(100, now - lastTick);
             lastTick = now;
-            for (const d of drops) {
-              d.y += d.v * dt;
+            const activeDropCount = speedMult === 1 ? 7 : speedMult === 3 ? 14 : 10;
+            const speedScale = speedMult === 1 ? 0.08 : speedMult === 3 ? 0.22 : 0.14;
+            for (let i = 0; i < activeDropCount; i++) {
+              const d = drops[i];
+              d.y += d.vJitter * speedScale * dt;
               if (d.y > 165) {
                 d.y = -15 - Math.random() * 35;
                 d.x = 16 + Math.random() * 334;
-                d.v = speedScale * (0.8 + Math.random() * 0.45);
+                d.vJitter = 0.8 + Math.random() * 0.45;
               }
             }
 
             await sendComputedFrame((l) => {
               let headEnv = 0;
               let tailEnv = 0;
-              for (let i = 0; i < drops.length; i++) {
+              for (let i = 0; i < activeDropCount; i++) {
                 const d = drops[i];
                 const dx = Math.abs(l.x - d.x);
                 if (dx < 14) {
@@ -2322,14 +2396,15 @@
           } finally {
             busy = false;
           }
-        }, 42);
+        }, 25);
         lampArrayTimerByPid.set(numPid, timer);
         return true;
       }
 
       // CYBER SCANNER (Extra Studio Effect): KITT / Cylon horizontal laser bar sweeping Left <-> Right with glowing tail
       if (effect === "scanner") {
-        const radPerMs = (speedMult === 1 ? 1.5 : speedMult === 3 ? 4.2 : 2.6) / 1000;
+        let phase = 0;
+        let lastTick = performance.now();
         const timer = setLampInterval(async () => {
           if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
             clearLampInterval(timer);
@@ -2338,8 +2413,13 @@
           if (busy || !lampDev.opened) return;
           busy = true;
           try {
-            const phase = (performance.now() - t0) * radPerMs;
-            const pos = 0.5 + 0.5 * Math.sin(phase);
+            syncLiveLightingParams();
+            const now = performance.now();
+            const dt = Math.min(100, now - lastTick);
+            lastTick = now;
+            const radPerMs = (speedMult === 1 ? 1.5 : speedMult === 3 ? 4.2 : 2.6) / 1000;
+            phase += dt * radPerMs;
+            const pos = 0.5 + 0.5 * dirSign * Math.sin(phase);
             await sendComputedFrame((l) => {
               const dist = Math.abs(l.nx - pos);
               if (dist > 0.26) return [0, 0, 0];
@@ -2355,14 +2435,15 @@
           } finally {
             busy = false;
           }
-        }, 38);
+        }, 25);
         lampArrayTimerByPid.set(numPid, timer);
         return true;
       }
 
       // NORTHERN AURORA (Extra Studio Effect): Organic 2D plasma waves blending Primary (color1) and Secondary (color2)
       if (effect === "aurora") {
-        const spd = (speedMult === 1 ? 1.4 : speedMult === 3 ? 3.8 : 2.4) / 1000;
+        let tAcc = 0;
+        let lastTick = performance.now();
         const timer = setLampInterval(async () => {
           if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
             clearLampInterval(timer);
@@ -2371,7 +2452,13 @@
           if (busy || !lampDev.opened) return;
           busy = true;
           try {
-            const t = (performance.now() - t0) * spd;
+            syncLiveLightingParams();
+            const now = performance.now();
+            const dt = Math.min(100, now - lastTick);
+            lastTick = now;
+            const spd = (speedMult === 1 ? 1.4 : speedMult === 3 ? 3.8 : 2.4) / 1000;
+            tAcc += dt * spd;
+            const t = tAcc;
             await sendComputedFrame((l) => {
               const w1 = 0.5 + 0.5 * Math.sin(l.nx * 4.2 - dirSign * t * 1.6 + Math.sin(l.ny * 3.1 + t));
               const w2 = 0.45 + 0.55 * Math.cos(l.ny * 3.4 - t * 1.1 + l.nx * 2.0);
@@ -2386,14 +2473,15 @@
           } finally {
             busy = false;
           }
-        }, 42);
+        }, 28);
         lampArrayTimerByPid.set(numPid, timer);
         return true;
       }
 
       // PARTY STROBE / DISCO (Extra Studio Effect): Multi-zone energetic color bursts across key clusters
       if (effect === "disco") {
-        const intervalMs = speedMult === 1 ? 140 : speedMult === 3 ? 55 : 85;
+        let beatAcc = 0;
+        let lastTick = performance.now();
         const timer = setLampInterval(async () => {
           if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
             clearLampInterval(timer);
@@ -2402,7 +2490,13 @@
           if (busy || !lampDev.opened) return;
           busy = true;
           try {
-            const seed = Math.floor((performance.now() - t0) / intervalMs);
+            syncLiveLightingParams();
+            const now = performance.now();
+            const dt = Math.min(100, now - lastTick);
+            lastTick = now;
+            const stepMs = speedMult === 1 ? 140 : speedMult === 3 ? 55 : 85;
+            beatAcc += dt / stepMs;
+            const seed = Math.floor(beatAcc);
             await sendComputedFrame((l) => {
               const cluster = Math.floor(l.nx * 6) + Math.floor(l.ny * 3) * 6;
               const hash = ((cluster * 73 + seed * 131 + l.id * 17) % 360 + 360) % 360;
@@ -2414,7 +2508,7 @@
           } finally {
             busy = false;
           }
-        }, intervalMs);
+        }, 33);
         lampArrayTimerByPid.set(numPid, timer);
         return true;
       }
@@ -6083,7 +6177,7 @@
     });
 
     // Chroma Lighting
-    const sendChroma = (effect, hexColor, hexColor2) => {
+    const sendChroma = (effect, hexColor, hexColor2, { silentParamUpdate = false } = {}) => {
       const slot = getActiveSlotData();
       if (!slot.lighting) {
         slot.lighting = { effect: "static", color1: "#00e676", color2: "#00d2ff", brightness: 100, speed: 2, waveDirection: 1 };
@@ -6098,8 +6192,13 @@
       if (!HARDWARE_NATIVE_CHROMA_EFFECTS.has(effect)) {
         persistDriverState();
         updateProfileKeyBox();
+        const pid = Number(selectedPid);
+        // If this animated Studio Effect is already running on the timer loop, it automatically
+        // picks up live color / brightness / speed / direction changes on the next 33ms tick!
+        if (lampHostControlPids.has(pid) && activeLampEffectByPid.get(pid) === effect && lampArrayTimerByPid.has(pid)) {
+          return;
+        }
         void (async () => {
-          const pid = Number(selectedPid);
           let lampDev = findLampArrayDevice(pid);
           if (!lampDev && navigator.hid && window.isSecureContext) {
             try {
@@ -6118,15 +6217,17 @@
             showToast(`Studio Effect (${effect}) requires LampArray (MI_04) access`, false);
             return;
           }
-          if (Protocol25.Builders?.setForceChromaCtrl) {
+          if (!lampHostControlPids.has(pid) && Protocol25.Builders?.setForceChromaCtrl) {
             await queryProtocol25(pid, Protocol25.Builders.setForceChromaCtrl(false));
           }
           const ok = await applyLampArrayEffect(pid);
-          if (ok) {
-            showToast(`Studio Effect (${effect}) → LIVE`);
-            void playUiTone("success");
-          } else {
-            showToast(`Studio Effect (${effect}) failed to start`, false);
+          if (!silentParamUpdate) {
+            if (ok) {
+              showToast(`Studio Effect (${effect}) → LIVE`);
+              void playUiTone("success");
+            } else {
+              showToast(`Studio Effect (${effect}) failed to start`, false);
+            }
           }
         })();
         return;
@@ -6159,7 +6260,8 @@
         sendChroma(
           activeEff,
           document.getElementById("inpChromaColor")?.value || slot.lighting.color1 || "#00e676",
-          document.getElementById("inpChromaColor2")?.value || slot.lighting.color2 || "#00d2ff"
+          document.getElementById("inpChromaColor2")?.value || slot.lighting.color2 || "#00d2ff",
+          { silentParamUpdate: true }
         );
       });
     });
@@ -6175,7 +6277,8 @@
         sendChroma(
           activeEff,
           document.getElementById("inpChromaColor")?.value || slot.lighting.color1 || "#00e676",
-          document.getElementById("inpChromaColor2")?.value || slot.lighting.color2 || "#00d2ff"
+          document.getElementById("inpChromaColor2")?.value || slot.lighting.color2 || "#00d2ff",
+          { silentParamUpdate: true }
         );
       });
     });
@@ -6199,7 +6302,7 @@
         const c = sw.dataset.color;
         document.getElementById("inpChromaColor").value = c;
         const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
-        sendChroma(activeEff, c, document.getElementById("inpChromaColor2")?.value || "#00d2ff");
+        sendChroma(activeEff, c, document.getElementById("inpChromaColor2")?.value || "#00d2ff", { silentParamUpdate: true });
       });
     });
 
@@ -6216,14 +6319,18 @@
       clearTimeout(chromaColorTimer);
       chromaColorTimer = setTimeout(() => {
         const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
-        sendChroma(activeEff, c, document.getElementById("inpChromaColor2")?.value || slot.lighting.color2 || "#00d2ff");
+        sendChroma(activeEff, c, document.getElementById("inpChromaColor2")?.value || slot.lighting.color2 || "#00d2ff", {
+          silentParamUpdate: true,
+        });
       }, 45);
     });
 
     document.getElementById("inpChromaColor")?.addEventListener("change", (ev) => {
       clearTimeout(chromaColorTimer);
       const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
-      sendChroma(activeEff, ev.target.value, document.getElementById("inpChromaColor2")?.value || "#00d2ff");
+      sendChroma(activeEff, ev.target.value, document.getElementById("inpChromaColor2")?.value || "#00d2ff", {
+        silentParamUpdate: true,
+      });
     });
 
     let chromaColor2Timer = null;
@@ -6236,14 +6343,18 @@
       clearTimeout(chromaColor2Timer);
       chromaColor2Timer = setTimeout(() => {
         const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
-        sendChroma(activeEff, document.getElementById("inpChromaColor")?.value || slot.lighting.color1 || "#00e676", c2);
+        sendChroma(activeEff, document.getElementById("inpChromaColor")?.value || slot.lighting.color1 || "#00e676", c2, {
+          silentParamUpdate: true,
+        });
       }, 45);
     });
 
     document.getElementById("inpChromaColor2")?.addEventListener("change", (ev) => {
       clearTimeout(chromaColor2Timer);
       const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || "static";
-      sendChroma(activeEff, document.getElementById("inpChromaColor")?.value || "#00e676", ev.target.value);
+      sendChroma(activeEff, document.getElementById("inpChromaColor")?.value || "#00e676", ev.target.value, {
+        silentParamUpdate: true,
+      });
     });
 
     const rngBr = document.getElementById("rngBrightness");
@@ -6259,6 +6370,14 @@
       updateChromaVisuals();
       clearTimeout(brTimer);
       brTimer = setTimeout(() => {
+        const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || slot.lighting.effect || "static";
+        if (!HARDWARE_NATIVE_CHROMA_EFFECTS.has(activeEff) && lampHostControlPids.has(Number(selectedPid))) {
+          persistDriverState();
+          if (!lampArrayTimerByPid.has(Number(selectedPid))) {
+            void applyLampArrayEffect(selectedPid);
+          }
+          return;
+        }
         const activeSlotId = getActiveDeviceProfileObj().activeSlot || 1;
         sendPacket90(
           Protocol25.Builders.setBrightness(Math.round((pct / 100) * 255), 0x00, activeSlotId),
@@ -6281,7 +6400,7 @@
         { lighting: slot.lighting }
       );
       const activeEff = document.querySelector("#effectGrid .preset-btn.active")?.dataset.effect || slot.lighting.effect || "static";
-      sendChroma(activeEff, document.getElementById("inpChromaColor").value);
+      sendChroma(activeEff, document.getElementById("inpChromaColor").value, undefined, { silentParamUpdate: true });
     });
 
     // Keyboard Polling Rate

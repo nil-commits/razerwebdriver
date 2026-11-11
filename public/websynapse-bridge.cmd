@@ -14,6 +14,8 @@ $csharp = @'
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -137,15 +139,86 @@ public static class RazerBridgeNative
         public string Firmware = "";
         public string LampArrayPath = "";
         public int LampCount = 0;
+        public IntPtr LampHandle = INVALID_HANDLE_VALUE;
     }
 
     private static readonly object IoLock = new object();
+    private static readonly object CacheLock = new object();
+    private static readonly object StaticLock = new object();
+    private static readonly Dictionary<int, RazerEndpoint> VerifiedByPid = new Dictionary<int, RazerEndpoint>();
+    private static readonly Dictionary<string, byte[]> StaticCache = new Dictionary<string, byte[]>(StringComparer.Ordinal);
     private static readonly Regex RxStripInterfaceSuffix = new Regex(@"\s*\(Interface\s+\d+\)\s*$", RegexOptions.IgnoreCase);
+
+    private static readonly HashSet<string> AllowedOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "https://websynap.se",
+        "https://www.websynap.se",
+        "http://localhost:18925",
+        "http://127.0.0.1:18925",
+        "http://localhost:5426",
+        "http://127.0.0.1:5426",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "http://localhost:8787",
+        "http://127.0.0.1:8787"
+    };
+
+    private static readonly Dictionary<string, string> StaticAllowlist = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        { "/index.html", "text/html; charset=utf-8" },
+        { "/styles.css", "text/css; charset=utf-8" },
+        { "/app.js", "application/javascript; charset=utf-8" },
+        { "/protocol25.js", "application/javascript; charset=utf-8" },
+        { "/timer-worker.js", "application/javascript; charset=utf-8" },
+        { "/LICENSE", "text/plain; charset=utf-8" },
+        { "/fonts/DMSans-Variable.ttf", "font/ttf" },
+        { "/fonts/DM-Sans-OFL.txt", "text/plain; charset=utf-8" },
+        { "/websynapse-bridge.cmd", "application/octet-stream" }
+    };
 
     private static string CleanProductName(string raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return "";
         return RxStripInterfaceSuffix.Replace(raw.Trim(), "").Trim();
+    }
+
+    private static void SafeCloseLampHandle(RazerEndpoint ep)
+    {
+        if (ep == null) return;
+        IntPtr h = ep.LampHandle;
+        ep.LampHandle = INVALID_HANDLE_VALUE;
+        if (h != IntPtr.Zero && h != INVALID_HANDLE_VALUE)
+        {
+            try { CloseHandle(h); } catch { }
+        }
+    }
+
+    public static void ClearVerifiedCache()
+    {
+        lock (CacheLock)
+        {
+            lock (IoLock)
+            {
+                foreach (var kv in VerifiedByPid)
+                {
+                    SafeCloseLampHandle(kv.Value);
+                }
+            }
+            VerifiedByPid.Clear();
+        }
+    }
+
+    private static void InvalidatePid(int pidNum)
+    {
+        lock (CacheLock)
+        {
+            RazerEndpoint ep;
+            if (VerifiedByPid.TryGetValue(pidNum, out ep))
+            {
+                lock (IoLock) { SafeCloseLampHandle(ep); }
+                VerifiedByPid.Remove(pidNum);
+            }
+        }
     }
 
     private static List<string> GetInterfacePathsForGuid(Guid guid)
@@ -262,6 +335,174 @@ public static class RazerBridgeNative
         catch { }
 
         return results;
+    }
+
+    private static int InterfacePriority(RazerEndpoint ep)
+    {
+        int baseScore = (ep.Mode == "winusb") ? 0 : 100;
+        int ifRank = 9;
+        switch (ep.InterfaceNumber)
+        {
+            case 3: ifRank = 0; break;
+            case 0: ifRank = 1; break;
+            case 2: ifRank = 2; break;
+            case 1: ifRank = 3; break;
+        }
+        return baseScore + ifRank;
+    }
+
+    private static byte[] NewFwProbePacket(byte tid)
+    {
+        var b = new byte[90];
+        b[1] = tid;
+        b[5] = 0x02;
+        b[6] = 0x00;
+        b[7] = 0x81;
+        byte crc = 0;
+        for (int i = 2; i < 88; i++) crc ^= b[i];
+        b[88] = crc;
+        return b;
+    }
+
+    public static RazerEndpoint ResolveRazerDevice(int pidNum, bool forceRediscover)
+    {
+        if (!forceRediscover)
+        {
+            lock (CacheLock)
+            {
+                RazerEndpoint fastHit;
+                if (VerifiedByPid.TryGetValue(pidNum, out fastHit) && fastHit != null)
+                {
+                    return fastHit;
+                }
+            }
+        }
+
+        var all = DiscoverEndpoints();
+        return ResolveRazerDeviceFromDiscovered(pidNum, all);
+    }
+
+    private static RazerEndpoint ResolveRazerDeviceFromDiscovered(int pidNum, List<RazerEndpoint> allDiscovered)
+    {
+        var candidates = new List<RazerEndpoint>();
+        for (int i = 0; i < allDiscovered.Count; i++)
+        {
+            if (allDiscovered[i].Pid == pidNum)
+                candidates.Add(allDiscovered[i]);
+        }
+        if (candidates.Count == 0)
+        {
+            InvalidatePid(pidNum);
+            return null;
+        }
+
+        lock (CacheLock)
+        {
+            RazerEndpoint cached;
+            if (VerifiedByPid.TryGetValue(pidNum, out cached) && cached != null)
+            {
+                for (int i = 0; i < candidates.Count; i++)
+                {
+                    if (string.Equals(candidates[i].Path, cached.Path, StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (string.IsNullOrEmpty(cached.LampArrayPath))
+                            AttachLampArrayInfo(cached);
+                        if (string.IsNullOrEmpty(cached.Name) && !string.IsNullOrEmpty(candidates[i].Name))
+                            cached.Name = candidates[i].Name;
+                        return cached;
+                    }
+                }
+                lock (IoLock) { SafeCloseLampHandle(cached); }
+                VerifiedByPid.Remove(pidNum);
+            }
+        }
+
+        candidates.Sort(delegate(RazerEndpoint a, RazerEndpoint b)
+        {
+            return InterfacePriority(a).CompareTo(InterfacePriority(b));
+        });
+
+        byte[] probeTids = new byte[] { 0x1F, 0x3F, 0xFF };
+        for (int i = 0; i < candidates.Count; i++)
+        {
+            var ep = candidates[i];
+            for (int t = 0; t < probeTids.Length; t++)
+            {
+                byte tid = probeTids[t];
+                byte[] probe = NewFwProbePacket(tid);
+                byte[] rx = TransferProtocol25OnEndpoint(ep, probe, 500);
+                if (rx != null && rx[1] == 0x02 && rx[7] == 0x00 && rx[8] == 0x81)
+                {
+                    ep.Tid = tid;
+                    ep.Firmware = string.Format("v{0}.{1:D2}", (int)rx[9], (int)rx[10]);
+                    if (string.IsNullOrEmpty(ep.Name))
+                    {
+                        for (int k = 0; k < candidates.Count; k++)
+                        {
+                            if (!string.IsNullOrEmpty(candidates[k].Name))
+                            {
+                                ep.Name = candidates[k].Name;
+                                break;
+                            }
+                        }
+                    }
+                    AttachLampArrayInfo(ep);
+                    lock (CacheLock)
+                    {
+                        RazerEndpoint oldEp;
+                        if (VerifiedByPid.TryGetValue(pidNum, out oldEp) && oldEp != ep)
+                        {
+                            lock (IoLock) { SafeCloseLampHandle(oldEp); }
+                        }
+                        VerifiedByPid[pidNum] = ep;
+                    }
+                    return ep;
+                }
+            }
+        }
+        return null;
+    }
+
+    public static List<RazerEndpoint> GetVerifiedEndpoints(bool forceRescan)
+    {
+        if (forceRescan)
+        {
+            ClearVerifiedCache();
+        }
+        var all = DiscoverEndpoints();
+        var uniquePids = new List<int>();
+        var pidSet = new HashSet<int>();
+        for (int i = 0; i < all.Count; i++)
+        {
+            int p = all[i].Pid;
+            if (p > 0 && pidSet.Add(p))
+                uniquePids.Add(p);
+        }
+
+        // Prune disconnected cached PIDs
+        lock (CacheLock)
+        {
+            var stale = new List<int>();
+            foreach (var kv in VerifiedByPid)
+            {
+                if (!pidSet.Contains(kv.Key))
+                    stale.Add(kv.Key);
+            }
+            for (int i = 0; i < stale.Count; i++)
+            {
+                RazerEndpoint oldEp = VerifiedByPid[stale[i]];
+                lock (IoLock) { SafeCloseLampHandle(oldEp); }
+                VerifiedByPid.Remove(stale[i]);
+            }
+        }
+
+        var list = new List<RazerEndpoint>();
+        for (int i = 0; i < uniquePids.Count; i++)
+        {
+            var v = ResolveRazerDeviceFromDiscovered(uniquePids[i], all);
+            if (v != null) list.Add(v);
+        }
+        return list;
     }
 
     private static bool WinUsbControl(IntPtr hFile, IntPtr hUsb, byte reqType, byte req, ushort val, ushort idx, byte[] buf, int timeoutMs)
@@ -434,35 +675,79 @@ public static class RazerBridgeNative
         catch { }
     }
 
-    public static bool SendLampArrayBase64(string lampPath, string[] reportsB64)
+    private static bool WriteLampReportsWithPersistentHandle(RazerEndpoint ep, List<byte[]> reports)
     {
-        if (string.IsNullOrEmpty(lampPath) || reportsB64 == null || reportsB64.Length == 0)
+        if (ep == null || string.IsNullOrEmpty(ep.LampArrayPath))
             return false;
-        if (reportsB64.Length > 64)
-            throw new ArgumentException("Too many LampArray reports in single batch");
+
         lock (IoLock)
         {
-            IntPtr hLamp = CreateFileW(lampPath, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
-            if (hLamp == INVALID_HANDLE_VALUE) return false;
-            try
+            if (ep.LampHandle == IntPtr.Zero || ep.LampHandle == INVALID_HANDLE_VALUE)
             {
-                for (int i = 0; i < reportsB64.Length; i++)
+                ep.LampHandle = CreateFileW(ep.LampArrayPath, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
+                if (ep.LampHandle == INVALID_HANDLE_VALUE)
+                    return false;
+            }
+
+            for (int i = 0; i < reports.Count; i++)
+            {
+                byte[] raw = reports[i];
+                if (raw == null || raw.Length < 2 || raw.Length > 64) continue;
+                byte reportId = raw[0];
+                if (reportId != 4 && reportId != 6) continue;
+                if (!HidD_SetFeature(ep.LampHandle, raw, raw.Length))
                 {
-                    if (string.IsNullOrEmpty(reportsB64[i])) continue;
-                    byte[] raw = Convert.FromBase64String(reportsB64[i]);
-                    if (raw == null || raw.Length < 2 || raw.Length > 64) continue;
-                    byte reportId = raw[0];
-                    if (reportId != 4 && reportId != 6) continue;
-                    if (!HidD_SetFeature(hLamp, raw, raw.Length))
-                        return false;
+                    SafeCloseLampHandle(ep);
+                    return false;
                 }
-                return true;
             }
-            finally
-            {
-                CloseHandle(hLamp);
-            }
+            return true;
         }
+    }
+
+    public static bool SendLampArrayForPid(int pidNum, List<byte[]> reports, out int lampCount, out string errMsg)
+    {
+        lampCount = 0;
+        errMsg = "";
+        if (reports == null || reports.Count == 0)
+        {
+            errMsg = "No LampArray reports provided";
+            return false;
+        }
+        if (reports.Count > 64)
+        {
+            errMsg = "Too many LampArray reports in single batch";
+            return false;
+        }
+
+        RazerEndpoint ep = ResolveRazerDevice(pidNum, false);
+        if (ep != null && string.IsNullOrEmpty(ep.LampArrayPath))
+        {
+            AttachLampArrayInfo(ep);
+        }
+        if (ep == null || string.IsNullOrEmpty(ep.LampArrayPath))
+        {
+            errMsg = "LampArray HID interface not available for this device";
+            return false;
+        }
+
+        if (WriteLampReportsWithPersistentHandle(ep, reports))
+        {
+            lampCount = ep.LampCount;
+            return true;
+        }
+
+        // Re-attach once in case USB device re-enumerated
+        ep.LampArrayPath = "";
+        AttachLampArrayInfo(ep);
+        if (!string.IsNullOrEmpty(ep.LampArrayPath) && WriteLampReportsWithPersistentHandle(ep, reports))
+        {
+            lampCount = ep.LampCount;
+            return true;
+        }
+
+        errMsg = "HidD_SetFeature failed on LampArray interface";
+        return false;
     }
 
     public static string JsonEscape(string s)
@@ -490,7 +775,7 @@ public static class RazerBridgeNative
     public static string FormatDevicesJson(List<RazerEndpoint> verified)
     {
         var sb = new StringBuilder();
-        sb.Append("{\"ok\":true,\"bridgeVersion\":\"1.2.0\",\"devices\":[");
+        sb.Append("{\"ok\":true,\"bridgeVersion\":\"1.3.0\",\"devices\":[");
         for (int i = 0; i < verified.Count; i++)
         {
             if (i > 0) sb.Append(',');
@@ -519,135 +804,482 @@ public static class RazerBridgeNative
         sb.Append("]}");
         return sb.ToString();
     }
+
+    // =========================================================================
+    // Zero-Allocation / Fast C# JSON Extractors for /lamparray and /transfer
+    // =========================================================================
+    private static int FindJsonValueStart(string json, string key)
+    {
+        if (string.IsNullOrEmpty(json)) return -1;
+        string token = "\"" + key + "\"";
+        int searchFrom = 0;
+        while (searchFrom < json.Length)
+        {
+            int idx = json.IndexOf(token, searchFrom, StringComparison.Ordinal);
+            if (idx < 0) return -1;
+            int p = idx + token.Length;
+            while (p < json.Length && char.IsWhiteSpace(json[p])) p++;
+            if (p < json.Length && json[p] == ':')
+            {
+                p++;
+                while (p < json.Length && char.IsWhiteSpace(json[p])) p++;
+                return p;
+            }
+            searchFrom = idx + token.Length;
+        }
+        return -1;
+    }
+
+    private static bool TryExtractJsonInt(string json, string key, out int val)
+    {
+        val = 0;
+        int p = FindJsonValueStart(json, key);
+        if (p < 0 || p >= json.Length) return false;
+        bool neg = false;
+        if (json[p] == '-') { neg = true; p++; }
+        int start = p;
+        long acc = 0;
+        while (p < json.Length && json[p] >= '0' && json[p] <= '9')
+        {
+            acc = acc * 10 + (json[p] - '0');
+            if (acc > int.MaxValue) break;
+            p++;
+        }
+        if (p == start) return false;
+        val = neg ? -(int)acc : (int)acc;
+        return true;
+    }
+
+    private static bool TryExtractJsonByteArray90(string json, string key, out byte[] pkt90)
+    {
+        pkt90 = null;
+        int p = FindJsonValueStart(json, key);
+        if (p < 0 || p >= json.Length || json[p] != '[') return false;
+        p++;
+        var res = new byte[90];
+        int count = 0;
+        while (p < json.Length)
+        {
+            while (p < json.Length && (char.IsWhiteSpace(json[p]) || json[p] == ',')) p++;
+            if (p >= json.Length) return false;
+            if (json[p] == ']') break;
+            bool neg = false;
+            if (json[p] == '-') { neg = true; p++; }
+            int start = p;
+            int acc = 0;
+            while (p < json.Length && json[p] >= '0' && json[p] <= '9')
+            {
+                acc = acc * 10 + (json[p] - '0');
+                p++;
+            }
+            if (p == start || count >= 90) return false;
+            int signed = neg ? -acc : acc;
+            res[count++] = (byte)(signed & 0xFF);
+        }
+        if (count != 90) return false;
+        pkt90 = res;
+        return true;
+    }
+
+    private static bool TryExtractJsonBase64List(string json, string key, out List<byte[]> list)
+    {
+        list = null;
+        int p = FindJsonValueStart(json, key);
+        if (p < 0 || p >= json.Length || json[p] != '[') return false;
+        p++;
+        var res = new List<byte[]>(12);
+        while (p < json.Length)
+        {
+            while (p < json.Length && (char.IsWhiteSpace(json[p]) || json[p] == ',')) p++;
+            if (p >= json.Length) return false;
+            if (json[p] == ']')
+            {
+                list = res;
+                return true;
+            }
+            if (json[p] != '"') return false;
+            p++;
+            int start = p;
+            while (p < json.Length && json[p] != '"')
+            {
+                if (json[p] == '\\') p++;
+                p++;
+            }
+            if (p >= json.Length) return false;
+            string b64 = json.Substring(start, p - start);
+            p++; // skip closing quote
+            if (b64.Length > 0)
+            {
+                if (res.Count >= 64) return false;
+                res.Add(Convert.FromBase64String(b64));
+            }
+        }
+        return false;
+    }
+
+    private static byte[] GetStaticAssetBytes(string scriptDir, string relPath)
+    {
+        string trimmed = relPath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+        string localCandidate = Path.Combine(scriptDir, trimmed);
+        if (File.Exists(localCandidate))
+        {
+            return File.ReadAllBytes(localCandidate);
+        }
+        lock (StaticLock)
+        {
+            byte[] cached;
+            if (StaticCache.TryGetValue(relPath, out cached))
+                return cached;
+        }
+        using (var wc = new WebClient())
+        {
+            byte[] bytes = wc.DownloadData("https://websynap.se" + relPath);
+            if (relPath == "/index.html")
+            {
+                string html = Encoding.UTF8.GetString(bytes);
+                html = html.Replace("connect-src 'none';", "connect-src 'self' http://127.0.0.1:18925 http://localhost:18925;");
+                bytes = Encoding.UTF8.GetBytes(html);
+            }
+            lock (StaticLock)
+            {
+                StaticCache[relPath] = bytes;
+            }
+            return bytes;
+        }
+    }
+
+    private static void WriteCombinedResponse(NetworkStream stream, string headerBlock, byte[] bodyBytes)
+    {
+        byte[] hdrBytes = Encoding.ASCII.GetBytes(headerBlock);
+        int bodyLen = (bodyBytes != null) ? bodyBytes.Length : 0;
+        byte[] packet = new byte[hdrBytes.Length + bodyLen];
+        Buffer.BlockCopy(hdrBytes, 0, packet, 0, hdrBytes.Length);
+        if (bodyLen > 0)
+        {
+            Buffer.BlockCopy(bodyBytes, 0, packet, hdrBytes.Length, bodyLen);
+        }
+        stream.Write(packet, 0, packet.Length);
+    }
+
+    private static int FindHeaderEnd(byte[] buf, int len)
+    {
+        int limit = len - 4;
+        for (int i = 0; i <= limit; i++)
+        {
+            if (buf[i] == 13 && buf[i + 1] == 10 && buf[i + 2] == 13 && buf[i + 3] == 10)
+                return i + 4;
+        }
+        return -1;
+    }
+
+    private static void HandleClientConnection(TcpClient client, string scriptDir)
+    {
+        try
+        {
+            client.NoDelay = true;
+            client.ReceiveTimeout = 30000;
+            client.SendTimeout = 5000;
+            NetworkStream stream = client.GetStream();
+
+            byte[] buf = new byte[16384];
+            int buffered = 0;
+            bool keepAlive = true;
+
+            while (keepAlive)
+            {
+                int headerEnd = FindHeaderEnd(buf, buffered);
+                while (headerEnd < 0)
+                {
+                    if (buffered >= buf.Length)
+                    {
+                        if (buf.Length >= 65536) return;
+                        byte[] bigger = new byte[buf.Length * 2];
+                        Buffer.BlockCopy(buf, 0, bigger, 0, buffered);
+                        buf = bigger;
+                    }
+                    int n;
+                    try
+                    {
+                        n = stream.Read(buf, buffered, buf.Length - buffered);
+                    }
+                    catch
+                    {
+                        return;
+                    }
+                    if (n <= 0) return;
+                    buffered += n;
+                    headerEnd = FindHeaderEnd(buf, buffered);
+                }
+
+                string headerStr = Encoding.ASCII.GetString(buf, 0, headerEnd - 4);
+                string[] lines = headerStr.Split(new string[] { "\r\n" }, StringSplitOptions.None);
+                if (lines.Length == 0 || string.IsNullOrEmpty(lines[0])) return;
+
+                string[] reqParts = lines[0].Split(' ');
+                string method = reqParts[0];
+                string rawUrl = (reqParts.Length > 1) ? reqParts[1] : "/";
+                int qIdx = rawUrl.IndexOf('?');
+                string cleanPath = (qIdx >= 0) ? rawUrl.Substring(0, qIdx) : rawUrl;
+
+                string origin = "";
+                string secSite = "";
+                bool hasBridgeHeader = false;
+                int contentLen = 0;
+                string connHdr = "";
+
+                for (int i = 1; i < lines.Length; i++)
+                {
+                    int colon = lines[i].IndexOf(':');
+                    if (colon <= 0) continue;
+                    string k = lines[i].Substring(0, colon).Trim();
+                    string v = lines[i].Substring(colon + 1).Trim();
+                    if (k.Equals("Origin", StringComparison.OrdinalIgnoreCase)) origin = v;
+                    else if (k.Equals("Sec-Fetch-Site", StringComparison.OrdinalIgnoreCase)) secSite = v;
+                    else if (k.Equals("X-WebSynapse-Bridge", StringComparison.OrdinalIgnoreCase)) hasBridgeHeader = true;
+                    else if (k.Equals("Content-Length", StringComparison.OrdinalIgnoreCase)) int.TryParse(v, out contentLen);
+                    else if (k.Equals("Connection", StringComparison.OrdinalIgnoreCase)) connHdr = v;
+                }
+
+                if (contentLen < 0 || contentLen > 65536) return;
+                if (connHdr.Equals("close", StringComparison.OrdinalIgnoreCase)) keepAlive = false;
+
+                int totalNeeded = headerEnd + contentLen;
+                if (totalNeeded > buf.Length)
+                {
+                    byte[] bigger = new byte[Math.Max(buf.Length * 2, totalNeeded + 1024)];
+                    Buffer.BlockCopy(buf, 0, bigger, 0, buffered);
+                    buf = bigger;
+                }
+                while (buffered < totalNeeded)
+                {
+                    int n = stream.Read(buf, buffered, totalNeeded - buffered);
+                    if (n <= 0) return;
+                    buffered += n;
+                }
+
+                string bodyStr = (contentLen > 0) ? Encoding.UTF8.GetString(buf, headerEnd, contentLen) : "";
+
+                // Slide any pipelined next-request bytes to index 0
+                int remaining = buffered - totalNeeded;
+                if (remaining > 0)
+                {
+                    Buffer.BlockCopy(buf, totalNeeded, buf, 0, remaining);
+                }
+                buffered = remaining;
+
+                string corsOrigin = AllowedOrigins.Contains(origin) ? origin : "https://websynap.se";
+                string connOut = keepAlive ? "keep-alive" : "close";
+
+                if (method == "OPTIONS")
+                {
+                    string optHdr =
+                        "HTTP/1.1 204 No Content\r\n" +
+                        "Access-Control-Allow-Origin: " + corsOrigin + "\r\n" +
+                        "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n" +
+                        "Access-Control-Allow-Headers: Content-Type, X-WebSynapse-Bridge\r\n" +
+                        "Access-Control-Allow-Private-Network: true\r\n" +
+                        "Access-Control-Max-Age: 600\r\n" +
+                        "Vary: Origin\r\n" +
+                        "Connection: " + connOut + "\r\n" +
+                        "Content-Length: 0\r\n\r\n";
+                    WriteCombinedResponse(stream, optHdr, null);
+                    continue;
+                }
+
+                if ((method == "GET" || method == "HEAD") && cleanPath == "/favicon.ico")
+                {
+                    string favHdr =
+                        "HTTP/1.1 204 No Content\r\n" +
+                        "Cache-Control: public, max-age=86400\r\n" +
+                        "Connection: " + connOut + "\r\n" +
+                        "Content-Length: 0\r\n\r\n";
+                    WriteCombinedResponse(stream, favHdr, null);
+                    continue;
+                }
+
+                string staticRel = (cleanPath == "/") ? "/index.html" : cleanPath;
+                string mime;
+                if ((method == "GET" || method == "HEAD") && StaticAllowlist.TryGetValue(staticRel, out mime))
+                {
+                    byte[] assetBytes = GetStaticAssetBytes(scriptDir, staticRel);
+                    string extraDisp = (staticRel == "/websynapse-bridge.cmd") ? "Content-Disposition: attachment; filename=\"websynapse-bridge.cmd\"\r\n" : "";
+                    string stHdr =
+                        "HTTP/1.1 200 OK\r\n" +
+                        "Content-Type: " + mime + "\r\n" +
+                        extraDisp +
+                        "Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:18925 http://localhost:18925; font-src 'self'; media-src 'none'; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; worker-src 'self' blob:; base-uri 'none'; form-action 'none';\r\n" +
+                        "Permissions-Policy: hid=(self), usb=(self), serial=(), bluetooth=(), camera=(), microphone=(), geolocation=(), payment=()\r\n" +
+                        "X-Content-Type-Options: nosniff\r\n" +
+                        "X-Frame-Options: DENY\r\n" +
+                        "Referrer-Policy: no-referrer\r\n" +
+                        "Cache-Control: no-cache\r\n" +
+                        "Connection: " + connOut + "\r\n" +
+                        "Content-Length: " + assetBytes.Length + "\r\n\r\n";
+                    byte[] hdrB = Encoding.ASCII.GetBytes(stHdr);
+                    stream.Write(hdrB, 0, hdrB.Length);
+                    if (method == "GET" && assetBytes.Length > 0)
+                    {
+                        stream.Write(assetBytes, 0, assetBytes.Length);
+                    }
+                    continue;
+                }
+
+                // API routes require strict Origin + X-WebSynapse-Bridge header
+                bool originInvalid = (!string.IsNullOrEmpty(origin) && !AllowedOrigins.Contains(origin))
+                    || (string.IsNullOrEmpty(origin) && !string.IsNullOrEmpty(secSite) && secSite != "same-origin" && secSite != "none");
+                if (originInvalid || !hasBridgeHeader)
+                {
+                    byte[] errB = Encoding.UTF8.GetBytes("{\"ok\":false,\"error\":\"Forbidden origin or missing X-WebSynapse-Bridge header\"}");
+                    string fHdr =
+                        "HTTP/1.1 403 Forbidden\r\n" +
+                        "Content-Type: application/json\r\n" +
+                        "Connection: close\r\n" +
+                        "Content-Length: " + errB.Length + "\r\n\r\n";
+                    WriteCombinedResponse(stream, fHdr, errB);
+                    return;
+                }
+
+                string statusLine = "200 OK";
+                string jsonOut = "{\"ok\":false,\"error\":\"Unknown endpoint\"}";
+
+                try
+                {
+                    if (method == "POST" && cleanPath == "/lamparray")
+                    {
+                        int pidNum;
+                        if (!TryExtractJsonInt(bodyStr, "pid", out pidNum))
+                            TryExtractJsonInt(bodyStr, "productId", out pidNum);
+
+                        List<byte[]> reports;
+                        int lampCount;
+                        string errMsg;
+                        if (pidNum <= 0 || !TryExtractJsonBase64List(bodyStr, "reportsB64", out reports))
+                        {
+                            statusLine = "400 Bad Request";
+                            jsonOut = "{\"ok\":false,\"error\":\"Invalid pid or reportsB64 payload\"}";
+                        }
+                        else if (SendLampArrayForPid(pidNum, reports, out lampCount, out errMsg))
+                        {
+                            jsonOut = "{\"ok\":true,\"lampCount\":" + lampCount + "}";
+                        }
+                        else
+                        {
+                            jsonOut = "{\"ok\":false,\"error\":\"" + JsonEscape(errMsg) + "\"}";
+                        }
+                    }
+                    else if (method == "POST" && cleanPath == "/transfer")
+                    {
+                        int pidNum;
+                        if (!TryExtractJsonInt(bodyStr, "pid", out pidNum))
+                            TryExtractJsonInt(bodyStr, "productId", out pidNum);
+
+                        int timeoutMs;
+                        if (!TryExtractJsonInt(bodyStr, "timeoutMs", out timeoutMs))
+                            timeoutMs = 1200;
+                        timeoutMs = Math.Min(3000, Math.Max(100, timeoutMs));
+
+                        byte[] pkt90;
+                        if (pidNum <= 0 || !TryExtractJsonByteArray90(bodyStr, "packet90", out pkt90))
+                        {
+                            statusLine = "400 Bad Request";
+                            jsonOut = "{\"ok\":false,\"error\":\"Invalid pid or 90-byte packet90 payload\"}";
+                        }
+                        else
+                        {
+                            RazerEndpoint ep = ResolveRazerDevice(pidNum, false);
+                            if (ep == null)
+                            {
+                                jsonOut = "{\"ok\":false,\"error\":\"" + JsonEscape(string.Format("Device PID 0x{0:X4} not found by local bridge", pidNum)) + "\"}";
+                            }
+                            else
+                            {
+                                byte[] work90 = (byte[])pkt90.Clone();
+                                if (work90[1] == 0x1F && ep.Tid != 0x1F) work90[1] = ep.Tid;
+                                byte[] rx91 = TransferProtocol25OnEndpoint(ep, work90, timeoutMs);
+                                if (rx91 == null)
+                                {
+                                    // Retry once with fresh endpoint discovery
+                                    InvalidatePid(pidNum);
+                                    ep = ResolveRazerDevice(pidNum, true);
+                                    if (ep != null)
+                                    {
+                                        work90 = (byte[])pkt90.Clone();
+                                        if (work90[1] == 0x1F && ep.Tid != 0x1F) work90[1] = ep.Tid;
+                                        rx91 = TransferProtocol25OnEndpoint(ep, work90, timeoutMs);
+                                    }
+                                }
+                                if (rx91 == null)
+                                {
+                                    InvalidatePid(pidNum);
+                                    jsonOut = "{\"ok\":false,\"error\":\"USB Protocol 25 transfer failed\"}";
+                                }
+                                else
+                                {
+                                    jsonOut = FormatTransferJson(ep, rx91);
+                                }
+                            }
+                        }
+                    }
+                    else if (method == "GET" && cleanPath == "/status")
+                    {
+                        jsonOut = FormatDevicesJson(GetVerifiedEndpoints(false));
+                    }
+                    else if (method == "POST" && cleanPath == "/rescan")
+                    {
+                        jsonOut = FormatDevicesJson(GetVerifiedEndpoints(true));
+                    }
+                    else
+                    {
+                        statusLine = "404 Not Found";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    statusLine = "500 Internal Server Error";
+                    jsonOut = "{\"ok\":false,\"error\":\"" + JsonEscape(ex.Message) + "\"}";
+                }
+
+                byte[] jsonBytes = Encoding.UTF8.GetBytes(jsonOut);
+                string apiHdr =
+                    "HTTP/1.1 " + statusLine + "\r\n" +
+                    "Content-Type: application/json; charset=utf-8\r\n" +
+                    "Access-Control-Allow-Origin: " + corsOrigin + "\r\n" +
+                    "Access-Control-Allow-Private-Network: true\r\n" +
+                    "Vary: Origin\r\n" +
+                    "Connection: " + connOut + "\r\n" +
+                    "Content-Length: " + jsonBytes.Length + "\r\n\r\n";
+                WriteCombinedResponse(stream, apiHdr, jsonBytes);
+            }
+        }
+        catch { }
+        finally
+        {
+            try { client.Close(); } catch { }
+        }
+    }
+
+    public static void RunHttpServer(TcpListener listener, string scriptDir)
+    {
+        while (true)
+        {
+            TcpClient client = listener.AcceptTcpClient();
+            ThreadPool.QueueUserWorkItem(delegate(object state)
+            {
+                HandleClientConnection((TcpClient)state, scriptDir);
+            }, client);
+        }
+    }
 }
 '@
 
 Add-Type -TypeDefinition $csharp -Language CSharp
 
-$script:VerifiedByPid = @{}
-$script:StaticCache = @{}
 $ScriptDir = if ($env:WEBSYNAPSE_SCRIPT_DIR) { $env:WEBSYNAPSE_SCRIPT_DIR.TrimEnd('\', '/') } else { (Get-Location).Path }
 
-function New-FwProbePacket([byte]$tid = 0x1F) {
-    $b = New-Object byte[] 90
-    $b[1] = $tid
-    $b[5] = 0x02
-    $b[6] = 0x00
-    $b[7] = 0x81
-    $crc = 0
-    for ($i = 2; $i -lt 88; $i++) { $crc = $crc -bxor $b[$i] }
-    $b[88] = [byte]$crc
-    return $b
-}
-
-function Resolve-RazerDevice([int]$pidNum) {
-    $all = [RazerBridgeNative]::DiscoverEndpoints() | Where-Object { $_.Pid -eq $pidNum }
-    if (-not $all) { return $null }
-
-    if ($script:VerifiedByPid.ContainsKey($pidNum)) {
-        $cached = $script:VerifiedByPid[$pidNum]
-        $still = $all | Where-Object { $_.Path -eq $cached.Path } | Select-Object -First 1
-        if ($still) {
-            $still.Tid = $cached.Tid
-            $still.Firmware = $cached.Firmware
-            $still.LampArrayPath = $cached.LampArrayPath
-            $still.LampCount = $cached.LampCount
-            if (-not $still.LampArrayPath) { [RazerBridgeNative]::AttachLampArrayInfo($still) }
-            if (-not $still.Name -and $cached.Name) { $still.Name = $cached.Name }
-            return $still
-        }
-        $script:VerifiedByPid.Remove($pidNum)
-    }
-
-    # Prefer WinUSB first, then MI_03 (keyboards), MI_00 (mice), MI_02, MI_01
-    $ordered = $all | Sort-Object @{Expression={ if ($_.Mode -eq 'winusb') { 0 } else { 1 } }}, @{Expression={
-        switch ($_.InterfaceNumber) { 3 { 0 } 0 { 1 } 2 { 2 } 1 { 3 } default { 9 } }
-    }}
-
-    foreach ($ep in $ordered) {
-        foreach ($tid in @(0x1F, 0x3F, 0xFF)) {
-            $probe = New-FwProbePacket ([byte]$tid)
-            $rx = [RazerBridgeNative]::TransferProtocol25OnEndpoint($ep, $probe, 500)
-            if ($rx -and $rx[1] -eq 0x02 -and $rx[7] -eq 0x00 -and $rx[8] -eq 0x81) {
-                $ep.Tid = [byte]$tid
-                $ep.Firmware = ("v{0}.{1:D2}" -f [int]$rx[9], [int]$rx[10])
-                if (-not $ep.Name) {
-                    $namedPeer = $all | Where-Object { $_.Name } | Select-Object -First 1
-                    if ($namedPeer) { $ep.Name = $namedPeer.Name }
-                }
-                [RazerBridgeNative]::AttachLampArrayInfo($ep)
-                $script:VerifiedByPid[$pidNum] = $ep
-                return $ep
-            }
-        }
-    }
-    return $null
-}
-
-function Get-VerifiedEndpoints {
-    $eps = [RazerBridgeNative]::DiscoverEndpoints()
-    $pids = $eps | Select-Object -ExpandProperty Pid -Unique
-    $list = New-Object 'System.Collections.Generic.List[RazerBridgeNative+RazerEndpoint]'
-    foreach ($p in $pids) {
-        if ($null -eq $p) { continue }
-        $v = Resolve-RazerDevice ([int]$p)
-        if ($v) { $list.Add($v) }
-    }
-    return $list
-}
-
 if ($env:WEBSYNAPSE_BRIDGE_SELFTEST -eq "1") {
-    $verified = Get-VerifiedEndpoints
+    $verified = [RazerBridgeNative]::GetVerifiedEndpoints($false)
     Write-Output ([RazerBridgeNative]::FormatDevicesJson($verified))
     exit 0
-}
-
-$AllowedOrigins = @(
-    "https://websynap.se",
-    "https://www.websynap.se",
-    "http://localhost:18925",
-    "http://127.0.0.1:18925",
-    "http://localhost:5426",
-    "http://127.0.0.1:5426",
-    "http://localhost:8080",
-    "http://127.0.0.1:8080",
-    "http://localhost:8787",
-    "http://127.0.0.1:8787"
-)
-
-$StaticAllowlist = @{
-    "/index.html"              = "text/html; charset=utf-8"
-    "/styles.css"              = "text/css; charset=utf-8"
-    "/app.js"                  = "application/javascript; charset=utf-8"
-    "/protocol25.js"           = "application/javascript; charset=utf-8"
-    "/timer-worker.js"         = "application/javascript; charset=utf-8"
-    "/LICENSE"                 = "text/plain; charset=utf-8"
-    "/fonts/DMSans-Variable.ttf" = "font/ttf"
-    "/fonts/DM-Sans-OFL.txt"   = "text/plain; charset=utf-8"
-    "/websynapse-bridge.cmd"   = "application/octet-stream"
-}
-
-function Get-StaticAssetBytes([string]$relPath) {
-    $localCandidate = Join-Path $ScriptDir ($relPath.TrimStart('/').Replace('/', '\'))
-    if (Test-Path -LiteralPath $localCandidate -PathType Leaf) {
-        return [System.IO.File]::ReadAllBytes($localCandidate)
-    }
-    if ($script:StaticCache.ContainsKey($relPath)) {
-        return $script:StaticCache[$relPath]
-    }
-    $wc = New-Object System.Net.WebClient
-    try {
-        $bytes = $wc.DownloadData("https://websynap.se" + $relPath)
-        if ($relPath -eq "/index.html") {
-            $html = [System.Text.Encoding]::UTF8.GetString($bytes)
-            $html = $html -replace "connect-src 'none';", "connect-src 'self' http://127.0.0.1:18925 http://localhost:18925;"
-            $bytes = [System.Text.Encoding]::UTF8.GetBytes($html)
-        }
-        $script:StaticCache[$relPath] = $bytes
-        return $bytes
-    } finally {
-        $wc.Dispose()
-    }
 }
 
 $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, 18925)
@@ -667,7 +1299,7 @@ Write-Host ""
 Write-Host "  ============================================================" -ForegroundColor Green
 Write-Host "   websynap.se Local USB Bridge Active on 127.0.0.1:18925" -ForegroundColor Green
 Write-Host "  ============================================================" -ForegroundColor Green
-$initDevices = Get-VerifiedEndpoints
+$initDevices = [RazerBridgeNative]::GetVerifiedEndpoints($false)
 if ($initDevices.Count -gt 0) {
     foreach ($d in $initDevices) {
         $hexP = ("0x{0:X4}" -f $d.Pid)
@@ -686,202 +1318,4 @@ if ($env:WEBSYNAPSE_NO_BROWSER -ne "1") {
     try { Start-Process "http://localhost:18925" } catch {}
 }
 
-while ($true) {
-    $client = $listener.AcceptTcpClient()
-    try {
-        $client.ReceiveTimeout = 3000
-        $client.SendTimeout = 3000
-        $stream = $client.GetStream()
-        $ms = New-Object System.IO.MemoryStream
-        $buf = New-Object byte[] 8192
-        $headerEnd = -1
-        while ($headerEnd -lt 0) {
-            $n = $stream.Read($buf, 0, $buf.Length)
-            if ($n -le 0) { break }
-            $ms.Write($buf, 0, $n)
-            $arr = $ms.ToArray()
-            for ($i = 0; $i -le $arr.Length - 4; $i++) {
-                if ($arr[$i] -eq 13 -and $arr[$i+1] -eq 10 -and $arr[$i+2] -eq 13 -and $arr[$i+3] -eq 10) {
-                    $headerEnd = $i + 4
-                    break
-                }
-            }
-            if ($ms.Length -gt 32768) { break }
-        }
-        if ($headerEnd -lt 0) { $client.Close(); continue }
-
-        $allBytes = $ms.ToArray()
-        $headerStr = [System.Text.Encoding]::ASCII.GetString($allBytes, 0, $headerEnd)
-        $lines = $headerStr -split "`r`n"
-        $reqParts = $lines[0] -split " "
-        $method = $reqParts[0]
-        $rawUrl = if ($reqParts.Length -gt 1) { $reqParts[1] } else { "/" }
-        $cleanPath = ($rawUrl -split "\?")[0]
-
-        $headers = @{}
-        for ($i = 1; $i -lt $lines.Length; $i++) {
-            $idx = $lines[$i].IndexOf(":")
-            if ($idx -gt 0) {
-                $k = $lines[$i].Substring(0, $idx).Trim().ToLowerInvariant()
-                $v = $lines[$i].Substring($idx + 1).Trim()
-                $headers[$k] = $v
-            }
-        }
-
-        $origin = if ($headers.ContainsKey("origin")) { $headers["origin"] } else { "" }
-        $corsOrigin = if ($AllowedOrigins -contains $origin) { $origin } else { "https://websynap.se" }
-
-        if ($method -eq "OPTIONS") {
-            $respHdr = "HTTP/1.1 204 No Content`r`n" +
-                       "Access-Control-Allow-Origin: $corsOrigin`r`n" +
-                       "Access-Control-Allow-Methods: GET, POST, OPTIONS`r`n" +
-                       "Access-Control-Allow-Headers: Content-Type, X-WebSynapse-Bridge`r`n" +
-                       "Access-Control-Allow-Private-Network: true`r`n" +
-                       "Access-Control-Max-Age: 600`r`n" +
-                       "Vary: Origin`r`n" +
-                       "Connection: close`r`n" +
-                       "Content-Length: 0`r`n`r`n"
-            $outB = [System.Text.Encoding]::ASCII.GetBytes($respHdr)
-            $stream.Write($outB, 0, $outB.Length)
-            $client.Close()
-            continue
-        }
-
-        # Serve allowlisted static UI files at http://localhost:18925/
-        $staticRel = if ($cleanPath -eq "/") { "/index.html" } else { $cleanPath }
-        if (($method -eq "GET" -or $method -eq "HEAD") -and $StaticAllowlist.ContainsKey($staticRel)) {
-            $assetBytes = Get-StaticAssetBytes $staticRel
-            $mime = $StaticAllowlist[$staticRel]
-            $extraDisp = if ($staticRel -eq "/websynapse-bridge.cmd") { "Content-Disposition: attachment; filename=`"websynapse-bridge.cmd`"`r`n" } else { "" }
-            $respHdr = "HTTP/1.1 200 OK`r`n" +
-                       "Content-Type: $mime`r`n" +
-                       $extraDisp +
-                       "Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:18925 http://localhost:18925; font-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; frame-src 'none'; frame-ancestors 'none'; worker-src 'self' blob:; base-uri 'none'; form-action 'none';`r`n" +
-                       "Permissions-Policy: hid=(self), usb=(self), serial=(), bluetooth=(), camera=(), microphone=(), geolocation=(), payment=()`r`n" +
-                       "X-Content-Type-Options: nosniff`r`n" +
-                       "X-Frame-Options: DENY`r`n" +
-                       "Referrer-Policy: no-referrer`r`n" +
-                       "Cache-Control: no-cache`r`n" +
-                       "Connection: close`r`n" +
-                       "Content-Length: $($assetBytes.Length)`r`n`r`n"
-            $hdrB = [System.Text.Encoding]::ASCII.GetBytes($respHdr)
-            $stream.Write($hdrB, 0, $hdrB.Length)
-            if ($method -eq "GET") {
-                $stream.Write($assetBytes, 0, $assetBytes.Length)
-            }
-            $client.Close()
-            continue
-        }
-
-        # API routes require strict Origin + X-WebSynapse-Bridge header
-        $secSite = if ($headers.ContainsKey("sec-fetch-site")) { $headers["sec-fetch-site"] } else { "" }
-        $originInvalid = ($origin -and ($AllowedOrigins -notcontains $origin)) -or ((-not $origin) -and $secSite -and $secSite -ne "same-origin" -and $secSite -ne "none")
-        if ($originInvalid -or (-not $headers.ContainsKey("x-websynapse-bridge"))) {
-            $errJson = '{"ok":false,"error":"Forbidden origin or missing X-WebSynapse-Bridge header"}'
-            $errB = [System.Text.Encoding]::UTF8.GetBytes($errJson)
-            $respHdr = "HTTP/1.1 403 Forbidden`r`nContent-Type: application/json`r`nContent-Length: $($errB.Length)`r`nConnection: close`r`n`r`n"
-            $hdrB = [System.Text.Encoding]::ASCII.GetBytes($respHdr)
-            $stream.Write($hdrB, 0, $hdrB.Length)
-            $stream.Write($errB, 0, $errB.Length)
-            $client.Close()
-            continue
-        }
-
-        $contentLen = if ($headers.ContainsKey("content-length")) { [int]$headers["content-length"] } else { 0 }
-        $bodyAlready = $allBytes.Length - $headerEnd
-        while ($bodyAlready -lt $contentLen -and $contentLen -le 65536) {
-            $n = $stream.Read($buf, 0, [Math]::Min($buf.Length, $contentLen - $bodyAlready))
-            if ($n -le 0) { break }
-            $ms.Write($buf, 0, $n)
-            $bodyAlready += $n
-        }
-        $finalBytes = $ms.ToArray()
-        $bodyStr = if ($contentLen -gt 0) { [System.Text.Encoding]::UTF8.GetString($finalBytes, $headerEnd, [Math]::Min($contentLen, $finalBytes.Length - $headerEnd)) } else { "" }
-
-        $statusLine = "200 OK"
-        $jsonOut = '{"ok":false,"error":"Unknown endpoint"}'
-
-        if ($method -eq "GET" -and $cleanPath -eq "/status") {
-            $jsonOut = [RazerBridgeNative]::FormatDevicesJson((Get-VerifiedEndpoints))
-        }
-        elseif ($method -eq "POST" -and $cleanPath -eq "/rescan") {
-            $script:VerifiedByPid.Clear()
-            $jsonOut = [RazerBridgeNative]::FormatDevicesJson((Get-VerifiedEndpoints))
-        }
-        elseif ($method -eq "POST" -and $cleanPath -eq "/transfer") {
-            $reqJson = $bodyStr | ConvertFrom-Json
-            $pidNum = [int]$reqJson.pid
-            $timeoutMs = if ($reqJson.timeoutMs) { [Math]::Min(3000, [Math]::Max(100, [int]$reqJson.timeoutMs)) } else { 1200 }
-            $hexOrArr = $reqJson.packet90
-            $pkt90 = New-Object byte[] 90
-            for ($i = 0; $i -lt 90; $i++) { $pkt90[$i] = [byte]([int]$hexOrArr[$i] -band 0xFF) }
-
-            $ep = Resolve-RazerDevice $pidNum
-            if (-not $ep) {
-                $errMsg = [RazerBridgeNative]::JsonEscape(("Device PID 0x{0:X4} not found by local bridge" -f $pidNum))
-                $jsonOut = "{`"ok`":false,`"error`":`"$errMsg`"}"
-            } else {
-                # If caller sent generic Tid 0x1F on a wireless dongle that verified on 0x3F (or vice versa), align Tid
-                if ($pkt90[1] -eq 0x1F -and $ep.Tid -ne 0x1F) {
-                    $pkt90[1] = $ep.Tid
-                }
-                $rx91 = [RazerBridgeNative]::TransferProtocol25OnEndpoint($ep, $pkt90, $timeoutMs)
-                if (-not $rx91) {
-                    $script:VerifiedByPid.Remove($pidNum)
-                    $jsonOut = '{"ok":false,"error":"USB Protocol 25 transfer failed"}'
-                } else {
-                    $jsonOut = [RazerBridgeNative]::FormatTransferJson($ep, $rx91)
-                }
-            }
-        }
-        elseif ($method -eq "POST" -and $cleanPath -eq "/lamparray") {
-            $reqJson = $bodyStr | ConvertFrom-Json
-            $pidNum = [int]$reqJson.pid
-            $ep = Resolve-RazerDevice $pidNum
-            if (-not $ep -or -not $ep.LampArrayPath) {
-                $jsonOut = '{"ok":false,"error":"LampArray HID interface not available for this device"}'
-            } else {
-                $b64List = [string[]]@($reqJson.reportsB64)
-                $okLamp = [RazerBridgeNative]::SendLampArrayBase64($ep.LampArrayPath, $b64List)
-                if (-not $okLamp) {
-                    $ep.LampArrayPath = ""
-                    [RazerBridgeNative]::AttachLampArrayInfo($ep)
-                    if ($ep.LampArrayPath) {
-                        $okLamp = [RazerBridgeNative]::SendLampArrayBase64($ep.LampArrayPath, $b64List)
-                    }
-                }
-                if ($okLamp) {
-                    $jsonOut = "{`"ok`":true,`"lampCount`":$($ep.LampCount)}"
-                } else {
-                    $jsonOut = '{"ok":false,"error":"HidD_SetFeature failed on LampArray interface"}'
-                }
-            }
-        }
-        else {
-            $statusLine = "404 Not Found"
-        }
-
-        $jsonBytes = [System.Text.Encoding]::UTF8.GetBytes($jsonOut)
-        $respHdr = "HTTP/1.1 $statusLine`r`n" +
-                   "Content-Type: application/json; charset=utf-8`r`n" +
-                   "Access-Control-Allow-Origin: $corsOrigin`r`n" +
-                   "Access-Control-Allow-Private-Network: true`r`n" +
-                   "Vary: Origin`r`n" +
-                   "Connection: close`r`n" +
-                   "Content-Length: $($jsonBytes.Length)`r`n`r`n"
-        $hdrBytes = [System.Text.Encoding]::ASCII.GetBytes($respHdr)
-        $stream.Write($hdrBytes, 0, $hdrBytes.Length)
-        $stream.Write($jsonBytes, 0, $jsonBytes.Length)
-    } catch {
-        try {
-            $errMsg = [RazerBridgeNative]::JsonEscape($_.Exception.Message)
-            $errJson = "{`"ok`":false,`"error`":`"$errMsg`"}"
-            $errB = [System.Text.Encoding]::UTF8.GetBytes($errJson)
-            $hdr = [System.Text.Encoding]::ASCII.GetBytes("HTTP/1.1 500 Internal Server Error`r`nAccess-Control-Allow-Origin: https://websynap.se`r`nAccess-Control-Allow-Private-Network: true`r`nContent-Type: application/json`r`nContent-Length: $($errB.Length)`r`nConnection: close`r`n`r`n")
-            $client.GetStream().Write($hdr, 0, $hdr.Length)
-            $client.GetStream().Write($errB, 0, $errB.Length)
-        } catch {}
-    } finally {
-        $client.Close()
-    }
-}
+[RazerBridgeNative]::RunHttpServer($listener, $ScriptDir)

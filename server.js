@@ -97,6 +97,11 @@ function loadRestoreProfiles() {
 
 let spawnedBridgeChild = null;
 let bridgeStartupPromise = null;
+const bridgeKeepAliveAgent = new http.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 30000,
+  maxSockets: 8,
+});
 
 function callNativeBridge(method, routePath, bodyObj = null, timeoutMs = 2200) {
   return new Promise((resolve, reject) => {
@@ -107,8 +112,10 @@ function callNativeBridge(method, routePath, bodyObj = null, timeoutMs = 2200) {
         port: NATIVE_BRIDGE_PORT,
         path: routePath,
         method,
+        agent: bridgeKeepAliveAgent,
         timeout: timeoutMs,
         headers: {
+          Connection: "keep-alive",
           "X-WebSynapse-Bridge": "1",
           ...(payload
             ? {
@@ -128,9 +135,12 @@ function callNativeBridge(method, routePath, bodyObj = null, timeoutMs = 2200) {
           try {
             const parsed = JSON.parse(raw || "{}");
             if (res.statusCode >= 200 && res.statusCode < 300) {
+              nativeLoadStatus.bridgeOnline = true;
               resolve(parsed);
             } else {
-              reject(new Error(parsed?.error || `Native bridge HTTP ${res.statusCode}`));
+              const httpErr = new Error(parsed?.error || `Native bridge HTTP ${res.statusCode}`);
+              httpErr.isHttpStatus = true;
+              reject(httpErr);
             }
           } catch (err) {
             reject(err);
@@ -138,6 +148,9 @@ function callNativeBridge(method, routePath, bodyObj = null, timeoutMs = 2200) {
         });
       }
     );
+    req.on("socket", (s) => {
+      s.setNoDelay(true);
+    });
     req.on("timeout", () => {
       req.destroy(new Error("Native bridge timeout"));
     });
@@ -145,6 +158,20 @@ function callNativeBridge(method, routePath, bodyObj = null, timeoutMs = 2200) {
     if (payload) req.write(payload);
     req.end();
   });
+}
+
+async function callNativeBridgeFast(method, routePath, bodyObj = null, timeoutMs = 2200) {
+  if (!nativeLoadStatus.bridgeOnline) {
+    await ensureNativeBridge();
+  }
+  try {
+    return await callNativeBridge(method, routePath, bodyObj, timeoutMs);
+  } catch (err) {
+    if (err && err.isHttpStatus) throw err;
+    nativeLoadStatus.bridgeOnline = false;
+    await ensureNativeBridge();
+    return await callNativeBridge(method, routePath, bodyObj, timeoutMs);
+  }
 }
 
 function findBridgeScriptPath() {
@@ -513,8 +540,7 @@ async function sendProtocol25Command({ productId, interfaceNum = 3, reportId = 0
     // 0. Prefer Native WinUSB + HidUsb Bridge on Windows (supports both Zadig WinUSB and standard HidUsb under any Node ABI)
     if (process.platform === "win32") {
       try {
-        await ensureNativeBridge();
-        const bridgeRes = await callNativeBridge(
+        const bridgeRes = await callNativeBridgeFast(
           "POST",
           "/transfer",
           { pid: pidKey, packet90: body90, timeoutMs: 1400 },
@@ -966,8 +992,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { ok: false, error: "pid and 1..64 reportsB64 entries required" });
       }
       if (process.platform === "win32") {
-        await ensureNativeBridge();
-        const bridgeRes = await callNativeBridge("POST", "/lamparray", { pid, reportsB64 }, 1800);
+        const bridgeRes = await callNativeBridgeFast("POST", "/lamparray", { pid, reportsB64 }, 1800);
         return sendJson(res, 200, bridgeRes);
       }
       return sendJson(res, 400, { ok: false, error: "Native LampArray bridge requires Windows" });
@@ -1507,6 +1532,11 @@ const server = http.createServer(async (req, res) => {
   } catch (err) {
     sendJson(res, 500, { ok: false, error: err.message });
   }
+});
+
+server.keepAliveTimeout = 65000;
+server.on("connection", (socket) => {
+  socket.setNoDelay(true);
 });
 
 server.listen(PORT, HOST, async () => {
