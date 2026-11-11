@@ -33,6 +33,17 @@
     "aurora",
     "gradient",
     "disco",
+    "customWave",
+    "spiral",
+    "sunset",
+    "comet",
+    "sonar",
+    "ember",
+    "raindrops",
+    "equalizer",
+    "shockwave",
+    "splash",
+    "heatmap",
   ]);
   const ALLOWED_COMMAND_CLASSES = new Set([0x00, 0x02, 0x03, 0x04, 0x05, 0x07, 0x08, 0x0b, 0x0c, 0x0d, 0x0f, 0x17, 0x18]);
   const ALLOWED_CLASS_00_IDS = new Set([0x04, 0x05, 0x40, 0x81, 0x82, 0x84, 0x86, 0x87, 0xc0]);
@@ -2552,6 +2563,726 @@
         return true;
       }
 
+      // DUAL COLOR WAVE (Wootility Custom Wave / Corsair Color Wave): Smooth traveling wave blending Primary & Secondary
+      if (effect === "customWave") {
+        let phase = 0;
+        let lastTick = performance.now();
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
+            return;
+          }
+          if (busy || !lampDev.opened) return;
+          busy = true;
+          try {
+            syncLiveLightingParams();
+            const now = performance.now();
+            const dt = Math.min(100, now - lastTick);
+            lastTick = now;
+            const radPerMs = (speedMult === 1 ? 1.7 : speedMult === 3 ? 4.9 : 3.1) / 1000;
+            phase += dt * radPerMs;
+            await sendComputedFrame((l) => {
+              const raw = 0.5 + 0.5 * Math.sin(l.nx * Math.PI * 2.4 - dirSign * phase + l.ny * 0.45);
+              const w = raw * raw * (3 - 2 * raw);
+              return [
+                Math.round(baseR * w + secR * (1 - w)),
+                Math.round(baseG * w + secG * (1 - w)),
+                Math.round(baseB * w + secB * (1 - w)),
+              ];
+            });
+          } catch {
+            clearLampInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 28);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      // RAINBOW PINWHEEL (QMK / Keychron CYCLE_SPIRAL_VAL): Swirling 2D polar spiral galaxy around keyboard center
+      if (effect === "spiral") {
+        let phaseDeg = 0;
+        let lastTick = performance.now();
+        const centerX = 175;
+        const centerY = 65;
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
+            return;
+          }
+          if (busy || !lampDev.opened) return;
+          busy = true;
+          try {
+            syncLiveLightingParams();
+            const now = performance.now();
+            const dt = Math.min(100, now - lastTick);
+            lastTick = now;
+            const degPerMs = (speedMult === 1 ? 70 : speedMult === 3 ? 215 : 135) / 1000;
+            phaseDeg = (phaseDeg + dt * degPerMs) % 360;
+            await sendComputedFrame((l) => {
+              const dx = l.x - centerX;
+              const dy = l.y - centerY;
+              const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+              const dist = Math.hypot(dx, dy);
+              const hue = (angleDeg + dist * 1.45 - dirSign * phaseDeg + 36000) % 360;
+              return hsvToRgb(hue, 1, 1);
+            });
+          } catch {
+            clearLampInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 28);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      // VAPORWAVE SUNSET (Outrun / Synthwave Horizon): Drifting solar core above Primary -> Secondary horizon scanlines
+      if (effect === "sunset") {
+        let tAcc = 0;
+        let lastTick = performance.now();
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
+            return;
+          }
+          if (busy || !lampDev.opened) return;
+          busy = true;
+          try {
+            syncLiveLightingParams();
+            const now = performance.now();
+            const dt = Math.min(100, now - lastTick);
+            lastTick = now;
+            const spd = (speedMult === 1 ? 1.1 : speedMult === 3 ? 3.2 : 2.0) / 1000;
+            tAcc += dt * spd;
+            const sunX = 0.5 + 0.22 * Math.sin(tAcc * 0.55 * dirSign);
+            const sunY = 0.26;
+            await sendComputedFrame((l) => {
+              const horizon = Math.max(0, Math.min(1, l.ny + 0.1 * Math.sin(l.nx * 4.8 - dirSign * tAcc)));
+              const sunDist = Math.hypot((l.nx - sunX) * 1.75, l.ny - sunY);
+              const sunCore = Math.pow(Math.max(0, 1 - sunDist / 0.44), 2.1);
+              const scan = 0.8 + 0.2 * Math.sin(l.ny * 18 - tAcc * 2.6);
+              const r = (baseR * (1 - horizon) + secR * horizon) * scan + (255 - baseR) * sunCore * 0.55;
+              const g = (baseG * (1 - horizon) + secG * horizon) * scan + (245 - baseG) * sunCore * 0.48;
+              const b = (baseB * (1 - horizon) + secB * horizon) * scan + (225 - baseB) * sunCore * 0.4;
+              return [
+                Math.max(0, Math.min(255, Math.round(r))),
+                Math.max(0, Math.min(255, Math.round(g))),
+                Math.max(0, Math.min(255, Math.round(b))),
+              ];
+            });
+          } catch {
+            clearLampInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 28);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      // METEOR COMET (ASUS Aura Comet / MSI Meteor): White-hot comet heads streaking with Primary -> Secondary plasma tails
+      if (effect === "comet") {
+        let headPos = 0;
+        let lastTick = performance.now();
+        const span = 1.55;
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
+            return;
+          }
+          if (busy || !lampDev.opened) return;
+          busy = true;
+          try {
+            syncLiveLightingParams();
+            const now = performance.now();
+            const dt = Math.min(100, now - lastTick);
+            lastTick = now;
+            const unitsPerMs = (speedMult === 1 ? 0.38 : speedMult === 3 ? 1.08 : 0.68) / 1000;
+            headPos = (headPos + dt * unitsPerMs) % span;
+            const c0 = headPos;
+            const c1 = (headPos + span * 0.5) % span;
+            await sendComputedFrame((l) => {
+              const axis = (dirSign === 1 ? l.nx : 1 - l.nx) + l.ny * 0.16;
+              const bandWeight0 = Math.max(0, 1 - Math.abs(l.ny - 0.25) / 0.52);
+              const bandWeight1 = Math.max(0, 1 - Math.abs(l.ny - 0.78) / 0.52);
+
+              const evalComet = (cPos, bandW) => {
+                if (bandW <= 0) return [0, 0, 0];
+                let d = cPos - axis;
+                if (d < -0.2) d += span;
+                if (d >= -0.045 && d <= 0.045) {
+                  const core = (1 - Math.abs(d) / 0.045) * bandW;
+                  return [
+                    Math.round((baseR * 0.45 + 255 * 0.55) * core),
+                    Math.round((baseG * 0.45 + 255 * 0.55) * core),
+                    Math.round((baseB * 0.45 + 255 * 0.55) * core),
+                  ];
+                }
+                if (d > 0.045 && d <= 0.56) {
+                  const t = (d - 0.045) / 0.515;
+                  const env = Math.pow(1 - t, 1.9) * bandW;
+                  return [
+                    Math.round((baseR * (1 - t) + secR * t) * env),
+                    Math.round((baseG * (1 - t) + secG * t) * env),
+                    Math.round((baseB * (1 - t) + secB * t) * env),
+                  ];
+                }
+                return [0, 0, 0];
+              };
+
+              const a = evalComet(c0, bandWeight0);
+              const b = evalComet(c1, bandWeight1);
+              return [
+                Math.min(255, a[0] + b[0]),
+                Math.min(255, a[1] + b[1]),
+                Math.min(255, a[2] + b[2]),
+              ];
+            });
+          } catch {
+            clearLampInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 25);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      // RADAR SONAR (Corsair iCUE Sonar / Pulse): Concentric sonar rings radiating from keyboard center
+      if (effect === "sonar") {
+        let phaseMm = 0;
+        let lastTick = performance.now();
+        const periodMm = 128;
+        const centerX = 175;
+        const centerY = 65;
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
+            return;
+          }
+          if (busy || !lampDev.opened) return;
+          busy = true;
+          try {
+            syncLiveLightingParams();
+            const now = performance.now();
+            const dt = Math.min(100, now - lastTick);
+            lastTick = now;
+            const mmPerMs = speedMult === 1 ? 0.09 : speedMult === 3 ? 0.25 : 0.16;
+            phaseMm = (phaseMm + dt * mmPerMs) % periodMm;
+            await sendComputedFrame((l) => {
+              const dist = Math.hypot(l.x - centerX, l.y - centerY);
+              const p = (((dist - dirSign * phaseMm) % periodMm) + periodMm) % periodMm;
+              const edgeAtten = Math.max(0.32, 1 - dist / 280);
+              if (p < 22) {
+                const crest = Math.cos((p / 22) * (Math.PI / 2)) * edgeAtten;
+                return [
+                  Math.round(baseR * crest),
+                  Math.round(baseG * crest),
+                  Math.round(baseB * crest),
+                ];
+              }
+              if (p >= 22 && p < 74) {
+                const wake = Math.pow(1 - (p - 22) / 52, 1.7) * 0.65 * edgeAtten;
+                return [
+                  Math.round(secR * wake),
+                  Math.round(secG * wake),
+                  Math.round(secB * wake),
+                ];
+              }
+              return [Math.round(secR * 0.05), Math.round(secG * 0.05), Math.round(secB * 0.05)];
+            });
+          } catch {
+            clearLampInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 28);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      // MOLTEN EMBER (Glorious Lava / QMK Plasma): Drifting molten cellular glow in Primary & Secondary colors
+      if (effect === "ember") {
+        let tAcc = 0;
+        let lastTick = performance.now();
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
+            return;
+          }
+          if (busy || !lampDev.opened) return;
+          busy = true;
+          try {
+            syncLiveLightingParams();
+            const now = performance.now();
+            const dt = Math.min(100, now - lastTick);
+            lastTick = now;
+            const spd = (speedMult === 1 ? 0.85 : speedMult === 3 ? 2.5 : 1.55) / 1000;
+            tAcc += dt * spd;
+            await sendComputedFrame((l) => {
+              const n1 = Math.sin(l.nx * 5.4 + tAcc * 1.15 * dirSign) * Math.cos(l.ny * 3.9 - tAcc * 0.85);
+              const n2 = Math.sin((l.nx - l.ny) * 4.6 - tAcc * 1.4);
+              const heat = Math.max(0.06, Math.min(1, 0.52 + 0.34 * n1 + 0.22 * n2));
+              if (heat < 0.5) {
+                const k = heat / 0.5;
+                return [
+                  Math.round(secR * (0.12 + 0.88 * k)),
+                  Math.round(secG * (0.12 + 0.88 * k)),
+                  Math.round(secB * (0.12 + 0.88 * k)),
+                ];
+              }
+              const k = (heat - 0.5) / 0.5;
+              const core = Math.max(0, (heat - 0.84) / 0.16) * 0.45;
+              return [
+                Math.min(255, Math.round(secR * (1 - k) + baseR * k + (255 - baseR) * core)),
+                Math.min(255, Math.round(secG * (1 - k) + baseG * k + (235 - baseG) * core)),
+                Math.min(255, Math.round(secB * (1 - k) + baseB * k + (190 - baseB) * core)),
+              ];
+            });
+          } catch {
+            clearLampInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 28);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      // SPRING RAINDROPS (Ducky Raindrop / QMK RAINDROPS): Random droplets splashing into expanding puddles
+      if (effect === "raindrops") {
+        const puddles = [
+          { x: 95, y: 52, age: 0, maxAge: 950, sec: false },
+          { x: 245, y: 78, age: 320, maxAge: 950, sec: true },
+        ];
+        let spawnAcc = 0;
+        let lastTick = performance.now();
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
+            return;
+          }
+          if (busy || !lampDev.opened) return;
+          busy = true;
+          try {
+            syncLiveLightingParams();
+            const now = performance.now();
+            const dt = Math.min(100, now - lastTick);
+            lastTick = now;
+            const spawnIntervalMs = speedMult === 1 ? 340 : speedMult === 3 ? 125 : 210;
+            const maxAgeMs = speedMult === 1 ? 1350 : speedMult === 3 ? 720 : 980;
+            spawnAcc += dt;
+            while (spawnAcc >= spawnIntervalMs) {
+              spawnAcc -= spawnIntervalMs;
+              if (puddles.length < 10) {
+                puddles.push({
+                  x: 20 + Math.random() * 320,
+                  y: 16 + Math.random() * 98,
+                  age: 0,
+                  maxAge: maxAgeMs,
+                  sec: Math.random() < 0.42,
+                });
+              }
+            }
+            for (let i = puddles.length - 1; i >= 0; i--) {
+              puddles[i].age += dt;
+              if (puddles[i].age >= puddles[i].maxAge) puddles.splice(i, 1);
+            }
+            await sendComputedFrame((l) => {
+              let rAcc = secR * 0.05;
+              let gAcc = secG * 0.05;
+              let bAcc = secB * 0.05;
+              for (let i = 0; i < puddles.length; i++) {
+                const p = puddles[i];
+                const prog = p.age / p.maxAge;
+                const radius = prog * 56;
+                const dist = Math.hypot(l.x - p.x, l.y - p.y);
+                const delta = Math.abs(dist - radius);
+                if (delta < 16) {
+                  const env = Math.cos((delta / 16) * (Math.PI / 2)) * Math.pow(1 - prog, 1.35);
+                  const cr = p.sec ? secR : baseR;
+                  const cg = p.sec ? secG : baseG;
+                  const cb = p.sec ? secB : baseB;
+                  rAcc += cr * env;
+                  gAcc += cg * env;
+                  bAcc += cb * env;
+                }
+              }
+              return [
+                Math.min(255, Math.round(rAcc)),
+                Math.min(255, Math.round(gAcc)),
+                Math.min(255, Math.round(bAcc)),
+              ];
+            });
+          } catch {
+            clearLampInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 28);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      // AUDIO VU BARS (Logitech G HUB Equalizer / Prism Visualizer): 14 rhythmic spectrum columns + Secondary peak caps
+      if (effect === "equalizer") {
+        const bandCount = 14;
+        const levels = new Float32Array(bandCount).fill(0.35);
+        const peaks = new Float32Array(bandCount).fill(0.5);
+        let tAcc = 0;
+        let lastTick = performance.now();
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
+            return;
+          }
+          if (busy || !lampDev.opened) return;
+          busy = true;
+          try {
+            syncLiveLightingParams();
+            const now = performance.now();
+            const dt = Math.min(100, now - lastTick);
+            lastTick = now;
+            const spd = (speedMult === 1 ? 3.2 : speedMult === 3 ? 8.6 : 5.6) / 1000;
+            tAcc += dt * spd;
+            for (let b = 0; b < bandCount; b++) {
+              const bassWeight = 1 - (b / bandCount) * 0.25;
+              const wave =
+                0.48 +
+                0.28 * Math.sin(tAcc * 1.9 + b * 0.72 * dirSign) +
+                0.18 * Math.cos(tAcc * 3.3 - b * 1.35) +
+                0.14 * Math.sin(tAcc * 5.1 + b * 2.1);
+              const target = Math.max(0.08, Math.min(1, wave * bassWeight));
+              levels[b] = levels[b] + (target - levels[b]) * Math.min(1, dt * 0.022);
+              if (levels[b] >= peaks[b]) {
+                peaks[b] = levels[b];
+              } else {
+                peaks[b] = Math.max(levels[b], peaks[b] - dt * 0.00048);
+              }
+            }
+            await sendComputedFrame((l) => {
+              const bIdx = Math.max(0, Math.min(bandCount - 1, Math.floor(l.nx * bandCount)));
+              const barHeight = 1 - l.ny; // 0 = bottom SPACE row, 1 = top ESC/F row
+              const lvl = levels[bIdx];
+              const pk = peaks[bIdx];
+              if (Math.abs(barHeight - pk) < 0.095 && pk > 0.16) {
+                return [secR, secG, secB];
+              }
+              if (barHeight <= lvl) {
+                const topMix = Math.max(0, (barHeight - 0.55) / 0.45);
+                return [
+                  Math.round(baseR * (1 - topMix) + secR * topMix),
+                  Math.round(baseG * (1 - topMix) + secG * topMix),
+                  Math.round(baseB * (1 - topMix) + secB * topMix),
+                ];
+              }
+              return [0, 0, 0];
+            });
+          } catch {
+            clearLampInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 25);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      // CROSSHAIR LASER (QMK SOLID_REACTIVE_CROSS / Ducky Laser): Keystrokes fire horizontal + vertical laser beams
+      if (effect === "shockwave") {
+        ensureReactiveKeyListeners();
+        const pulses = [{ x: 145, y: 65, bornAt: performance.now() }];
+        const spawnCross = (lampIds) => {
+          if (isPageUnloading || !lampIds || lampIds.length === 0 || lampArrayGenByPid.get(numPid) !== gen) return;
+          const lamp = layout.lamps[lampIds[0]];
+          if (!lamp) return;
+          if (pulses.length >= 8) pulses.shift();
+          pulses.push({ x: lamp.x, y: lamp.y, bornAt: performance.now() });
+          if (lamp.label) {
+            const keyEl = document.querySelector(`.keycap[data-key="${CSS.escape(lamp.label)}"]`);
+            if (keyEl) {
+              keyEl.classList.add("is-reactive-lit");
+              setTimeout(() => keyEl.classList.remove("is-reactive-lit"), 220);
+            }
+          }
+        };
+        reactiveTriggerByPid.set(numPid, {
+          onKeyDown(code) {
+            const ids = layout.byCode.get(code);
+            if (ids) spawnCross(ids);
+          },
+          onKeyUp() {},
+          onLabelTrigger(label) {
+            const ids = layout.byLabel.get(label);
+            if (ids) spawnCross(ids);
+          },
+          onReleaseAll() {},
+        });
+
+        let hadPulsesLastFrame = true;
+        await sendComputedFrame(() => [Math.round(secR * 0.08), Math.round(secG * 0.08), Math.round(secB * 0.08)]);
+
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
+            return;
+          }
+          if (busy || !lampDev.opened) return;
+          if (pulses.length === 0 && !hadPulsesLastFrame) return;
+          busy = true;
+          try {
+            syncLiveLightingParams();
+            const now = performance.now();
+            const mmPerMs = speedMult === 1 ? 0.36 : speedMult === 3 ? 0.92 : 0.6;
+            const maxDistMm = 370;
+            for (let i = pulses.length - 1; i >= 0; i--) {
+              if ((now - pulses[i].bornAt) * mmPerMs > maxDistMm) pulses.splice(i, 1);
+            }
+            const ambR = Math.round(secR * 0.08);
+            const ambG = Math.round(secG * 0.08);
+            const ambB = Math.round(secB * 0.08);
+            if (pulses.length === 0) {
+              hadPulsesLastFrame = false;
+              await sendAllLampsColor(ambR, ambG, ambB, 255);
+            } else {
+              hadPulsesLastFrame = true;
+              await sendComputedFrame((l) => {
+                let beamEnv = 0;
+                for (let i = 0; i < pulses.length; i++) {
+                  const p = pulses[i];
+                  const onRow = Math.abs(l.y - p.y) < 10.5;
+                  const onCol = Math.abs(l.x - p.x) < 11.5;
+                  if (!onRow && !onCol) continue;
+                  const axisDist = onRow && onCol ? 0 : onRow ? Math.abs(l.x - p.x) : Math.abs(l.y - p.y);
+                  const front = (now - p.bornAt) * mmPerMs;
+                  const delta = front - axisDist;
+                  if (delta >= -16 && delta <= 75) {
+                    const wave = delta < 0 ? 1 + delta / 16 : Math.pow(1 - delta / 75, 1.6);
+                    const atten = Math.max(0, 1 - front / maxDistMm);
+                    beamEnv = Math.max(beamEnv, wave * atten);
+                  }
+                }
+                if (beamEnv <= 0.01) return [ambR, ambG, ambB];
+                const tip = Math.max(0, (beamEnv - 0.75) * 2.2);
+                return [
+                  Math.min(255, Math.round(ambR * (1 - beamEnv) + baseR * beamEnv + (255 - baseR) * tip * 0.45)),
+                  Math.min(255, Math.round(ambG * (1 - beamEnv) + baseG * beamEnv + (255 - baseG) * tip * 0.45)),
+                  Math.min(255, Math.round(ambB * (1 - beamEnv) + baseB * beamEnv + (255 - baseB) * tip * 0.45)),
+                ];
+              });
+            }
+          } catch {
+            clearLampInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 25);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      // RAINBOW SPLASH (QMK MULTISPLASH / SteelSeries Reactive Ripple): Multi-color shockwaves on every keystroke
+      if (effect === "splash") {
+        ensureReactiveKeyListeners();
+        await sendAllLampsColor(0, 0, 0, 0);
+        const splashes = [
+          { x: 120, y: 62, bornAt: performance.now(), hue0: 145 },
+          { x: 235, y: 68, bornAt: performance.now() - 120, hue0: 285 },
+        ];
+        const spawnSplash = (lampIds) => {
+          if (isPageUnloading || !lampIds || lampIds.length === 0 || lampArrayGenByPid.get(numPid) !== gen) return;
+          const lamp = layout.lamps[lampIds[0]];
+          if (!lamp) return;
+          if (splashes.length >= 8) splashes.shift();
+          splashes.push({ x: lamp.x, y: lamp.y, bornAt: performance.now(), hue0: Math.random() * 360 });
+          if (lamp.label) {
+            const keyEl = document.querySelector(`.keycap[data-key="${CSS.escape(lamp.label)}"]`);
+            if (keyEl) {
+              keyEl.classList.add("is-reactive-lit");
+              setTimeout(() => keyEl.classList.remove("is-reactive-lit"), 220);
+            }
+          }
+        };
+        reactiveTriggerByPid.set(numPid, {
+          onKeyDown(code) {
+            const ids = layout.byCode.get(code);
+            if (ids) spawnSplash(ids);
+          },
+          onKeyUp() {},
+          onLabelTrigger(label) {
+            const ids = layout.byLabel.get(label);
+            if (ids) spawnSplash(ids);
+          },
+          onReleaseAll() {},
+        });
+
+        let hadSplashLastFrame = true;
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
+            return;
+          }
+          if (busy || !lampDev.opened) return;
+          if (splashes.length === 0 && !hadSplashLastFrame) return;
+          busy = true;
+          try {
+            syncLiveLightingParams();
+            const now = performance.now();
+            const mmPerMs = speedMult === 1 ? 0.3 : speedMult === 3 ? 0.72 : 0.48;
+            const ringWidth = 52;
+            const maxRadius = 420;
+            for (let i = splashes.length - 1; i >= 0; i--) {
+              if ((now - splashes[i].bornAt) * mmPerMs > maxRadius) splashes.splice(i, 1);
+            }
+            if (splashes.length === 0) {
+              hadSplashLastFrame = false;
+              await sendAllLampsColor(0, 0, 0, 0);
+            } else {
+              hadSplashLastFrame = true;
+              await sendComputedFrame((l) => {
+                let rSum = 0, gSum = 0, bSum = 0;
+                for (let i = 0; i < splashes.length; i++) {
+                  const sp = splashes[i];
+                  const age = Math.max(0, now - sp.bornAt);
+                  const radius = age * mmPerMs;
+                  const dist = Math.hypot(l.x - sp.x, l.y - sp.y);
+                  const delta = Math.abs(dist - radius);
+                  if (delta < ringWidth) {
+                    const env = Math.pow(Math.cos((delta / ringWidth) * (Math.PI / 2)), 1.8) * Math.max(0, 1 - radius / maxRadius);
+                    const hue = (sp.hue0 + dist * 1.5 - age * 0.1 + 36000) % 360;
+                    const [cr, cg, cb] = hsvToRgb(hue, 1, env);
+                    rSum += cr;
+                    gSum += cg;
+                    bSum += cb;
+                  }
+                }
+                return [Math.min(255, rSum), Math.min(255, gSum), Math.min(255, bSum)];
+              });
+            }
+          } catch {
+            clearLampInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 25);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
+      // TYPING HEATMAP (Wootility Heatmap / QMK TYPING_HEATMAP): Keys heat up Secondary -> Primary -> White-hot as you type
+      if (effect === "heatmap") {
+        ensureReactiveKeyListeners();
+        const heatCells = new Float32Array(lampCount);
+        for (const seedLbl of ["W", "A", "S", "D", "SPACE", "F", "J", "E", "R"]) {
+          const ids = layout.byLabel.get(seedLbl);
+          if (ids && ids.length > 0) {
+            const origin = layout.lamps[ids[0]];
+            for (let i = 0; i < lampCount; i++) {
+              const lm = layout.lamps[i];
+              if (!lm || !origin) continue;
+              const d = Math.hypot(lm.x - origin.x, lm.y - origin.y);
+              if (d < 44) {
+                heatCells[i] = Math.min(1, heatCells[i] + 0.48 * Math.pow(1 - d / 44, 1.5));
+              }
+            }
+          }
+        }
+
+        const injectHeat = (lampIds) => {
+          if (isPageUnloading || !lampIds || lampIds.length === 0 || lampArrayGenByPid.get(numPid) !== gen) return;
+          const origin = layout.lamps[lampIds[0]];
+          if (!origin) return;
+          for (let i = 0; i < lampCount; i++) {
+            const lm = layout.lamps[i];
+            if (!lm) continue;
+            const d = Math.hypot(lm.x - origin.x, lm.y - origin.y);
+            if (d < 1) {
+              heatCells[i] = Math.min(1, heatCells[i] + 0.58);
+            } else if (d < 44) {
+              heatCells[i] = Math.min(1, heatCells[i] + 0.28 * (1 - d / 44));
+            }
+          }
+          if (origin.label) {
+            const keyEl = document.querySelector(`.keycap[data-key="${CSS.escape(origin.label)}"]`);
+            if (keyEl) {
+              keyEl.classList.add("is-reactive-lit");
+              setTimeout(() => keyEl.classList.remove("is-reactive-lit"), 220);
+            }
+          }
+        };
+
+        reactiveTriggerByPid.set(numPid, {
+          onKeyDown(code) {
+            const ids = layout.byCode.get(code);
+            if (ids) injectHeat(ids);
+          },
+          onKeyUp() {},
+          onLabelTrigger(label) {
+            const ids = layout.byLabel.get(label);
+            if (ids) injectHeat(ids);
+          },
+          onReleaseAll() {},
+        });
+
+        let lastTick = performance.now();
+        const timer = setLampInterval(async () => {
+          if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen) {
+            clearLampInterval(timer);
+            return;
+          }
+          if (busy || !lampDev.opened) return;
+          busy = true;
+          try {
+            syncLiveLightingParams();
+            const now = performance.now();
+            const dt = Math.min(100, now - lastTick);
+            lastTick = now;
+            const coolPerMs = (speedMult === 1 ? 0.085 : speedMult === 3 ? 0.32 : 0.17) / 1000;
+            for (let i = 0; i < lampCount; i++) {
+              if (heatCells[i] > 0) {
+                heatCells[i] = Math.max(0, heatCells[i] - dt * coolPerMs);
+              }
+            }
+            await sendComputedFrame((l) => {
+              const h = heatCells[l.id] || 0;
+              if (h <= 0.005) {
+                return [Math.round(secR * 0.07), Math.round(secG * 0.07), Math.round(secB * 0.07)];
+              }
+              if (h < 0.45) {
+                const k = h / 0.45;
+                return [
+                  Math.round(secR * (0.07 + 0.93 * k)),
+                  Math.round(secG * (0.07 + 0.93 * k)),
+                  Math.round(secB * (0.07 + 0.93 * k)),
+                ];
+              }
+              if (h < 0.82) {
+                const k = (h - 0.45) / 0.37;
+                return [
+                  Math.round(secR * (1 - k) + baseR * k),
+                  Math.round(secG * (1 - k) + baseG * k),
+                  Math.round(secB * (1 - k) + baseB * k),
+                ];
+              }
+              const k = (h - 0.82) / 0.18;
+              return [
+                Math.min(255, Math.round(baseR + (255 - baseR) * k * 0.72)),
+                Math.min(255, Math.round(baseG + (246 - baseG) * k * 0.72)),
+                Math.min(255, Math.round(baseB + (224 - baseB) * k * 0.72)),
+              ];
+            });
+          } catch {
+            clearLampInterval(timer);
+          } finally {
+            busy = false;
+          }
+        }, 30);
+        lampArrayTimerByPid.set(numPid, timer);
+        return true;
+      }
+
       await sendAllLampsColor(baseR, baseG, baseB, 255);
       return true;
     } catch {
@@ -4970,7 +5701,7 @@
       container.style.setProperty("--key-color", "#6e7785");
       container.style.setProperty("--key-glow", "transparent");
       container.style.setProperty("--kbd-glow", "transparent");
-    } else if (eff === "reactive" || eff === "ripple") {
+    } else if (eff === "reactive" || eff === "ripple" || eff === "shockwave" || eff === "splash" || eff === "heatmap") {
       container.style.setProperty("--key-color", `rgba(${r}, ${g}, ${b}, 0.28)`);
       container.style.setProperty("--key-glow", "transparent");
       container.style.setProperty("--kbd-glow", "transparent");
@@ -5236,8 +5967,22 @@
   }
 
   const CUSTOM_SWATCHES_STORAGE_KEY = "websynapse.customSwatches.v1";
-  const NON_COLOR_CHROMA_EFFECTS = new Set(["off", "wave", "spectrum", "wheel", "fire", "disco"]);
-  const DUAL_COLOR_CHROMA_EFFECTS = new Set(["breathingDual", "scanner", "aurora", "gradient"]);
+  const NON_COLOR_CHROMA_EFFECTS = new Set(["off", "wave", "spectrum", "wheel", "fire", "disco", "spiral", "splash"]);
+  const DUAL_COLOR_CHROMA_EFFECTS = new Set([
+    "breathingDual",
+    "scanner",
+    "aurora",
+    "gradient",
+    "customWave",
+    "sunset",
+    "comet",
+    "sonar",
+    "ember",
+    "raindrops",
+    "equalizer",
+    "shockwave",
+    "heatmap",
+  ]);
   let activeChromaColorChannel = 1;
   const chromaPickerHsv = {
     1: { h: 151, s: 1, v: 0.902 },

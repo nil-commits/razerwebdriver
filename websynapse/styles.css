@@ -1363,14 +1363,62 @@ button {
   animation-delay: calc(var(--col-idx, 0) * -90ms);
 }
 .keyboard-chassis[data-chroma-effect="aurora"] .keycap,
-.keyboard-chassis[data-chroma-effect="gradient"] .keycap {
+.keyboard-chassis[data-chroma-effect="gradient"] .keycap,
+.keyboard-chassis[data-chroma-effect="customWave"] .keycap {
   color: color-mix(in srgb, var(--key-color) calc((16 - var(--col-idx, 0)) * 6%), var(--key-color-2, #00d2ff));
-  animation: chroma-breathe calc(3.2s * var(--chroma-dur-mult, 1)) ease-in-out infinite;
-  animation-delay: calc(var(--col-idx, 0) * -120ms);
+  animation: chroma-dual-wave calc(2.4s * var(--chroma-dur-mult, 1)) ease-in-out infinite;
+  animation-delay: calc(var(--col-idx, 0) * -130ms);
+}
+.keyboard-chassis[data-chroma-effect="sunset"] .keycap {
+  color: color-mix(in srgb, var(--key-color) calc((5 - var(--row-idx, 0)) * 20%), var(--key-color-2, #00d2ff));
+  animation: chroma-breathe calc(3.0s * var(--chroma-dur-mult, 1)) ease-in-out infinite;
+  animation-delay: calc(var(--row-idx, 0) * -220ms);
+}
+.keyboard-chassis[data-chroma-effect="spiral"] .keycap {
+  animation: chroma-spectrum calc(2.2s * var(--chroma-dur-mult, 1)) linear infinite;
+  animation-delay: calc((var(--col-idx, 0) * -115ms) + (var(--row-idx, 0) * -185ms));
+}
+.keyboard-chassis[data-chroma-effect="comet"] .keycap {
+  color: color-mix(in srgb, var(--key-color) 72%, var(--key-color-2, #00d2ff));
+  animation: chroma-breathe calc(1.3s * var(--chroma-dur-mult, 1)) linear infinite;
+  animation-delay: calc((var(--col-idx, 0) * -85ms) - (var(--row-idx, 0) * 60ms));
+}
+.keyboard-chassis[data-chroma-effect="sonar"] .keycap {
+  color: color-mix(in srgb, var(--key-color) 65%, var(--key-color-2, #00d2ff));
+  animation: chroma-breathe calc(1.9s * var(--chroma-dur-mult, 1)) ease-in-out infinite;
+  animation-delay: calc((var(--col-idx, 0) * -70ms) + (var(--row-idx, 0) * -120ms));
+}
+.keyboard-chassis[data-chroma-effect="ember"] .keycap,
+.keyboard-chassis[data-chroma-effect="heatmap"] .keycap {
+  color: color-mix(in srgb, var(--key-color) calc(35% + (5 - var(--row-idx, 2)) * 12%), var(--key-color-2, #00d2ff));
+  animation: chroma-breathe calc(2.6s * var(--chroma-dur-mult, 1)) ease-in-out infinite;
+  animation-delay: calc((var(--col-idx, 0) * -190ms) + (var(--row-idx, 0) * -140ms));
+}
+.keyboard-chassis[data-chroma-effect="raindrops"] .keycap {
+  color: color-mix(in srgb, var(--key-color) 58%, var(--key-color-2, #00d2ff));
+  animation: chroma-breathe calc(1.9s * var(--chroma-dur-mult, 1)) ease-in-out infinite;
+  animation-delay: calc((var(--col-idx, 0) * -270ms) + (var(--row-idx, 0) * -310ms));
+}
+.keyboard-chassis[data-chroma-effect="equalizer"] .keycap {
+  color: color-mix(in srgb, var(--key-color) calc(var(--row-idx, 0) * 20%), var(--key-color-2, #00d2ff));
+  animation: chroma-breathe calc(0.95s * var(--chroma-dur-mult, 1)) ease-in-out infinite;
+  animation-delay: calc((var(--col-idx, 0) * -145ms) + (var(--row-idx, 0) * 90ms));
+}
+.keyboard-chassis[data-chroma-effect="shockwave"] .keycap {
+  animation: chroma-breathe calc(1.6s * var(--chroma-dur-mult, 1)) ease-out infinite;
+  animation-delay: calc(var(--col-idx, 0) * -65ms);
+}
+.keyboard-chassis[data-chroma-effect="splash"] .keycap {
+  animation: chroma-spectrum calc(1.8s * var(--chroma-dur-mult, 1)) linear infinite;
+  animation-delay: calc((var(--col-idx, 0) * -95ms) + (var(--row-idx, 0) * -95ms));
 }
 .keyboard-chassis[data-chroma-effect="disco"] .keycap {
   animation: chroma-spectrum calc(0.9s * var(--chroma-dur-mult, 1)) steps(6, end) infinite;
   animation-delay: calc((var(--col-idx, 0) * -170ms) + (var(--row-idx, 0) * -230ms));
+}
+@keyframes chroma-dual-wave {
+  0%, 100% { color: var(--key-color); filter: brightness(1.1); }
+  50% { color: var(--key-color-2, #00d2ff); filter: brightness(1.15); }
 }
 .keycap.is-reactive-lit {
   color: var(--reactive-color, var(--accent)) !important;
