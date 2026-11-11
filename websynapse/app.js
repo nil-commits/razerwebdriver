@@ -628,7 +628,8 @@
 
   // WebHID + WebUSB Runtime State (100% Zero-Install Browser Execution)
   const webHidHandlesByPid = new Map(); // pid -> HIDDevice[] (sorted by control interface score)
-  const webUsbDevicesByPid = new Map(); // pid -> USBDevice (Razer WebUSB control interface)
+  const webUsbDevicesByPid = new Map(); // pid -> USBDevice[] (Razer WebUSB handles for that PID)
+  const claimedUsbInterfaces = new WeakMap(); // USBDevice -> Set<interfaceNumber>
   const onboardChromaFlashedByPid = new Map(); // pid -> boolean (true when 0x0F/0x02 was written to mi_03 NVRAM)
   let initialHardwareSlotSynced = false;
   const webHidMutexByPid = new Map(); // pid -> Promise
@@ -636,6 +637,11 @@
   const lampArrayTimerByPid = new Map(); // pid -> intervalId for animated LampArray effects
   const lampArrayGenByPid = new Map(); // pid -> monotonic generation counter to cancel stale effect frames
   const lampArrayMutexByPid = new Map(); // pid -> Promise serializing Report ID 4/6 transfers
+
+  function isWindowsPlatform() {
+    const plat = navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || "";
+    return /win/i.test(plat);
+  }
 
   function hasAnyRazerDevice() {
     return webHidHandlesByPid.size > 0 || webUsbDevicesByPid.size > 0;
@@ -660,8 +666,10 @@
     const hwtest = document.getElementById("viewHardwareTest");
     const navWorkspace = document.querySelector('[data-main-view="workspace"]');
     const navHwtest = document.querySelector('[data-main-view="hwtest"]');
+    const usbPairBtn = document.getElementById("btnWebUsbPair");
     const pairBtn = document.getElementById("btnWebHidPair");
     const bannerPairBtn = document.getElementById("btnBannerPair");
+    const compatUsbPair = document.getElementById("btnCompatWebUsb");
     const compatPair = document.getElementById("btnCompatPair");
     const compatCatalog = document.getElementById("btnCompatCatalog");
     const slotStrip = document.querySelector(".ws-slot-strip");
@@ -676,6 +684,7 @@
     const hid = !!navigator.hid;
     const usb = !!navigator.usb;
     const supportsUsb = hid || usb;
+    const preferWebUsb = usb && isWindowsPlatform();
 
     if (notice) notice.hidden = connected;
     if (navWorkspace) navWorkspace.disabled = !connected;
@@ -696,9 +705,23 @@
       }
     }
 
-    if (pairBtn) pairBtn.hidden = !supportsUsb || !secure;
+    if (usbPairBtn) {
+      usbPairBtn.hidden = !usb || !secure;
+      usbPairBtn.classList.toggle("is-primary", preferWebUsb || !hid);
+    }
+    if (pairBtn) {
+      pairBtn.hidden = !hid || !secure;
+      pairBtn.classList.toggle("is-primary", !preferWebUsb);
+    }
     if (bannerPairBtn) bannerPairBtn.hidden = !supportsUsb || !secure;
-    if (compatPair) compatPair.hidden = !supportsUsb || !secure;
+    if (compatUsbPair) {
+      compatUsbPair.hidden = !usb || !secure;
+      compatUsbPair.classList.toggle("is-primary", preferWebUsb || !hid);
+    }
+    if (compatPair) {
+      compatPair.hidden = !hid || !secure;
+      compatPair.classList.toggle("is-primary", !preferWebUsb);
+    }
     if (compatCatalog) compatCatalog.hidden = false;
 
     if (!title || !text) return;
@@ -712,8 +735,9 @@
         "This site uses WebHID or WebUSB. Open it in Chrome, Edge, Brave, Opera, or Vivaldi. Firefox and Safari do not support these APIs.";
     } else if (!anyRazer) {
       title.textContent = "No compatible Razer device detected";
-      text.textContent =
-        "Connect a Razer keyboard or mouse with a data-capable USB cable, close Razer Synapse, then click “Connect Razer Device” and grant USB access. Use “Check supported devices” to verify your model.";
+      text.textContent = isWindowsPlatform()
+        ? "Connect your Razer keyboard or mouse via USB and close Razer Synapse. To save profiles to onboard memory on Windows, bind WinUSB to Interface 3 (see the Windows Setup guide above) and click “⚡ Connect WebUSB (Onboard Save)”, or click “Connect WebHID” for live LampArray preview."
+        : "Connect a Razer keyboard or mouse with a data-capable USB cable, close Razer Synapse, then click “Connect WebHID” or “Connect WebUSB” and grant USB access.";
     } else if (!connected) {
       title.textContent = "Connected Razer device is not supported";
       text.textContent =
@@ -1019,11 +1043,14 @@
   const lampHostControlPids = new Set();
   // PIDs this page explicitly put into Driver Mode (0x00/0x04 mode 0x03)
   const driverModeActivePids = new Set();
-  // Verified Protocol 25 control interface per PID (the HIDDevice that answered a 0x00/0x81 probe)
+  // Verified Protocol 25 transport per PID:
+  //   { mode: "webhid", dev: HIDDevice, label: string }
+  //   { mode: "webusb", dev: USBDevice, interfaceNumber: number, label: string }
   const protocolDeviceByPid = new Map();
   const protocolProbeByPid = new Map();
   const protocolProbeErrorByPid = new Map();
-  const protocolProbeFailedListByPid = new Map();
+  const protocolProbeFailedSigByPid = new Map();
+  const protocolUsbClaimBlockedByPid = new Map();
 
   // ==========================================================================
   // Unthrottled Background Chroma Timer Worker + Web Lock Keep-Alive
@@ -1163,21 +1190,41 @@
     // longer push setActiveProfileSlot() on close: that switched the keyboard to whatever slot the
     // browser had cached and made it visibly re-initialise when the tab was closed.
     let dispatchedAny = false;
-    for (const [pid, list] of webHidHandlesByPid.entries()) {
-      const pDev = protocolDeviceByPid.get(Number(pid));
-      if (includeDeviceMode && pDev && pDev.opened && driverModeActivePids.has(Number(pid))) {
+    const allKnownPids = new Set([...webHidHandlesByPid.keys(), ...webUsbDevicesByPid.keys()]);
+    for (const rawPid of allKnownPids) {
+      const pid = Number(rawPid);
+      const pHandle = protocolDeviceByPid.get(pid);
+      if (includeDeviceMode && pHandle && driverModeActivePids.has(pid)) {
         try {
-          const modePkt = Uint8Array.from(Protocol25.Builders.setDeviceMode(0x00, 0x00));
-          void pDev.sendFeatureReport(0x00, modePkt).catch(() => {});
-          driverModeActivePids.delete(Number(pid));
-          dispatchedAny = true;
+          const meta = Protocol25.KNOWN_DEVICES[pid] || {};
+          const rawMode = Protocol25.Builders.setDeviceMode(0x00, 0x00);
+          const body90 = rawMode.length === 91 ? rawMode.slice(1) : [...rawMode];
+          if (meta.defaultTransactionId && body90[1] === 0x1f && meta.defaultTransactionId !== 0x1f) {
+            body90[1] = meta.defaultTransactionId;
+          }
+          const modePkt = Uint8Array.from(validateOutgoingPacket90(body90));
+          if (pHandle.mode === "webusb" && pHandle.dev?.opened) {
+            void pHandle.dev
+              .controlTransferOut(
+                { requestType: "class", recipient: "interface", request: 0x09, value: 0x0300, index: pHandle.interfaceNumber },
+                modePkt
+              )
+              .catch(() => {});
+            driverModeActivePids.delete(pid);
+            dispatchedAny = true;
+          } else if (pHandle.mode === "webhid" && pHandle.dev?.opened) {
+            void pHandle.dev.sendFeatureReport(0x00, modePkt).catch(() => {});
+            driverModeActivePids.delete(pid);
+            dispatchedAny = true;
+          }
         } catch {
           // ignore
         }
       }
 
-      if (!lampHostControlPids.has(Number(pid))) continue;
-      const lampDev = (list || []).find((d) => deviceHasLampArray(d));
+      if (!lampHostControlPids.has(pid)) continue;
+      const list = webHidHandlesByPid.get(pid) || [];
+      const lampDev = list.find((d) => deviceHasLampArray(d));
       if (!lampDev || !lampDev.opened) continue;
 
       try {
@@ -1188,7 +1235,7 @@
         void lampDev.sendFeatureReport(4, finishRep4).catch(() => {});
         // Switch hardware back to AutonomousMode = 1 (onboard effect engine)
         void lampDev.sendFeatureReport(6, new Uint8Array([1])).catch(() => {});
-        lampHostControlPids.delete(Number(pid));
+        lampHostControlPids.delete(pid);
         dispatchedAny = true;
       } catch {
         // ignore unload errors
@@ -2229,6 +2276,26 @@
     }
   }
 
+  function updateWinUsbGuideLabels(pidKey) {
+    const numPid = Number(pidKey) || 679;
+    const meta = Protocol25.KNOWN_DEVICES[numPid] || Protocol25.KNOWN_DEVICES[679] || {};
+    const devEntry = devices.find((d) => Number(d.productId) === numPid);
+    const ifNum = Number(meta.interface ?? (meta.category === "mouse" ? 0 : 3));
+    const prodName = sanitizePlainText(
+      devEntry?.productName || meta.name || "Razer Huntsman V3 Pro TKL",
+      64,
+      "Razer Huntsman V3 Pro TKL"
+    );
+    const targetLabel = document.getElementById("winUsbTargetLabel");
+    const ifaceName = document.getElementById("winUsbInterfaceName");
+    const zadigEntry = document.getElementById("winUsbZadigEntry");
+    const miCode = document.getElementById("winUsbMiCode");
+    if (targetLabel) targetLabel.textContent = `Interface ${ifNum}`;
+    if (ifaceName) ifaceName.textContent = `${prodName} (Interface ${ifNum})`;
+    if (zadigEntry) zadigEntry.textContent = `${prodName} (Interface ${ifNum})`;
+    if (miCode) miCode.textContent = `Interface ${ifNum}`;
+  }
+
   function updateWebHidStatusUI() {
     const connDot = document.getElementById("connDot");
     const connText = document.getElementById("connText");
@@ -2236,8 +2303,14 @@
     const banner = document.getElementById("webHidStatusBanner");
     const bannerDot = document.getElementById("bannerDot");
     const bannerText = document.getElementById("bannerStatusText");
+    const usbPairBtn = document.getElementById("btnWebUsbPair");
     const pairBtn = document.getElementById("btnWebHidPair");
     const bannerPairBtn = document.getElementById("btnBannerPair");
+    const bannerRecheckBtn = document.getElementById("btnBannerRecheck");
+    const guideEl = document.getElementById("winUsbSetupGuide");
+    const onWin = isWindowsPlatform();
+
+    updateWinUsbGuideLabels(selectedPid);
 
     if (!window.isSecureContext) {
       if (connDot) connDot.className = "ws-dot is-warn";
@@ -2249,8 +2322,11 @@
         bannerText.innerHTML =
           "<strong>HTTPS Secure Context Required</strong> — WebHID/WebUSB hardware access is blocked on plain <code>http://</code> origins. Access this server over <b>https://</b> (or <code>localhost</code>) to enable USB communication.";
       }
+      if (usbPairBtn) usbPairBtn.disabled = true;
       if (pairBtn) pairBtn.disabled = true;
       if (bannerPairBtn) bannerPairBtn.hidden = true;
+      if (bannerRecheckBtn) bannerRecheckBtn.hidden = true;
+      if (guideEl) guideEl.hidden = true;
       return;
     }
 
@@ -2264,8 +2340,11 @@
         bannerText.innerHTML =
           "<strong>Browser Does Not Support WebHID/WebUSB</strong> — Please open <b>websynap.se</b> in a Chromium-based browser (Chrome, Edge, Brave, Opera, or Vivaldi) to configure your Razer devices directly from the cloud.";
       }
+      if (usbPairBtn) usbPairBtn.disabled = true;
       if (pairBtn) pairBtn.disabled = true;
       if (bannerPairBtn) bannerPairBtn.hidden = true;
+      if (bannerRecheckBtn) bannerRecheckBtn.hidden = true;
+      if (guideEl) guideEl.hidden = true;
       return;
     }
 
@@ -2280,57 +2359,104 @@
         list.some((d) => deviceHasLampArray(d))
       );
 
-      if (connDot) connDot.className = "ws-dot is-ok";
-      if (connText) {
-        connText.textContent = `USB Live (${liveCount} device${liveCount > 1 ? "s" : ""})`;
-      }
-      if (fwBadge && (fwBadge.textContent === "Click to Pair" || fwBadge.textContent === "USB" || fwBadge.textContent === "WebHID")) {
-        fwBadge.textContent = "0x02 READY";
-      }
-      if (bannerDot) bannerDot.className = "ws-dot is-ok";
+      const selPid = Number(selectedPid);
+      const pHandle = protocolDeviceByPid.get(selPid);
+      const verified = Boolean(pHandle);
+      const probeErr = protocolProbeErrorByPid.get(selPid);
       const safeNames = devices
         .filter((d) => d.connectedLive)
         .map((d) => escapeHtml(d.productName))
         .join(" + ");
-      if (bannerText) {
-        const selPid = Number(selectedPid);
-        const verified = protocolDeviceByPid.has(selPid);
-        const probeErr = protocolProbeErrorByPid.get(selPid);
-        if (verified) {
-          bannerText.innerHTML = `<strong>Keyboard control interface verified (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Protocol 25 replies OK. Slot switching, actuation and lighting are written to the onboard memory of <b>${safeNames}</b> and stay after you close this tab.`;
-        } else if (probeErr) {
-          if (connDot) connDot.className = "ws-dot is-warn";
-          if (bannerDot) bannerDot.className = "ws-dot is-warn";
-          bannerText.innerHTML = `<strong>Connected — but the keyboard's onboard memory is not reachable</strong>: ${escapeHtml(probeErr)} Until then lighting is only a live preview and nothing is saved to <b>${safeNames}</b>.`;
-        } else if (anyHasFeatureReport0 || anyHasWebUsb) {
-          bannerText.innerHTML = `<strong>USB Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — checking the Protocol 25 control interface of <b>${safeNames}</b>…`;
-        } else if (anyHasLampArray) {
-          bannerText.innerHTML = `<strong>USB Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Direct USB LampArray Chroma RGB &amp; Cloud Profile Studio active for <b>${safeNames}</b>.`;
-        } else {
-          bannerText.innerHTML = `<strong>USB Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Cloud Profile Studio &amp; USB Telemetry active for <b>${safeNames}</b>.`;
+
+      if (verified) {
+        if (connDot) connDot.className = "ws-dot is-ok";
+        if (connText) {
+          connText.textContent = `${pHandle.mode === "webusb" ? "WebUSB" : "WebHID"} Live (${liveCount} device${liveCount > 1 ? "s" : ""})`;
         }
+        if (fwBadge && (fwBadge.textContent === "Click to Pair" || fwBadge.textContent === "USB" || fwBadge.textContent === "WebHID")) {
+          fwBadge.textContent = "0x02 READY";
+        }
+        if (banner) banner.style.borderColor = "rgba(93,222,137,0.45)";
+        if (bannerDot) bannerDot.className = "ws-dot is-ok";
+        if (bannerText) {
+          const viaLabel = escapeHtml(pHandle.label || (pHandle.mode === "webusb" ? "WebUSB" : "WebHID"));
+          bannerText.innerHTML = `<strong>Onboard memory control verified via ${viaLabel} (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Protocol 25 replies OK. Slot switching, actuation and lighting are written directly to the onboard flash of <b>${safeNames}</b> and persist after you close this tab.`;
+        }
+        if (bannerRecheckBtn) bannerRecheckBtn.hidden = true;
+        if (bannerPairBtn) bannerPairBtn.textContent = "+ Add Another Device";
+        if (guideEl) guideEl.hidden = true;
+      } else if (probeErr) {
+        if (connDot) connDot.className = "ws-dot is-warn";
+        if (connText) connText.textContent = `Preview Only (${liveCount} device${liveCount > 1 ? "s" : ""})`;
+        if (banner) banner.style.borderColor = "rgba(255,171,64,0.55)";
+        if (bannerDot) bannerDot.className = "ws-dot is-warn";
+        if (bannerText) {
+          bannerText.innerHTML = `<strong>Connected — onboard memory not yet writable</strong>: ${escapeHtml(probeErr)} Until then lighting is only a live preview and nothing is saved to <b>${safeNames}</b>.`;
+        }
+        if (bannerRecheckBtn) bannerRecheckBtn.hidden = false;
+        if (bannerPairBtn) {
+          bannerPairBtn.textContent = navigator.usb
+            ? webUsbDevicesByPid.has(selPid)
+              ? "⚡ Pair / Retry WebUSB"
+              : "⚡ Connect WebUSB (Onboard Save)"
+            : "Connect Razer Device";
+        }
+        if (guideEl) {
+          guideEl.hidden = !onWin || !navigator.usb;
+          if (protocolUsbClaimBlockedByPid.get(selPid)) {
+            guideEl.open = true;
+          }
+        }
+      } else {
+        if (connDot) connDot.className = "ws-dot is-ok";
+        if (connText) {
+          connText.textContent = `USB Live (${liveCount} device${liveCount > 1 ? "s" : ""})`;
+        }
+        if (banner) banner.style.borderColor = "rgba(93,222,137,0.35)";
+        if (bannerDot) bannerDot.className = "ws-dot is-ok";
+        if (bannerText) {
+          if (anyHasFeatureReport0 || anyHasWebUsb) {
+            bannerText.innerHTML = `<strong>USB Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — checking the Protocol 25 control interface of <b>${safeNames}</b>…`;
+          } else if (anyHasLampArray) {
+            bannerText.innerHTML = `<strong>USB Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — Direct USB LampArray Chroma RGB active for <b>${safeNames}</b>.`;
+          } else {
+            bannerText.innerHTML = `<strong>USB Connected (${liveCount} device${liveCount > 1 ? "s" : ""})</strong> — USB Telemetry active for <b>${safeNames}</b>.`;
+          }
+        }
+        if (bannerRecheckBtn) bannerRecheckBtn.hidden = true;
+        if (bannerPairBtn) bannerPairBtn.textContent = "+ Add Another Device";
+        if (guideEl) guideEl.hidden = true;
       }
-      if (bannerPairBtn) bannerPairBtn.textContent = "+ Add Another Device";
     } else if (liveCount > 0) {
       if (connDot) connDot.className = "ws-dot is-warn";
       if (connText) connText.textContent = "Razer device not supported";
       if (fwBadge) fwBadge.textContent = "Unsupported PID";
+      if (banner) banner.style.borderColor = "rgba(255,171,64,0.5)";
       if (bannerDot) bannerDot.className = "ws-dot is-warn";
       if (bannerText) {
         bannerText.innerHTML =
           "<strong>Connected Razer device is not supported</strong> — It is not in the Protocol 25 catalog. Check the supported-devices list or try another model.";
       }
+      if (bannerRecheckBtn) bannerRecheckBtn.hidden = true;
       if (bannerPairBtn) bannerPairBtn.textContent = "+ Add Another Device";
+      if (guideEl) guideEl.hidden = true;
     } else {
       if (connDot) connDot.className = "ws-dot is-warn";
       if (connText) connText.textContent = "No device connected";
       if (fwBadge) fwBadge.textContent = "USB";
+      if (banner) banner.style.borderColor = "rgba(255,171,64,0.45)";
       if (bannerDot) bannerDot.className = "ws-dot is-warn";
       if (bannerText) {
         bannerText.innerHTML =
-          "<strong>No compatible Razer device detected</strong> — Connect a Razer keyboard or mouse via USB, close Razer Synapse, then click <b>⚡ Connect Razer Device</b>.";
+          onWin && navigator.usb
+            ? "<strong>No Razer device connected</strong> — Connect via USB, close Razer Synapse, then click <b>⚡ Connect WebUSB (Onboard Save)</b> to read &amp; save onboard memory slots (see Windows Setup below if pairing for the first time)."
+            : "<strong>No compatible Razer device detected</strong> — Connect a Razer keyboard or mouse via USB, close Razer Synapse, then click <b>⚡ Connect WebUSB</b> or <b>Connect WebHID</b>.";
       }
-      if (bannerPairBtn) bannerPairBtn.textContent = "Connect Razer Device";
+      if (bannerRecheckBtn) bannerRecheckBtn.hidden = true;
+      if (bannerPairBtn) {
+        bannerPairBtn.textContent = onWin && navigator.usb ? "⚡ Connect WebUSB" : "⚡ Connect Razer Device";
+      }
+      if (guideEl) guideEl.hidden = !(onWin && navigator.usb);
     }
   }
 
@@ -2354,7 +2480,9 @@
         try {
           const usbDevs = (await navigator.usb.getDevices()).filter((d) => d.vendorId === Protocol25.RAZER_VENDOR_ID);
           for (const uDev of usbDevs) {
-            webUsbDevicesByPid.set(Number(uDev.productId), uDev);
+            const pid = Number(uDev.productId);
+            if (!webUsbDevicesByPid.has(pid)) webUsbDevicesByPid.set(pid, []);
+            webUsbDevicesByPid.get(pid).push(uDev);
           }
         } catch {
           // ignore if WebUSB is blocked by permissions policy
@@ -2366,9 +2494,10 @@
       for (const pid of activeLivePids) {
         const meta = Protocol25.KNOWN_DEVICES[pid] || {};
         const webHidList = webHidHandlesByPid.get(pid) || [];
-        const usbDev = webUsbDevicesByPid.get(pid);
+        const usbList = webUsbDevicesByPid.get(pid) || [];
         const sample = webHidList[0];
-        const rawName = sample?.productName || usbDev?.productName || "";
+        const usbSample = usbList[0];
+        const rawName = sample?.productName || usbSample?.productName || "";
         const category = classifyDeviceCategory(pid, rawName, sample?.collections || []);
         const isMouse = category === "mouse";
         const safeSampleName = sanitizePlainText(rawName, 64, "");
@@ -2418,9 +2547,6 @@
           initialHardwareSlotSynced = true;
           void syncActiveSlotFromHardware({ quiet: true });
         }
-        // NOTE: we no longer grab LampArray host control just because the page (re)connected.
-        // Doing so replaced the keyboard's onboard lighting with browser-driven frames that
-        // vanished (and visibly re-initialised the LEDs) as soon as the tab was closed.
       } else {
         initialHardwareSlotSynced = false;
         protocolDeviceByPid.clear();
@@ -2429,6 +2555,67 @@
       }
     } catch (err) {
       console.warn("Device enumeration warning:", err);
+    }
+  }
+
+  async function finishDevicePairing(pickedFirst) {
+    initialHardwareSlotSynced = true;
+    protocolDeviceByPid.clear();
+    protocolProbeErrorByPid.clear();
+    protocolProbeFailedSigByPid.clear();
+    protocolUsbClaimBlockedByPid.clear();
+    await refreshAuthorizedWebHidDevices();
+    if (pickedFirst) {
+      const pid = Number(pickedFirst.productId);
+      selectedPid = pid;
+      driverState.selectedPid = pid;
+      persistDriverState();
+      renderDeviceTabs();
+      renderProfileSlotBar();
+      syncControlsFromSlot();
+      renderOverviewPanels();
+      const safeName = sanitizePlainText(pickedFirst.productName, 64, `PID 0x${pid.toString(16).toUpperCase()}`);
+      showToast(`Paired ${safeName}`);
+      void playUiTone("success");
+      await syncActiveSlotFromHardware();
+      const fw = await queryProtocol25(pid, Protocol25.Builders.getFirmwareVersion());
+      if (fw?.args) {
+        const [maj, min] = fw.args;
+        const fwBadge = document.getElementById("fwBadge");
+        if (fwBadge) fwBadge.textContent = `v${Number(maj)}.${String(Number(min) || 0).padStart(2, "0")}`;
+      }
+      updateWebHidStatusUI();
+    } else {
+      initialHardwareSlotSynced = false;
+    }
+  }
+
+  async function pairWebUsbDevices() {
+    if (!window.isSecureContext) {
+      showToast("HTTPS is required for WebUSB hardware access", false);
+      return;
+    }
+    if (!navigator.usb || typeof navigator.usb.requestDevice !== "function") {
+      if (navigator.hid) return pairWebHidDevices();
+      showToast("WebUSB requires Chrome, Edge, Brave, Opera, or Vivaldi", false);
+      return;
+    }
+    try {
+      const uDev = await navigator.usb.requestDevice({
+        filters: [{ vendorId: Protocol25.RAZER_VENDOR_ID }],
+      });
+      await finishDevicePairing(uDev || null);
+    } catch (err) {
+      if (err?.name !== "NotAllowedError" && err?.name !== "NotFoundError") {
+        showToast(`WebUSB pairing error: ${err.message}`, false);
+      } else if (err?.name === "NotFoundError") {
+        // User cancelled the WebUSB chooser, or no WinUSB-backed Razer device was listed
+        const guideEl = document.getElementById("winUsbSetupGuide");
+        if (guideEl && isWindowsPlatform()) {
+          guideEl.hidden = false;
+          guideEl.open = true;
+        }
+      }
     }
   }
 
@@ -2441,49 +2628,40 @@
       showToast("WebHID/WebUSB requires Chrome, Edge, Brave, Opera, or Vivaldi", false);
       return;
     }
+    if (!navigator.hid && navigator.usb) {
+      return pairWebUsbDevices();
+    }
     try {
-      let picked = [];
-      if (navigator.hid) {
-        picked = await navigator.hid.requestDevice({
-          filters: [{ vendorId: Protocol25.RAZER_VENDOR_ID }],
-        });
-      } else if (navigator.usb) {
-        const uDev = await navigator.usb.requestDevice({
-          filters: [{ vendorId: Protocol25.RAZER_VENDOR_ID }],
-        });
-        if (uDev) picked = [uDev];
-      }
-      initialHardwareSlotSynced = true; // the explicit sync below replaces the automatic one
-      protocolDeviceByPid.clear(); // re-probe: the user may have granted additional interfaces
-      protocolProbeFailedListByPid.clear();
-      await refreshAuthorizedWebHidDevices();
-      if (picked && picked.length > 0) {
-        const pid = Number(picked[0].productId);
-        selectedPid = pid;
-        driverState.selectedPid = pid;
-        persistDriverState();
-        renderDeviceTabs();
-        renderProfileSlotBar();
-        syncControlsFromSlot();
-        renderOverviewPanels();
-        const safeName = sanitizePlainText(picked[0].productName, 64, `PID 0x${pid.toString(16).toUpperCase()}`);
-        showToast(`Paired ${safeName}`);
-        void playUiTone("success");
-        // Read (never overwrite) the keyboard's active slot and its stored settings
-        await syncActiveSlotFromHardware();
-        const fw = await queryProtocol25(pid, Protocol25.Builders.getFirmwareVersion());
-        if (fw?.args) {
-          const [maj, min] = fw.args;
-          const fwBadge = document.getElementById("fwBadge");
-          if (fwBadge) fwBadge.textContent = `v${Number(maj)}.${String(Number(min) || 0).padStart(2, "0")}`;
-        }
-      } else {
-        initialHardwareSlotSynced = false;
-      }
+      const picked = await navigator.hid.requestDevice({
+        filters: [{ vendorId: Protocol25.RAZER_VENDOR_ID }],
+      });
+      await finishDevicePairing(picked && picked.length > 0 ? picked[0] : null);
     } catch (err) {
       if (err?.name !== "NotAllowedError") {
-        showToast(`USB pairing error: ${err.message}`, false);
+        showToast(`WebHID pairing error: ${err.message}`, false);
       }
+    }
+  }
+
+  function pairBannerSmart() {
+    const selPid = Number(selectedPid);
+    const needWebUsb =
+      navigator.usb &&
+      (isWindowsPlatform() || (webHidHandlesByPid.has(selPid) && !protocolDeviceByPid.has(selPid)));
+    if (needWebUsb) {
+      return pairWebUsbDevices();
+    }
+    return pairWebHidDevices();
+  }
+
+  async function recheckProtocol25() {
+    protocolDeviceByPid.clear();
+    protocolProbeErrorByPid.clear();
+    protocolProbeFailedSigByPid.clear();
+    protocolUsbClaimBlockedByPid.clear();
+    await refreshAuthorizedWebHidDevices();
+    if (hasCompatibleDevice()) {
+      await syncActiveSlotFromHardware({ quiet: false });
     }
   }
 
@@ -2494,7 +2672,8 @@
   }
 
   // ==========================================================================
-  // Protocol 25 transport (verified against a Huntsman V3 Pro TKL, PID 0x02A7, FW 1.04)
+  // Protocol 25 transport (WebHID + WebUSB Class Control Transfer 0x09 / 0x01)
+  // Verified against Huntsman V3 Pro TKL (PID 0x02A7, FW 1.04, Interface 3)
   // ==========================================================================
   const P25_STATUS_NAMES = { 0x00: "NEW", 0x01: "BUSY", 0x02: "OK", 0x03: "FAIL", 0x04: "TIMEOUT", 0x05: "NOT SUPPORTED" };
   const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -2515,9 +2694,43 @@
     return padded;
   }
 
-  // One request/response exchange on a Protocol 25 interface. Never re-sends the command
-  // (re-sending onboard-memory writes is what the old code did when it saw status 0x00).
-  async function transferProtocol25(dev, body90, { timeoutMs = 1200 } = {}) {
+  async function ensureUsbInterfaceClaimed(usbDev, interfaceNumber) {
+    if (!usbDev.opened) {
+      await usbDev.open();
+      claimedUsbInterfaces.delete(usbDev);
+    }
+    if (!usbDev.configuration) {
+      await usbDev.selectConfiguration(1);
+    }
+    let claimedSet = claimedUsbInterfaces.get(usbDev);
+    if (!claimedSet) {
+      claimedSet = new Set();
+      claimedUsbInterfaces.set(usbDev, claimedSet);
+    }
+    const ifaceObj = usbDev.configuration?.interfaces?.find((i) => i.interfaceNumber === interfaceNumber);
+    if (!claimedSet.has(interfaceNumber) && !ifaceObj?.claimed) {
+      await usbDev.claimInterface(interfaceNumber);
+    }
+    claimedSet.add(interfaceNumber);
+  }
+
+  async function readUsbFeatureReport91(usbDev, interfaceNumber) {
+    const inRes = await usbDev.controlTransferIn(
+      { requestType: "class", recipient: "interface", request: 0x01, value: 0x0300, index: interfaceNumber },
+      90
+    );
+    if (!inRes || inRes.status !== "ok" || !inRes.data) {
+      throw new Error(`WebUSB GET_REPORT failed (${inRes?.status || "no data"})`);
+    }
+    const raw = new Uint8Array(inRes.data.buffer, inRes.data.byteOffset, inRes.data.byteLength);
+    if (raw.length === 91) return Array.from(raw);
+    if (raw.length === 90) return [0x00, ...Array.from(raw)];
+    const padded = new Array(91).fill(0);
+    for (let i = 0; i < Math.min(90, raw.length); i++) padded[1 + i] = raw[i];
+    return padded;
+  }
+
+  async function transferProtocol25Hid(dev, body90, { timeoutMs = 1200 } = {}) {
     if (!dev.opened) await dev.open();
     const cmdClass = body90[6] & 0xff;
     const cmdId = body90[7] & 0xff;
@@ -2545,55 +2758,185 @@
     return { rx91, parsedRx };
   }
 
-  // Find (once) the HID interface that really speaks Protocol 25 by sending a harmless
-  // Get Firmware Version (0x00/0x81) and checking the echoed reply.
+  // WebUSB Class Control Transfer (HID SET_REPORT 0x09 / GET_REPORT 0x01, wValue=0x0300, wIndex=interfaceNumber)
+  // Matches Razer's rzDevice25.js browser transport; never re-sends SET_REPORT while status is 0x00/0x01.
+  async function transferProtocol25Usb(usbDev, interfaceNumber, body90, { timeoutMs = 1200 } = {}) {
+    await ensureUsbInterfaceClaimed(usbDev, interfaceNumber);
+    const cmdClass = body90[6] & 0xff;
+    const cmdId = body90[7] & 0xff;
+    const outRes = await usbDev.controlTransferOut(
+      { requestType: "class", recipient: "interface", request: 0x09, value: 0x0300, index: interfaceNumber },
+      Uint8Array.from(body90)
+    );
+    if (!outRes || outRes.status !== "ok") {
+      throw new Error(`WebUSB SET_REPORT failed (${outRes?.status || "unknown"})`);
+    }
+    const started = performance.now();
+    let rx91 = null;
+    let parsedRx = null;
+    let waitMs = 6;
+    while (performance.now() - started < timeoutMs) {
+      await sleepMs(waitMs);
+      waitMs = Math.min(25, Math.round(waitMs * 1.8));
+      rx91 = await readUsbFeatureReport91(usbDev, interfaceNumber);
+      parsedRx = Protocol25.parsePacket(rx91);
+      const echoes = parsedRx.valid && parsedRx.commandClass === cmdClass && parsedRx.commandId === cmdId;
+      if (echoes && parsedRx.status !== 0x00 && parsedRx.status !== 0x01) break;
+    }
+    if (parsedRx) {
+      parsedRx.statusName = P25_STATUS_NAMES[parsedRx.status] || parsedRx.statusName;
+      if (parsedRx.commandClass !== cmdClass || parsedRx.commandId !== cmdId) {
+        parsedRx.status = 0x04;
+        parsedRx.statusName = "NO MATCHING REPLY";
+      }
+    }
+    return { rx91, parsedRx };
+  }
+
+  async function transferProtocol25(handle, body90, opts = {}) {
+    if (handle?.mode === "webusb") {
+      return transferProtocol25Usb(handle.dev, handle.interfaceNumber, body90, opts);
+    }
+    const hidDev = handle?.mode === "webhid" ? handle.dev : handle;
+    return transferProtocol25Hid(hidDev, body90, opts);
+  }
+
+  // Find (once) the WebUSB or WebHID interface that speaks Protocol 25 by sending a harmless
+  // Get Firmware Version (0x00/0x81) and verifying the echoed reply.
   async function resolveProtocol25Device(pidKey) {
     const numPid = Number(pidKey);
-    const list = webHidHandlesByPid.get(numPid) || [];
+    const hidList = webHidHandlesByPid.get(numPid) || [];
+    const usbList = webUsbDevicesByPid.get(numPid) || [];
     const cached = protocolDeviceByPid.get(numPid);
-    if (cached && list.includes(cached)) return cached;
+    if (cached) {
+      if (cached.mode === "webhid" && hidList.includes(cached.dev)) return cached;
+      if (cached.mode === "webusb" && usbList.includes(cached.dev)) return cached;
+    }
     protocolDeviceByPid.delete(numPid);
-    // Don't re-probe on every click when nothing changed since the last failed probe
-    if (protocolProbeFailedListByPid.get(numPid) === list) return null;
+
+    const probeSig = `${hidList.length}:${usbList.length}`;
+    if (protocolProbeFailedSigByPid.get(numPid) === probeSig) return null;
     if (protocolProbeByPid.has(numPid)) return protocolProbeByPid.get(numPid);
 
     const probe = (async () => {
       const meta = Protocol25.KNOWN_DEVICES[numPid] || {};
       const tid = meta.defaultTransactionId || 0x1f;
-      const candidates = list
+      const preferredIf = Number(
+        meta.interface ?? (meta.category === "keyboard-analog" || meta.category === "keyboard" ? 3 : 0)
+      );
+      const probePkt = Protocol25.Builders.getFirmwareVersion(tid);
+      const body90 = validateOutgoingPacket90(probePkt.length === 91 ? probePkt.slice(1) : [...probePkt]);
+      const tried = [];
+      let usbClaimBlocked = false;
+
+      // 1. Probe WebUSB handles first when available (required on Windows where Chromium WebHID strips MI_03)
+      for (const uDev of usbList) {
+        try {
+          if (!uDev.opened) {
+            await uDev.open();
+            claimedUsbInterfaces.delete(uDev);
+          }
+          if (!uDev.configuration) {
+            await uDev.selectConfiguration(1);
+          }
+          const exposedIfs = (uDev.configuration?.interfaces || []).map((i) => i.interfaceNumber);
+          const candidateIfs = [];
+          for (const candidate of [preferredIf, 3, 2, 0, 1, ...exposedIfs]) {
+            if (!Number.isInteger(candidate) || candidate < 0) continue;
+            if (exposedIfs.length > 0 && !exposedIfs.includes(candidate)) continue;
+            if (!candidateIfs.includes(candidate)) candidateIfs.push(candidate);
+          }
+
+          for (const ifNum of candidateIfs) {
+            try {
+              const { parsedRx } = await transferProtocol25Usb(uDev, ifNum, body90, { timeoutMs: 700 });
+              if (parsedRx?.status === 0x02 && parsedRx.commandClass === 0x00 && parsedRx.commandId === 0x81) {
+                const handle = {
+                  mode: "webusb",
+                  dev: uDev,
+                  interfaceNumber: ifNum,
+                  label: `WebUSB (Interface ${ifNum})`,
+                };
+                protocolDeviceByPid.set(numPid, handle);
+                protocolProbeErrorByPid.delete(numPid);
+                protocolProbeFailedSigByPid.delete(numPid);
+                protocolUsbClaimBlockedByPid.delete(numPid);
+                const [maj, min] = parsedRx.args || [];
+                const fwBadge = document.getElementById("fwBadge");
+                if (fwBadge) fwBadge.textContent = `v${Number(maj)}.${String(Number(min) || 0).padStart(2, "0")}`;
+                console.info(
+                  `[websynap.se] Verified Protocol 25 via WebUSB IF#${ifNum} for PID 0x${numPid.toString(16)} (FW v${maj}.${String(min ?? 0).padStart(2, "0")})`
+                );
+                return handle;
+              }
+              tried.push(`WebUSB IF#${ifNum} → ${parsedRx?.statusName || "no reply"}`);
+            } catch (ifErr) {
+              const errMsg = String(ifErr?.message || ifErr || "");
+              if (ifNum === preferredIf && /claim|security|access|denied|networkerror|notfound/i.test(errMsg + " " + (ifErr?.name || ""))) {
+                usbClaimBlocked = true;
+              }
+              tried.push(`WebUSB IF#${ifNum} → ${errMsg}`);
+            }
+          }
+        } catch (uErr) {
+          const errMsg = String(uErr?.message || uErr || "");
+          if (/security|access|denied|open|claim/i.test(errMsg + " " + (uErr?.name || ""))) {
+            usbClaimBlocked = true;
+          }
+          tried.push(`WebUSB open → ${errMsg}`);
+        }
+      }
+
+      // 2. Probe WebHID collections (works out-of-the-box on macOS / Linux / ChromeOS)
+      const hidCandidates = hidList
         .filter((d) => d.vendorId === Protocol25.RAZER_VENDOR_ID)
         .filter((d) => (d.collections || []).some((c) => c.usagePage !== 0x0059 && c.usagePage < 0xff00))
         .sort((a, b) => Number(deviceHasProtocol25FeatureReport(b)) - Number(deviceHasProtocol25FeatureReport(a)));
-      const tried = [];
-      for (const d of candidates) {
+
+      for (const d of hidCandidates) {
         try {
-          const pkt = Protocol25.Builders.getFirmwareVersion(tid);
-          const body90 = validateOutgoingPacket90(pkt.length === 91 ? pkt.slice(1) : [...pkt]);
-          const { parsedRx } = await transferProtocol25(d, body90, { timeoutMs: 600 });
+          const { parsedRx } = await transferProtocol25Hid(d, body90, { timeoutMs: 600 });
           if (parsedRx?.status === 0x02 && parsedRx.commandClass === 0x00 && parsedRx.commandId === 0x81) {
-            protocolDeviceByPid.set(numPid, d);
+            const handle = {
+              mode: "webhid",
+              dev: d,
+              label: `WebHID (${describeCollections(d)})`,
+            };
+            protocolDeviceByPid.set(numPid, handle);
             protocolProbeErrorByPid.delete(numPid);
-            protocolProbeFailedListByPid.delete(numPid);
+            protocolProbeFailedSigByPid.delete(numPid);
+            protocolUsbClaimBlockedByPid.delete(numPid);
             const [maj, min] = parsedRx.args || [];
+            const fwBadge = document.getElementById("fwBadge");
+            if (fwBadge) fwBadge.textContent = `v${Number(maj)}.${String(Number(min) || 0).padStart(2, "0")}`;
             console.info(
-              `[websynap.se] Protocol 25 control interface for PID 0x${numPid.toString(16)}: ${describeCollections(d)} (FW v${maj}.${String(min ?? 0).padStart(2, "0")})`
+              `[websynap.se] Verified Protocol 25 via WebHID ${describeCollections(d)} for PID 0x${numPid.toString(16)} (FW v${maj}.${String(min ?? 0).padStart(2, "0")})`
             );
-            return d;
+            return handle;
           }
-          tried.push(`${describeCollections(d)} → ${parsedRx?.statusName || "no reply"}`);
+          tried.push(`WebHID ${describeCollections(d)} → ${parsedRx?.statusName || "no reply"}`);
         } catch (err) {
-          tried.push(`${describeCollections(d)} → ${err?.message || err}`);
+          tried.push(`WebHID ${describeCollections(d)} → ${err?.message || err}`);
         }
       }
-      const authorized = list.map(describeCollections).join(", ") || "none";
-      const hasControlCandidate = list.some((d) => deviceHasProtocol25FeatureReport(d));
-      const msg = hasControlCandidate
-        ? "the keyboard's control interface did not respond. Close Razer Synapse or other RGB tools, unplug/replug the keyboard and click “Connect Razer Device” again."
-        : "the keyboard's control interface (Protocol 25, USB interface 3) is not among the devices this site was allowed to access. Click “Connect Razer Device” and select the keyboard again.";
+
+      const devName = meta.name || `Razer Device (0x${numPid.toString(16).toUpperCase()})`;
+      const hasControlCandidate = hidList.some((d) => deviceHasProtocol25FeatureReport(d));
+      let msg;
+      if (isWindowsPlatform() && usbClaimBlocked) {
+        protocolUsbClaimBlockedByPid.set(numPid, true);
+        msg = `Windows still has HidUsb bound to ${devName} (Interface ${preferredIf}), which blocks WebUSB access to onboard memory. Bind WinUSB to “${devName} (Interface ${preferredIf})” in Zadig (see Windows Setup below), then click “⚡ Pair / Retry WebUSB”.`;
+      } else if (isWindowsPlatform() && usbList.length === 0) {
+        msg = `Windows Chromium blocks WebHID Feature Reports on Interface ${preferredIf} (MI_0${preferredIf}). To read & save onboard memory slots, bind WinUSB to “${devName} (Interface ${preferredIf})” (see Windows Setup below) and click “⚡ Connect WebUSB (Onboard Save)”.`;
+      } else if (hasControlCandidate || usbList.length > 0) {
+        msg = "the device's Protocol 25 control interface did not respond. Close Razer Synapse or other RGB tools, unplug/replug the device, and click Re-check.";
+      } else {
+        msg = `Protocol 25 USB Interface ${preferredIf} is not yet authorized. Click “⚡ Connect WebUSB (Onboard Save)” and select your Razer device.`;
+      }
       protocolProbeErrorByPid.set(numPid, msg);
-      protocolProbeFailedListByPid.set(numPid, list);
+      protocolProbeFailedSigByPid.set(numPid, probeSig);
       console.warn(
-        `[websynap.se] PID 0x${numPid.toString(16)}: ${msg}\n  authorized HID interfaces: ${authorized}\n  probe results: ${tried.join("; ") || "(no candidates)"}`
+        `[websynap.se] PID 0x${numPid.toString(16)}: ${msg}\n  probe results: ${tried.join("; ") || "(no candidates)"}`
       );
       return null;
     })();
@@ -2607,8 +2950,8 @@
 
   // Direct query helper used for read-back (bypasses the UI/log pipeline)
   async function queryProtocol25(pidKey, packet) {
-    const dev = await resolveProtocol25Device(pidKey);
-    if (!dev) return null;
+    const handle = await resolveProtocol25Device(pidKey);
+    if (!handle) return null;
     const meta = Protocol25.KNOWN_DEVICES[Number(pidKey)] || {};
     const raw90 = packet.length === 91 ? [...packet.slice(1)] : [...packet];
     if (meta.defaultTransactionId && raw90[1] === 0x1f && meta.defaultTransactionId !== 0x1f) {
@@ -2623,7 +2966,7 @@
     webHidMutexByPid.set(Number(pidKey), prevLock.then(() => nextLock));
     await prevLock;
     try {
-      const { parsedRx } = await transferProtocol25(dev, body90);
+      const { parsedRx } = await transferProtocol25(handle, body90);
       return parsedRx?.status === 0x02 ? parsedRx : null;
     } catch {
       return null;
@@ -2656,17 +2999,16 @@
       const isLightingCmd =
         cmdClass === 0x0f || (cmdClass === 0x03 && (cmdId === 0x01 || cmdId === 0x02 || cmdId === 0x03 || cmdId === 0x0a));
 
-      // 1. Protocol 25 over WebHID: use the interface that actually answered the 0x00/0x81 probe
-      // (Huntsman V3 Pro TKL on Windows: MI_03, UsagePage 0x000C / Usage 0x0001, 91-byte Feature report).
-      // The old code sprayed packets at every collection and silently "succeeded" on the wrong one.
-      const dev = await resolveProtocol25Device(pidKey);
-      if (dev) {
+      // 1. Protocol 25 over verified WebUSB (Interface 3 / meta.interface) or WebHID handle
+      const handle = await resolveProtocol25Device(pidKey);
+      if (handle) {
         let rx91;
         let parsedRx;
         try {
-          ({ rx91, parsedRx } = await transferProtocol25(dev, body90));
+          ({ rx91, parsedRx } = await transferProtocol25(handle, body90));
         } catch (err) {
           protocolDeviceByPid.delete(Number(pidKey));
+          protocolProbeFailedSigByPid.delete(Number(pidKey));
           throw new Error(`USB transfer failed: ${err?.message || err}`);
         }
         const okStatus = parsedRx.status === 0x02;
@@ -2699,114 +3041,27 @@
         if (!okStatus) {
           return {
             ok: false,
-            mode: "webhid",
+            mode: handle.mode,
             tx: report91,
             rx: rx91,
             parsedRx,
             logItem,
-            error: `Keyboard rejected command (${parsedRx.statusName || "status 0x" + (parsedRx.status ?? 0).toString(16)})`,
+            error: `Device rejected command (${parsedRx.statusName || "status 0x" + (parsedRx.status ?? 0).toString(16)})`,
           };
         }
-        return { ok: true, mode: "webhid", tx: report91, rx: rx91, parsedRx, logItem };
+        return { ok: true, mode: handle.mode, tx: report91, rx: rx91, parsedRx, logItem };
       }
 
-      // 2. Try WebUSB Class Control Transfer (HID SET_REPORT 0x09 / GET_REPORT 0x01, wValue=0x0300)
-      // Matches Razer's browser transport in rzDevice25.js when WebUSB handle is available.
-      const usbDev = webUsbDevicesByPid.get(Number(pidKey));
-      if (usbDev && usbDev.vendorId === Protocol25.RAZER_VENDOR_ID) {
-        try {
-          if (!usbDev.opened) {
-            await usbDev.open();
-          }
-          if (!usbDev.configuration) {
-            await usbDev.selectConfiguration(1);
-          }
-          const claimIf = Number(meta.interface ?? (meta.category === "keyboard-analog" || meta.category === "keyboard" ? 3 : 0));
-          await usbDev.claimInterface(claimIf).catch(() => {});
-          const txBuf = Uint8Array.from(body90);
-          const outRes = await usbDev.controlTransferOut(
-            { requestType: "class", recipient: "interface", request: 0x09, value: 0x0300, index: claimIf },
-            txBuf
-          );
-          if (outRes && outRes.status === "ok") {
-            await new Promise((r) => setTimeout(r, 12));
-            const readUsb91 = async () => {
-              const inRes = await usbDev.controlTransferIn(
-                { requestType: "class", recipient: "interface", request: 0x01, value: 0x0300, index: claimIf },
-                90
-              );
-              if (!inRes || inRes.status !== "ok" || !inRes.data) return [0x00, ...body90];
-              const raw = new Uint8Array(inRes.data.buffer, inRes.data.byteOffset, inRes.data.byteLength);
-              if (raw.length === 91) return Array.from(raw);
-              if (raw.length === 90) return [0x00, ...Array.from(raw)];
-              const padded = new Array(91).fill(0);
-              for (let i = 0; i < Math.min(91, raw.length); i++) padded[i] = raw[i];
-              return padded;
-            };
-            let rx91 = await readUsb91();
-            let parsedRx = Protocol25.parsePacket(rx91);
-            for (let poll = 0; poll < 8 && (parsedRx.status === 0x01 || parsedRx.status === 0x00); poll++) {
-              await new Promise((r) => setTimeout(r, 20));
-              if (parsedRx.status === 0x00) {
-                await usbDev.controlTransferOut(
-                  { requestType: "class", recipient: "interface", request: 0x09, value: 0x0300, index: claimIf },
-                  txBuf
-                );
-                await new Promise((r) => setTimeout(r, 15));
-              }
-              rx91 = await readUsb91();
-              parsedRx = Protocol25.parsePacket(rx91);
-            }
-            if (cmdClass === 0x0f && (cmdId === 0x02 || cmdId === 0x04)) {
-              onboardChromaFlashedByPid.set(Number(pidKey), true);
-            }
-            if (isLightingCmd && !options.skipLampArray && findLampArrayDevice(pidKey)) {
-              const activeEffect = getActiveSlotData()?.lighting?.effect || "static";
-              if (HARDWARE_NATIVE_CHROMA_EFFECTS.has(activeEffect)) {
-                await releaseLampArrayToHardwareAutonomous(pidKey);
-              } else {
-                await applyLampArrayEffect(pidKey);
-              }
-            }
-            const logItem = {
-              productId: pidKey,
-              txHex: toHex(report91),
-              rxHex: toHex(rx91),
-              parsedTx: {
-                ...parsedTx,
-                commandClassHex: `0x${parsedTx.commandClass.toString(16).padStart(2, "0").toUpperCase()}`,
-                commandIdHex: `0x${parsedTx.commandId.toString(16).padStart(2, "0").toUpperCase()}`,
-              },
-              parsedRx,
-            };
-            if (parsedRx.status !== 0x02) {
-              return {
-                ok: false,
-                mode: "webusb",
-                tx: report91,
-                rx: rx91,
-                parsedRx,
-                logItem,
-                error: `Keyboard rejected command (${parsedRx.statusName || "no reply"})`,
-              };
-            }
-            return { ok: true, mode: "webusb", tx: report91, rx: rx91, parsedRx, logItem };
-          }
-        } catch {
-          // Fall through
-        }
-      }
-
-      // 3. No Protocol 25 control interface answered. Do NOT pretend the command succeeded (the old
-      // "0x02 SYNCED" fake ACK hid the fact that slots/actuation/lighting never reached the keyboard).
+      // 2. No Protocol 25 control interface answered. Do NOT pretend the command succeeded.
       // Lighting can still be previewed live through LampArray, but it is not stored on the keyboard.
       let lampApplied = false;
       if (isLightingCmd && !options.skipLampArray && findLampArrayDevice(pidKey)) {
         lampApplied = await applyLampArrayEffect(pidKey);
       }
+      updateWebHidStatusUI();
       const reason =
         protocolProbeErrorByPid.get(Number(pidKey)) ||
-        "the keyboard's control interface (Protocol 25) is not accessible from this browser";
+        "the device's Protocol 25 control interface is not accessible from this browser";
       return {
         ok: lampApplied,
         liveOnly: lampApplied,
@@ -3436,6 +3691,8 @@
         renderProfileSlotBar();
         syncControlsFromSlot();
         renderOverviewPanels();
+        updateWebHidStatusUI();
+        void syncActiveSlotFromHardware({ quiet: true });
       });
       container.appendChild(btn);
     });
@@ -3447,10 +3704,10 @@
 
   function loadCatalogDeviceIntoWorkspace(pid) {
     const numPid = Number(pid);
-    const isConnected = webHidHandlesByPid.has(numPid);
+    const isConnected = webHidHandlesByPid.has(numPid) || webUsbDevicesByPid.has(numPid);
     if (!isConnected) {
-      showToast("This device is supported. Connect it via USB and click Connect Razer Device.", false);
-      void pairWebHidDevices();
+      showToast("This device is supported. Connect it via USB and pair via WebUSB or WebHID.", false);
+      void pairBannerSmart();
       return;
     }
     const meta = getDeviceMeta(numPid);
@@ -5700,9 +5957,12 @@
       });
     });
 
-    // WebHID Pair Buttons
+    // WebUSB + WebHID Pair Buttons
+    document.getElementById("btnWebUsbPair")?.addEventListener("click", pairWebUsbDevices);
     document.getElementById("btnWebHidPair")?.addEventListener("click", pairWebHidDevices);
-    document.getElementById("btnBannerPair")?.addEventListener("click", pairWebHidDevices);
+    document.getElementById("btnBannerPair")?.addEventListener("click", pairBannerSmart);
+    document.getElementById("btnBannerRecheck")?.addEventListener("click", recheckProtocol25);
+    document.getElementById("btnCompatWebUsb")?.addEventListener("click", pairWebUsbDevices);
     document.getElementById("btnCompatPair")?.addEventListener("click", pairWebHidDevices);
     document.getElementById("btnCompatCatalog")?.addEventListener("click", () => switchMainView("shelf"));
 
@@ -5788,8 +6048,8 @@
 
     // Firmware Query
     document.getElementById("btnQueryFw")?.addEventListener("click", async () => {
-      if (webHidHandlesByPid.size === 0 && navigator.hid) {
-        await pairWebHidDevices();
+      if (!hasAnyRazerDevice()) {
+        await pairBannerSmart();
         return;
       }
       const res = await sendPacket90(Protocol25.Builders.getFirmwareVersion(), "Query Firmware (0x00/0x81)", null, null, true);
@@ -5905,7 +6165,8 @@
       document.getElementById("packetCountBadge").textContent = "0";
     });
 
-    // Shelf WebHID Pair + Complete Synapse 4 Catalog Search & Category Filter
+    // Shelf WebUSB / WebHID Pair + Complete Synapse 4 Catalog Search & Category Filter
+    document.getElementById("btnShelfPairWebUsb")?.addEventListener("click", pairWebUsbDevices);
     document.getElementById("btnShelfPairWebHid")?.addEventListener("click", pairWebHidDevices);
     document.getElementById("inpCatalogSearch")?.addEventListener("input", (ev) => {
       catalogSearchQuery = ev.target.value || "";
@@ -6267,12 +6528,32 @@
 
     if (navigator.hid) {
       navigator.hid.addEventListener("connect", () => {
+        protocolProbeFailedSigByPid.clear();
         void refreshAuthorizedWebHidDevices();
-        showToast("Razer USB device connected");
+        showToast("Razer HID interface connected");
       });
       navigator.hid.addEventListener("disconnect", () => {
+        protocolDeviceByPid.clear();
+        protocolProbeFailedSigByPid.clear();
         void refreshAuthorizedWebHidDevices();
-        showToast("Razer USB device disconnected", false);
+        showToast("Razer HID interface disconnected", false);
+      });
+    }
+    if (navigator.usb && typeof navigator.usb.addEventListener === "function") {
+      navigator.usb.addEventListener("connect", () => {
+        protocolDeviceByPid.clear();
+        protocolProbeErrorByPid.clear();
+        protocolProbeFailedSigByPid.clear();
+        protocolUsbClaimBlockedByPid.clear();
+        initialHardwareSlotSynced = false;
+        void refreshAuthorizedWebHidDevices();
+        showToast("Razer WebUSB interface connected");
+      });
+      navigator.usb.addEventListener("disconnect", () => {
+        protocolDeviceByPid.clear();
+        protocolProbeFailedSigByPid.clear();
+        void refreshAuthorizedWebHidDevices();
+        showToast("Razer WebUSB interface disconnected", false);
       });
     }
   }

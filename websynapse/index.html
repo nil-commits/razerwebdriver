@@ -100,8 +100,11 @@
           <span id="activeProfileNameTag" class="slot-name-tag">Default Profile</span>
         </div>
         <div class="ws-topbar-actions">
-          <button id="btnWebHidPair" type="button" class="ws-btn is-primary is-sm" title="Pair your Razer USB Keyboard or Mouse directly in Chromium via WebHID/WebUSB">
-            ⚡ Connect Razer Device
+          <button id="btnWebUsbPair" type="button" class="ws-btn is-primary is-sm" title="Pair Razer Protocol 25 control interface via WebUSB to read &amp; save onboard memory slots">
+            ⚡ Connect WebUSB (Onboard Save)
+          </button>
+          <button id="btnWebHidPair" type="button" class="ws-btn is-sm" title="Pair Razer HID / LampArray interface via WebHID">
+            Connect WebHID
           </button>
           <button id="btnSaveSlot" type="button" class="ws-btn is-sm" title="Flash current slot to device onboard memory">
             💾 Flash to slot
@@ -119,15 +122,36 @@
         </div>
       </header>
 
-      <!-- WebHID Status / Browser Compatibility Banner -->
-      <div id="webHidStatusBanner" class="ws-panel" style="margin:14px 22px 0;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-color:rgba(93,222,137,0.35);">
-        <div style="display:flex;align-items:center;gap:10px;font-size:13px;">
-          <span class="ws-dot" id="bannerDot"></span>
-          <span id="bannerStatusText">
-            <strong>Checking WebHID/WebUSB compatibility…</strong> — This configurator requires a Chromium-based browser with WebHID or WebUSB and a compatible Razer device.
-          </span>
+      <!-- WebHID / WebUSB Status & Onboard Memory Setup Banner -->
+      <div id="webHidStatusBanner" class="ws-panel" style="margin:14px 22px 0;padding:12px 16px;display:flex;flex-direction:column;gap:8px;border-color:rgba(93,222,137,0.35);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:10px;font-size:13px;flex:1;min-width:240px;">
+            <span class="ws-dot" id="bannerDot"></span>
+            <span id="bannerStatusText">
+              <strong>Checking WebHID/WebUSB compatibility…</strong> — This configurator requires a Chromium-based browser with WebHID or WebUSB and a compatible Razer device.
+            </span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <button id="btnBannerRecheck" type="button" class="ws-btn is-sm" hidden title="Re-check Protocol 25 onboard memory connection">↻ Re-check</button>
+            <button id="btnBannerPair" type="button" class="ws-btn is-primary is-sm">⚡ Connect WebUSB</button>
+          </div>
         </div>
-        <button id="btnBannerPair" type="button" class="ws-btn is-primary is-sm">Connect USB (0x1532)</button>
+        <details id="winUsbSetupGuide" hidden style="padding-top:8px;border-top:1px solid var(--line-1);font-size:12.5px;line-height:1.55;color:var(--text-2);">
+          <summary style="cursor:pointer;font-weight:600;color:var(--text-1);user-select:none;">
+            Windows Setup (30s one-time): Enable Onboard Memory Saving via WebUSB (<code id="winUsbTargetLabel">Interface 3</code>)
+          </summary>
+          <div style="margin-top:8px;display:grid;gap:6px;">
+            <div>
+              On Windows, Chromium blocks HID Feature Reports on Razer's Protocol 25 control interface (<code>MI_03</code>). Binding <b>WinUSB</b> to <b id="winUsbInterfaceName">Razer Keyboard (Interface 3)</b> unlocks full onboard NVRAM read/write (slots <code>S1</code>–<code>S6</code>, Chroma, actuation, Rapid Trigger, Snap Tap) while keeping normal typing (<code>Interface 0</code>) and LampArray RGB (<code>Interface 4</code>) completely untouched:
+            </div>
+            <ol style="margin:2px 0 2px 18px;padding:0;display:grid;gap:3px;">
+              <li>Open <b>Zadig</b> (<code>zadig.akeo.ie</code>) and click <b>Options → List All Devices</b> (keep <i>Ignore Hubs or Composite Parents</i> checked).</li>
+              <li>In the dropdown, select <code id="winUsbZadigEntry">Razer Huntsman V3 Pro TKL (Interface 3)</code> — <b>only</b> choose <code id="winUsbMiCode">Interface 3</code> (<code>MI_03</code>), <i>never</i> <code>Interface 0</code> or the composite parent.</li>
+              <li>Select target driver <b>WinUSB</b> and click <b>Replace Driver</b>.</li>
+              <li>Click <b>⚡ Connect WebUSB (Onboard Save)</b> above and select your Razer device. Your settings will save directly to onboard flash and persist after closing the browser.</li>
+            </ol>
+          </div>
+        </details>
       </div>
 
       <main class="ws-content">
@@ -138,7 +162,8 @@
             This configurator requires a Chromium-based browser with WebHID or WebUSB and a compatible Razer device connected via USB.
           </p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button id="btnCompatPair" type="button" class="ws-btn is-primary is-sm">⚡ Connect Razer Device</button>
+            <button id="btnCompatWebUsb" type="button" class="ws-btn is-primary is-sm">⚡ Connect WebUSB (Onboard Save)</button>
+            <button id="btnCompatPair" type="button" class="ws-btn is-sm">Connect WebHID</button>
             <button id="btnCompatCatalog" type="button" class="ws-btn is-sm">Check supported devices</button>
           </div>
         </section>
@@ -1053,8 +1078,9 @@
               <h1>Active workspace devices</h1>
               <p class="ws-meta">Devices currently loaded in your workspace or paired via WebHID/WebUSB (`0x1532`)</p>
             </div>
-            <div style="display:flex;gap:8px;">
-              <button id="btnShelfPairWebHid" type="button" class="ws-btn is-primary is-sm">⚡ Pair USB / Dongle via WebHID/WebUSB</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button id="btnShelfPairWebUsb" type="button" class="ws-btn is-primary is-sm">⚡ Pair via WebUSB (Onboard Save)</button>
+              <button id="btnShelfPairWebHid" type="button" class="ws-btn is-sm">Pair via WebHID</button>
             </div>
           </header>
           <div id="devicesShelfGrid" class="ws-shelf-grid"></div>
