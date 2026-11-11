@@ -14,10 +14,15 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { spawn } = require("child_process");
 const Protocol25 = require("./protocol25");
 
 const HOST = process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || 5426); // 5426 = 0x1532 (Razer Vendor ID)
+const NATIVE_BRIDGE_HOST = "127.0.0.1";
+const NATIVE_BRIDGE_PORT = Number(process.env.WEBSYNAPSE_BRIDGE_PORT || 18925);
+const ALLOWED_COMMAND_CLASSES = new Set([0x00, 0x02, 0x03, 0x04, 0x05, 0x07, 0x08, 0x0b, 0x0c, 0x0d, 0x0f, 0x17, 0x18]);
+const ALLOWED_CLASS_00_IDS = new Set([0x04, 0x05, 0x40, 0x81, 0x82, 0x84, 0x86, 0x87, 0xc0]);
 
 const PROGRAM_FILES = process.env.ProgramFiles || "C:\\Program Files";
 const LOCAL_APPDATA = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
@@ -90,6 +95,168 @@ function loadRestoreProfiles() {
   return profiles;
 }
 
+let spawnedBridgeChild = null;
+let bridgeStartupPromise = null;
+
+function callNativeBridge(method, routePath, bodyObj = null, timeoutMs = 2200) {
+  return new Promise((resolve, reject) => {
+    const payload = bodyObj ? Buffer.from(JSON.stringify(bodyObj), "utf8") : null;
+    const req = http.request(
+      {
+        hostname: NATIVE_BRIDGE_HOST,
+        port: NATIVE_BRIDGE_PORT,
+        path: routePath,
+        method,
+        timeout: timeoutMs,
+        headers: {
+          "X-WebSynapse-Bridge": "1",
+          ...(payload
+            ? {
+                "Content-Type": "application/json",
+                "Content-Length": payload.length,
+              }
+            : {}),
+        },
+      },
+      (res) => {
+        let raw = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => {
+          raw += chunk;
+        });
+        res.on("end", () => {
+          try {
+            const parsed = JSON.parse(raw || "{}");
+            if (res.statusCode >= 200 && res.statusCode < 300) {
+              resolve(parsed);
+            } else {
+              reject(new Error(parsed?.error || `Native bridge HTTP ${res.statusCode}`));
+            }
+          } catch (err) {
+            reject(err);
+          }
+        });
+      }
+    );
+    req.on("timeout", () => {
+      req.destroy(new Error("Native bridge timeout"));
+    });
+    req.on("error", reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
+function findBridgeScriptPath() {
+  const candidates = [
+    path.join(__dirname, "websynapse", "websynapse-bridge.cmd"),
+    path.join(__dirname, "public", "websynapse-bridge.cmd"),
+  ];
+  return candidates.find((p) => fs.existsSync(p)) || null;
+}
+
+async function ensureNativeBridge() {
+  if (process.platform !== "win32") return null;
+  try {
+    const status = await callNativeBridge("GET", "/status", null, 900);
+    if (status && status.ok) {
+      nativeLoadStatus.bridgeOnline = true;
+      return status;
+    }
+  } catch {
+    // Not running yet — spawn below
+  }
+
+  if (bridgeStartupPromise) return bridgeStartupPromise;
+
+  bridgeStartupPromise = (async () => {
+    const scriptPath = findBridgeScriptPath();
+    if (!scriptPath) return null;
+
+    if (!spawnedBridgeChild || spawnedBridgeChild.killed || spawnedBridgeChild.exitCode !== null) {
+      const escapedPath = scriptPath.replace(/'/g, "''");
+      spawnedBridgeChild = spawn(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-Command",
+          `Invoke-Expression ([System.IO.File]::ReadAllText('${escapedPath}'))`,
+        ],
+        {
+          env: { ...process.env, WEBSYNAPSE_NO_BROWSER: "1" },
+          stdio: "ignore",
+          windowsHide: true,
+        }
+      );
+      spawnedBridgeChild.unref();
+    }
+
+    const deadline = Date.now() + 6500;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 220));
+      try {
+        const st = await callNativeBridge("GET", "/status", null, 900);
+        if (st && st.ok) {
+          nativeLoadStatus.bridgeOnline = true;
+          return st;
+        }
+      } catch {
+        // wait for C# compilation + HttpListener bind
+      }
+    }
+    return null;
+  })().finally(() => {
+    bridgeStartupPromise = null;
+  });
+
+  return bridgeStartupPromise;
+}
+
+function cleanupSpawnedBridge() {
+  if (spawnedBridgeChild && !spawnedBridgeChild.killed) {
+    try {
+      spawnedBridgeChild.kill();
+    } catch {
+      // ignore
+    }
+    spawnedBridgeChild = null;
+  }
+}
+
+process.on("exit", cleanupSpawnedBridge);
+process.on("SIGINT", () => {
+  cleanupSpawnedBridge();
+  process.exit(0);
+});
+process.on("SIGTERM", () => {
+  cleanupSpawnedBridge();
+  process.exit(0);
+});
+
+function validateOutgoingPacket90(rawPacket) {
+  const body90 = rawPacket.length === 91 ? [...rawPacket.slice(1)] : [...rawPacket];
+  if (body90.length !== 90) {
+    throw new Error("Protocol 25 frame must be 90 bytes");
+  }
+  const dataSize = body90[5] & 0xff;
+  const cmdClass = body90[6] & 0xff;
+  const cmdId = body90[7] & 0xff;
+  if (dataSize > 80) {
+    throw new Error(`Invalid Protocol 25 dataSize (${dataSize} > 80)`);
+  }
+  if (!ALLOWED_COMMAND_CLASSES.has(cmdClass)) {
+    throw new Error(`Blocked restricted command class 0x${cmdClass.toString(16).toUpperCase().padStart(2, "0")}`);
+  }
+  if (cmdClass === 0x00 && !ALLOWED_CLASS_00_IDS.has(cmdId)) {
+    throw new Error(`Blocked restricted system command 0x00/0x${cmdId.toString(16).toUpperCase().padStart(2, "0")}`);
+  }
+  body90[88] = Protocol25.computeCrc(body90);
+  body90[89] = 0x00;
+  return body90;
+}
+
 const packetHistory = [];
 function recordPacketLog(entry) {
   const item = {
@@ -102,9 +269,23 @@ function recordPacketLog(entry) {
   return item;
 }
 
-async function discoverDevices() {
+async function discoverDevices({ rescanBridge = false } = {}) {
   const restoreProfiles = loadRestoreProfiles();
   let hidDevices = [];
+  let bridgeDevices = [];
+
+  if (process.platform === "win32") {
+    try {
+      const bridgeSt = rescanBridge
+        ? (await ensureNativeBridge()) && (await callNativeBridge("POST", "/rescan", {}, 2500))
+        : await ensureNativeBridge();
+      if (bridgeSt && Array.isArray(bridgeSt.devices)) {
+        bridgeDevices = bridgeSt.devices;
+      }
+    } catch {
+      // ignore if native bridge unavailable
+    }
+  }
 
   if (nodeHid) {
     try {
@@ -138,6 +319,47 @@ async function discoverDevices() {
       hidInterfaces: [],
       source: "restore-profile",
       connectedLive: false,
+    });
+  }
+
+  for (const b of bridgeDevices) {
+    const pid = Number(b.productId);
+    if (!pid) continue;
+    const meta = Protocol25.KNOWN_DEVICES[pid] || {};
+    if (!byPid.has(pid)) {
+      byPid.set(pid, {
+        vendorId: b.vendorId || Protocol25.RAZER_VENDOR_ID,
+        productId: pid,
+        hexPid: b.hexPid || `0x${pid.toString(16).toUpperCase().padStart(4, "0")}`,
+        productName: meta.name || b.productName || `Razer USB Device (${pid})`,
+        deviceContainerId: "",
+        protocol: "25",
+        interface: b.interfaceNumber ?? meta.interface ?? 0,
+        usagePage: meta.usagePage ?? null,
+        usage: meta.usage ?? null,
+        defaultTransactionId: b.tid ?? meta.defaultTransactionId ?? 0x1f,
+        maxSlots: meta.maxSlots ?? 5,
+        transportLayer: b.transport || "USB",
+        category: meta.category || "peripheral",
+        features: meta.features || ["chroma", "dpi", "polling", "device-mode"],
+        restoreCommands: [],
+        hidInterfaces: [],
+        firmware: b.firmware || null,
+        source: "native-bridge",
+        connectedLive: true,
+      });
+    } else {
+      const existing = byPid.get(pid);
+      existing.connectedLive = true;
+      existing.source = "native-bridge";
+      existing.transportLayer = b.transport || existing.transportLayer;
+      if (b.firmware) existing.firmware = b.firmware;
+    }
+    byPid.get(pid).hidInterfaces.push({
+      path: `${b.transport || "USB"}:IF_${b.interfaceNumber ?? 0}`,
+      interface: b.interfaceNumber ?? meta.interface ?? 0,
+      usagePage: meta.usagePage ?? 12,
+      usage: meta.usage ?? 1,
     });
   }
 
@@ -284,28 +506,49 @@ async function sendProtocol25Command({ productId, interfaceNum = 3, reportId = 0
     const report91 = [reportId & 0xff, ...body90];
     const parsedReq = Protocol25.parsePacket(report91);
 
+    // 0. Prefer Native WinUSB + HidUsb Bridge on Windows (supports both Zadig WinUSB and standard HidUsb under any Node ABI)
+    if (process.platform === "win32") {
+      try {
+        await ensureNativeBridge();
+        const bridgeRes = await callNativeBridge(
+          "POST",
+          "/transfer",
+          { pid: pidKey, packet90: body90, timeoutMs: 1400 },
+          2400
+        );
+        if (bridgeRes && bridgeRes.ok && Array.isArray(bridgeRes.rx91)) {
+          const rxArr = bridgeRes.rx91.map((b) => Number(b) & 0xff);
+          const parsedRx = Protocol25.parsePacket(rxArr);
+          const logItem = recordPacketLog({
+            mode: `native-${String(bridgeRes.transport || "bridge").toLowerCase()}`,
+            productId: pidKey,
+            interfaceNum: bridgeRes.interfaceNumber ?? interfaceNum,
+            reportId,
+            txHex: toHex(report91),
+            rxHex: toHex(rxArr),
+            parsedTx: parsedReq,
+            parsedRx,
+          });
+          return {
+            ok: true,
+            mode: logItem.mode,
+            transport: bridgeRes.transport || "BRIDGE",
+            interfaceNumber: bridgeRes.interfaceNumber ?? interfaceNum,
+            tx: report91,
+            rx: rxArr,
+            parsedRx,
+            logItem,
+          };
+        }
+      } catch (bridgeErr) {
+        if (!nodeHid) {
+          throw bridgeErr;
+        }
+      }
+    }
+
     if (!nodeHid) {
-      const simResp = [...body90];
-      simResp[0] = Protocol25.STATUS.SUCCESS;
-      simResp[88] = Protocol25.computeCrc(simResp);
-      const logItem = recordPacketLog({
-        mode: "simulated-or-webhid",
-        productId: pidKey,
-        interfaceNum,
-        reportId,
-        txHex: toHex(report91),
-        rxHex: toHex([reportId, ...simResp]),
-        parsedTx: parsedReq,
-        parsedRx: Protocol25.parsePacket([reportId, ...simResp]),
-      });
-      return {
-        ok: true,
-        mode: "simulated-or-webhid",
-        tx: report91,
-        rx: [reportId, ...simResp],
-        parsedRx: logItem.parsedRx,
-        logItem,
-      };
+      throw new Error(`No native hardware backend available for PID 0x${pidKey.toString(16).toUpperCase()}`);
     }
 
     // 1. Try cached verified handle first if present
@@ -561,6 +804,8 @@ const MIME_TYPES = {
   ".js": "application/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".cmd": "application/octet-stream",
+  ".txt": "text/plain; charset=utf-8",
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
   ".ttf": "font/ttf",
@@ -592,7 +837,7 @@ function readJsonBody(req) {
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, X-WebSynapse-Bridge",
   "Access-Control-Allow-Private-Network": "true",
 };
 
@@ -663,11 +908,77 @@ const server = http.createServer(async (req, res) => {
   const pathname = url.pathname;
 
   try {
+    // =========================================================================
+    // websynap.se v3.0 Native Bridge Endpoints (/status, /rescan, /transfer)
+    // =========================================================================
+    if ((pathname === "/status" && req.method === "GET") || (pathname === "/rescan" && req.method === "POST")) {
+      const doRescan = pathname === "/rescan";
+      const discovery = await discoverDevices({ rescanBridge: doRescan });
+      const liveDevices = [];
+      for (const dev of discovery.devices) {
+        if (!dev.connectedLive) continue;
+        let fw = dev.firmware || null;
+        if (!fw && nodeHid) {
+          try {
+            const fwRes = await sendProtocol25Command({
+              productId: dev.productId,
+              interfaceNum: dev.interface ?? 0,
+              packet90: Protocol25.Builders.getFirmwareVersion(dev.defaultTransactionId || 0x1f),
+            });
+            const a = fwRes?.parsedRx?.args || [];
+            if (fwRes?.parsedRx?.status === 2) {
+              fw = `v${a[0] ?? 1}.${String(a[1] ?? 0).padStart(2, "0")}`;
+            }
+          } catch {
+            // ignore
+          }
+        }
+        liveDevices.push({
+          vendorId: dev.vendorId || Protocol25.RAZER_VENDOR_ID,
+          productId: dev.productId,
+          hexPid: dev.hexPid,
+          productName: dev.productName,
+          interfaceNumber: dev.interface ?? 0,
+          transport: dev.transportLayer || "HID",
+          tid: dev.defaultTransactionId || 0x1f,
+          firmware: fw || "v1.00",
+        });
+      }
+      return sendJson(res, 200, {
+        ok: true,
+        version: "3.0.0-node",
+        devices: liveDevices,
+      });
+    }
+
+    if (pathname === "/transfer" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const pid = Number(body.pid || body.productId || 0);
+      if (!pid || !Array.isArray(body.packet90)) {
+        return sendJson(res, 400, { ok: false, error: "pid and 90-byte packet90 array required" });
+      }
+      const clean90 = validateOutgoingPacket90(body.packet90);
+      const meta = Protocol25.KNOWN_DEVICES[pid] || {};
+      const result = await sendProtocol25Command({
+        productId: pid,
+        interfaceNum: meta.interface ?? 0,
+        reportId: 0,
+        packet90: clean90,
+      });
+      return sendJson(res, 200, {
+        ok: true,
+        pid,
+        transport: result.transport || result.mode || "HID",
+        interfaceNumber: result.interfaceNumber ?? meta.interface ?? 0,
+        rx91: result.rx,
+      });
+    }
+
     if (pathname === "/api/status" && req.method === "GET") {
       const discovery = await discoverDevices();
       return sendJson(res, 200, {
         ok: true,
-        serverVersion: "2.0.0-local",
+        serverVersion: "3.0.0-local",
         zeroInternet: true,
         telemetryStripped: ["Sentry", "RazerID Cloud", "apps.razer.com Remote Loader", "GMS3 WMI Scanner"],
         ...discovery,
@@ -1074,25 +1385,37 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      // 4. Onboard Profile / Sensor Round-Trip Verification
+      // 4. Onboard Profile / Sensor Read-Back Verification (non-destructive)
       await new Promise((r) => setTimeout(r, 35));
-      const activeSlot = driverState.profilesByPid?.[pid]?.activeSlot || 1;
       try {
+        const isMouse = meta.category === "mouse" || pid === 193 || pid === 192;
+        const slotPkt = isMouse
+          ? Protocol25.Builders.getFirmwareVersion()
+          : Protocol25.buildPacket({
+              commandClass: 0x05,
+              commandId: 0x84,
+              dataSize: 0x02,
+              args: [0x01, 0x00],
+              transactionId: meta.defaultTransactionId || 0x1f,
+            });
         const slotRes = await sendProtocol25Command({
           productId: pid,
-          packet90: pid === 193 ? Protocol25.Builders.getFirmwareVersion() : Protocol25.Builders.setActiveProfileSlot(activeSlot),
+          packet90: slotPkt,
         });
         const stCode = slotRes?.parsedRx?.status;
+        const readSlot = slotRes?.parsedRx?.args?.[1] || slotRes?.parsedRx?.args?.[0] || 1;
         checks.push({
           key: "profile-roundtrip",
-          label: "Flash write & onboard slot round-trip verification",
+          label: "Onboard memory active slot read-back (0x05 / 0x84)",
           status: stCode === 2 || stCode === 4 ? "pass" : "fail",
-          detail: `Wrote Slot ${activeSlot} → verified ACK (0x02 SUCCESS) → restored Slot ${activeSlot}`,
+          detail: isMouse
+            ? `Sensor / MCU read-back verified (${slotRes?.parsedRx?.statusName || "OK"})`
+            : `Read active onboard Slot S${readSlot} (0x02 SUCCESS — zero-write safe check)`,
         });
       } catch (e) {
         checks.push({
           key: "profile-roundtrip",
-          label: "Flash write & onboard slot round-trip verification",
+          label: "Onboard memory active slot read-back (0x05 / 0x84)",
           status: "fail",
           detail: e.message,
         });
@@ -1112,26 +1435,50 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, packetHistory: [] });
     }
 
-    if (pathname === "/protocol25.js" && req.method === "GET") {
-      const content = fs.readFileSync(path.join(__dirname, "protocol25.js"));
+    const STATIC_SECURITY_HEADERS = {
+      "Content-Security-Policy":
+        "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:18925 http://localhost:18925 http://127.0.0.1:5426 http://localhost:5426; font-src 'self'; media-src 'none'; object-src 'none'; frame-ancestors 'none'; worker-src 'self' blob:; base-uri 'none'; form-action 'none';",
+      "Permissions-Policy":
+        "hid=(self), usb=(self), serial=(), bluetooth=(), camera=(), microphone=(), geolocation=(), payment=()",
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY",
+      "Referrer-Policy": "no-referrer",
+      "Cache-Control": "no-cache",
+    };
+
+    if (pathname === "/protocol25.js" && (req.method === "GET" || req.method === "HEAD")) {
+      const p25Path = fs.existsSync(path.join(__dirname, "public", "protocol25.js"))
+        ? path.join(__dirname, "public", "protocol25.js")
+        : path.join(__dirname, "protocol25.js");
       res.writeHead(200, {
         "Content-Type": "application/javascript; charset=utf-8",
-        "Cache-Control": "no-store",
+        ...STATIC_SECURITY_HEADERS,
       });
-      return res.end(content);
+      if (req.method === "HEAD") return res.end();
+      return fs.createReadStream(p25Path).pipe(res);
     }
 
     const publicDir = path.join(__dirname, "public");
+    const publicDirWithSep = publicDir.endsWith(path.sep) ? publicDir : publicDir + path.sep;
     const relPath = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
-    const safePath = path.normalize(path.join(publicDir, relPath));
+    const safePath = path.resolve(publicDir, relPath);
 
-    if (safePath.startsWith(publicDir) && fs.existsSync(safePath) && fs.statSync(safePath).isFile()) {
+    if (
+      (req.method === "GET" || req.method === "HEAD") &&
+      safePath.startsWith(publicDirWithSep) &&
+      fs.existsSync(safePath) &&
+      fs.statSync(safePath).isFile()
+    ) {
       const ext = path.extname(safePath).toLowerCase();
       res.writeHead(200, {
-        "Content-Type": MIME_TYPES[ext] || "application/octet-stream",
-        "Cache-Control": "no-store",
+        "Content-Type":
+          path.basename(safePath) === "LICENSE"
+            ? "text/plain; charset=utf-8"
+            : MIME_TYPES[ext] || "application/octet-stream",
+        ...STATIC_SECURITY_HEADERS,
       });
-      return res.end(fs.readFileSync(safePath));
+      if (req.method === "HEAD") return res.end();
+      return fs.createReadStream(safePath).pipe(res);
     }
 
     sendJson(res, 404, { ok: false, error: `Not found: ${pathname}` });
@@ -1140,11 +1487,21 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, HOST, () => {
+server.listen(PORT, HOST, async () => {
+  const bridgeStatus = await ensureNativeBridge();
+  const bridgeCount = Array.isArray(bridgeStatus?.devices) ? bridgeStatus.devices.length : 0;
   console.log("================================================================");
-  console.log("  Razer Local Web Driver v2.0 (Onboard Slots + Per-Key Edition)");
-  console.log(`  Local URL   : http://${HOST}:${PORT}`);
-  console.log(`  Runtime     : ${nativeLoadStatus.runtime} (ABI ${nativeLoadStatus.modulesVersion})`);
-  console.log(`  Native HID  : ${nativeLoadStatus.hidLoaded ? "ACTIVE (HID.node)" : "WebHID / Restore Profile Mode"}`);
+  console.log("  websynap.se v3.0 · Local Node.js Chroma Studio Server");
+  console.log(`  Local URL    : http://localhost:${PORT} (http://${HOST}:${PORT})`);
+  console.log(`  Runtime      : ${nativeLoadStatus.runtime} (ABI ${nativeLoadStatus.modulesVersion})`);
+  console.log(
+    `  USB Backend  : ${
+      bridgeStatus?.ok
+        ? `WinUSB + HidUsb Native Bridge ACTIVE (${bridgeCount} live Razer device${bridgeCount === 1 ? "" : "s"})`
+        : nativeLoadStatus.hidLoaded
+          ? "HID.node ACTIVE"
+          : "Browser WebHID / WebUSB Mode"
+    }`
+  );
   console.log("================================================================");
 });

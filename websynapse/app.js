@@ -627,10 +627,11 @@
   };
 
   // WebHID + WebUSB + Local Bridge Runtime State
-  const LOCAL_BRIDGE_URL =
-    typeof window !== "undefined" && window.location?.port === "18925"
+  const DEFAULT_LOCAL_BRIDGE_URL = "http://127.0.0.1:18925";
+  let activeBridgeUrl =
+    typeof window !== "undefined" && (window.location?.port === "18925" || window.location?.port === "5426")
       ? window.location.origin
-      : "http://127.0.0.1:18925";
+      : DEFAULT_LOCAL_BRIDGE_URL;
   const webHidHandlesByPid = new Map(); // pid -> HIDDevice[] (sorted by control interface score)
   const webUsbDevicesByPid = new Map(); // pid -> USBDevice[] (Razer WebUSB handles for that PID)
   const bridgeDevicesByPid = new Map(); // pid -> { vendorId, productId, hexPid, productName, interfaceNumber, transport, firmware, tid }
@@ -1239,7 +1240,7 @@
           }
           const modePkt = Uint8Array.from(validateOutgoingPacket90(body90));
           if (pHandle.mode === "bridge") {
-            void fetch(`${LOCAL_BRIDGE_URL}/transfer`, {
+            void fetch(`${activeBridgeUrl}/transfer`, {
               method: "POST",
               keepalive: true,
               headers: { "Content-Type": "application/json", "X-WebSynapse-Bridge": "1" },
@@ -2625,37 +2626,57 @@
     }
   }
 
+  function getCandidateBridgeUrls() {
+    const urls = [];
+    if (typeof window !== "undefined" && window.location) {
+      const host = window.location.hostname || "";
+      const port = window.location.port || "";
+      if ((host === "localhost" || host === "127.0.0.1") && (port === "5426" || port === "18925")) {
+        urls.push(window.location.origin);
+      }
+    }
+    if (!urls.includes(DEFAULT_LOCAL_BRIDGE_URL)) {
+      urls.push(DEFAULT_LOCAL_BRIDGE_URL);
+    }
+    return urls;
+  }
+
   async function probeLocalBridge({ rescan = false, timeoutMs = 950 } = {}) {
     if (!window.isSecureContext) return false;
-    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
-    try {
-      const resp = await fetch(`${LOCAL_BRIDGE_URL}/${rescan ? "rescan" : "status"}`, {
-        method: rescan ? "POST" : "GET",
-        headers: { "X-WebSynapse-Bridge": "1" },
-        signal: ctrl ? ctrl.signal : undefined,
-      });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
-      if (!data || !data.ok) throw new Error(data?.error || "Bridge error");
-      const rawList = Array.isArray(data.devices) ? data.devices : data.devices ? [data.devices] : [];
-      bridgeDevicesByPid.clear();
-      for (const item of rawList) {
-        const pid = Number(item?.productId);
-        if (Number.isFinite(pid) && pid > 0) {
-          bridgeDevicesByPid.set(pid, item);
+    const candidates = getCandidateBridgeUrls();
+    for (const candidateUrl of candidates) {
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+      try {
+        const resp = await fetch(`${candidateUrl}/${rescan ? "rescan" : "status"}`, {
+          method: rescan ? "POST" : "GET",
+          headers: { "X-WebSynapse-Bridge": "1" },
+          signal: ctrl ? ctrl.signal : undefined,
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        if (!data || !data.ok) throw new Error(data?.error || "Bridge error");
+        const rawList = Array.isArray(data.devices) ? data.devices : data.devices ? [data.devices] : [];
+        bridgeDevicesByPid.clear();
+        for (const item of rawList) {
+          const pid = Number(item?.productId);
+          if (Number.isFinite(pid) && pid > 0) {
+            bridgeDevicesByPid.set(pid, item);
+          }
         }
+        activeBridgeUrl = candidateUrl;
+        localBridgeOnline = true;
+        localBridgeCspBlocked = false;
+        return true;
+      } catch {
+        // try next candidate bridge URL
+      } finally {
+        if (timer) clearTimeout(timer);
       }
-      localBridgeOnline = true;
-      localBridgeCspBlocked = false;
-      return true;
-    } catch {
-      bridgeDevicesByPid.clear();
-      localBridgeOnline = false;
-      return false;
-    } finally {
-      if (timer) clearTimeout(timer);
     }
+    bridgeDevicesByPid.clear();
+    localBridgeOnline = false;
+    return false;
   }
 
   async function refreshAuthorizedWebHidDevices({ rescanBridge = false } = {}) {
@@ -2793,7 +2814,7 @@
       return;
     }
 
-    if (localBridgeCspBlocked && window.location.port !== "18925") {
+    if (localBridgeCspBlocked && window.location.port !== "18925" && window.location.port !== "5426") {
       showToast("Opening Local Bridge Workspace on http://localhost:18925…");
       window.location.href = "http://localhost:18925/";
       return;
@@ -3040,7 +3061,7 @@
     const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
     const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs + 900) : null;
     try {
-      const resp = await fetch(`${LOCAL_BRIDGE_URL}/transfer`, {
+      const resp = await fetch(`${activeBridgeUrl}/transfer`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -9,10 +9,38 @@
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
+const { spawn } = require("node:child_process");
 
 const PORT = Number(process.env.PORT || 8080);
 const ROOT = path.resolve(__dirname);
 const ROOT_WITH_SEP = ROOT.endsWith(path.sep) ? ROOT : ROOT + path.sep;
+
+let spawnedBridge = null;
+function ensureWindowsBridgeRunning() {
+  if (process.platform !== "win32") return;
+  const req = http.get(
+    { hostname: "127.0.0.1", port: 18925, path: "/status", timeout: 900, headers: { "X-WebSynapse-Bridge": "1" } },
+    (res) => {
+      res.resume();
+    }
+  );
+  req.on("error", () => {
+    const scriptPath = path.join(ROOT, "websynapse-bridge.cmd");
+    if (!fs.existsSync(scriptPath)) return;
+    const escaped = scriptPath.replace(/'/g, "''");
+    spawnedBridge = spawn(
+      "powershell.exe",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", `Invoke-Expression ([System.IO.File]::ReadAllText('${escaped}'))`],
+      { env: { ...process.env, WEBSYNAPSE_NO_BROWSER: "1" }, stdio: "ignore", windowsHide: true }
+    );
+    spawnedBridge.unref();
+  });
+}
+process.on("exit", () => {
+  if (spawnedBridge && !spawnedBridge.killed) {
+    try { spawnedBridge.kill(); } catch {}
+  }
+});
 
 // Strict allowlist of public static files — never serve serve-local.js, README.md, SECURITY.md, *.example, or _headers
 const PUBLIC_ALLOWLIST = new Set([
@@ -71,7 +99,7 @@ http
     res.writeHead(200, {
       "Content-Type": MIME[ext] || "text/plain; charset=utf-8",
       "Content-Security-Policy":
-        "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:18925 http://localhost:18925; font-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; frame-src 'none'; frame-ancestors 'none'; worker-src 'self' blob:; base-uri 'none'; form-action 'none';",
+        "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:18925 http://localhost:18925 http://127.0.0.1:5426 http://localhost:5426; font-src 'self'; media-src 'none'; object-src 'none'; frame-ancestors 'none'; worker-src 'self' blob:; base-uri 'none'; form-action 'none';",
       "Permissions-Policy":
         "hid=(self), usb=(self), serial=(), bluetooth=(), camera=(), microphone=(), geolocation=(), payment=()",
       "X-Content-Type-Options": "nosniff",
@@ -87,6 +115,7 @@ http
     fs.createReadStream(filePath).pipe(res);
   })
   .listen(PORT, "127.0.0.1", () => {
+    ensureWindowsBridgeRunning();
     console.log(
       `websynap.se local preview server (127.0.0.1 ONLY) running at http://localhost:${PORT}`
     );

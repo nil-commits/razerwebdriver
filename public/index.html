@@ -3,8 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Razer Web Hub · Chroma Hardware Studio</title>
-  <link rel="stylesheet" href="/styles.css" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:18925 http://localhost:18925 http://127.0.0.1:5426 http://localhost:5426; font-src 'self'; media-src 'none'; object-src 'none'; worker-src 'self' blob:; base-uri 'none'; form-action 'none';" />
+  <meta name="referrer" content="no-referrer" />
+  <meta name="color-scheme" content="dark" />
+  <title>websynap.se · Zero-Install Razer WebHID Configurator</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2300e676' stroke-width='2.4'%3E%3Cpath d='M13 2L3 14h9l-1 8 10-12h-9l1-8z'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <div id="wsShell" class="ws-shell" data-ws-theme="venom">
@@ -25,8 +29,8 @@
             </svg>
           </span>
           <div class="ws-brand-text">
-            <span class="ws-brand-name">Razer Web Hub</span>
-            <span class="ws-brand-build" id="sidebarBuildLabel">v3.0 · Chroma Studio · Local</span>
+            <span class="ws-brand-name">websynap.se</span>
+            <span class="ws-brand-build" id="sidebarBuildLabel">v3.0 · WebHID/WebUSB · Zero Install</span>
           </div>
         </div>
         <button id="btnCollapseSidebar" type="button" class="ws-icon-btn" title="Toggle sidebar">
@@ -37,7 +41,7 @@
       </div>
 
       <nav class="ws-nav" aria-label="Main navigation">
-        <button type="button" class="ws-nav-item is-active" data-main-view="workspace">
+        <button type="button" class="ws-nav-item" data-main-view="workspace" disabled>
           <svg class="ws-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
             <path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/>
           </svg>
@@ -48,9 +52,9 @@
             <rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>
           </svg>
           <span class="ws-nav-label">Devices shelf</span>
-          <span class="ws-nav-badge" id="navDeviceCount">2</span>
+          <span class="ws-nav-badge" id="navDeviceCount">0</span>
         </button>
-        <button type="button" class="ws-nav-item" data-main-view="hwtest">
+        <button type="button" class="ws-nav-item" data-main-view="hwtest" disabled>
           <svg class="ws-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
             <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
           </svg>
@@ -70,10 +74,10 @@
       </div>
 
       <div class="ws-sidebar-foot">
-        <button id="btnQueryFw" type="button" class="ws-bridge-line" title="Query live firmware over Protocol 25">
-          <span class="ws-dot is-ok" id="connDot"></span>
-          <span class="ws-bridge-line-text" id="connText">HID.node Native Bridge</span>
-          <span class="ws-bridge-line-flag" id="fwBadge">Any Browser</span>
+        <button id="btnQueryFw" type="button" class="ws-bridge-line" title="Query live firmware over WebHID Protocol 25">
+          <span class="ws-dot" id="connDot"></span>
+          <span class="ws-bridge-line-text" id="connText">USB · No device</span>
+          <span class="ws-bridge-line-flag" id="fwBadge">Click to Pair</span>
         </button>
         <button id="btnToggleDrawer" type="button" class="ws-nav-item">
           <svg class="ws-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
@@ -97,7 +101,13 @@
           <span id="activeProfileNameTag" class="slot-name-tag">Default Profile</span>
         </div>
         <div class="ws-topbar-actions">
-          <button id="btnSaveSlot" type="button" class="ws-btn is-primary is-sm" title="Flash current slot to device onboard memory">
+          <button id="btnConnectBridge" type="button" class="ws-btn is-primary is-sm" title="Connect to local websynapse-bridge.cmd (127.0.0.1:18925) to read &amp; save onboard memory slots on Windows">
+            ⚡ Connect Local Bridge
+          </button>
+          <button id="btnWebHidPair" type="button" class="ws-btn is-sm" title="Pair Razer HID / LampArray interface directly via WebHID">
+            Connect WebHID
+          </button>
+          <button id="btnSaveSlot" type="button" class="ws-btn is-sm" title="Flash current slot to device onboard memory">
             💾 Flash to slot
           </button>
           <button id="btnResetSlot" type="button" class="ws-btn is-sm" title="Reset current slot to factory defaults">
@@ -106,27 +116,74 @@
           <button id="btnExportProfiles" type="button" class="ws-btn is-sm" title="Export all onboard slots to JSON">
             ⬇ Export
           </button>
-          <label class="ws-btn is-sm" title="Import onboard slots from JSON">
+          <label id="lblImportProfiles" class="ws-btn is-sm" title="Import onboard slots from JSON">
             ⬆ Import
             <input type="file" id="inpImportProfiles" accept=".json" hidden />
           </label>
-          <button id="btnWebHidPair" type="button" class="ws-btn is-ghost is-sm" title="Optional Chromium WebHID fallback">
-            WebHID
-          </button>
         </div>
       </header>
 
+      <!-- WebHID / Local Bridge Status & Onboard Memory Setup Banner -->
+      <div id="webHidStatusBanner" class="ws-panel" style="margin:14px 22px 0;padding:12px 16px;display:flex;flex-direction:column;gap:8px;border-color:rgba(93,222,137,0.35);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:10px;font-size:13px;flex:1;min-width:240px;">
+            <span class="ws-dot" id="bannerDot"></span>
+            <span id="bannerStatusText">
+              <strong>Checking browser &amp; local USB bridge…</strong> — Configure Razer onboard memory via WebHID or the lightweight Windows Local Bridge.
+            </span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <button id="btnBannerWarnDetails" type="button" class="ws-btn is-sm" hidden title="View WebHID hardware &amp; Local Bridge setup details">⚠ Setup / Why can't I save?</button>
+            <button id="btnBannerRecheck" type="button" class="ws-btn is-sm" hidden title="Re-check Protocol 25 onboard memory connection">↻ Re-check</button>
+            <button id="btnBannerPair" type="button" class="ws-btn is-primary is-sm">⚡ Connect Device</button>
+          </div>
+        </div>
+        <details id="winUsbSetupGuide" hidden style="padding-top:8px;border-top:1px solid var(--line-1);font-size:12.5px;line-height:1.55;color:var(--text-2);">
+          <summary style="cursor:pointer;font-weight:600;color:var(--text-1);user-select:none;">
+            Windows 1.xx Firmware? Enable Full Onboard Slot Saving with Zero-Admin Local Bridge (<code id="winUsbTargetLabel">Interface 3</code>)
+          </summary>
+          <div style="margin-top:8px;display:grid;gap:8px;">
+            <div>
+              On 1st-gen firmware, Windows hides Razer's Protocol 25 onboard-memory interface (<code>MI_03</code>) from WebHID and blocks WebUSB <code>claimInterface</code> on HID class <code>0x03</code>. Our tiny single-file <b>Local USB Bridge</b> (<code>websynapse-bridge.cmd</code>) uses built-in Windows HID/WinUSB APIs with <b>no admin prompt, no Zadig/driver changes, and no installs</b>:
+            </div>
+            <ol style="margin:2px 0 2px 18px;padding:0;display:grid;gap:3px;">
+              <li>Download <code>websynapse-bridge.cmd</code> below and double-click it (supports both standard Windows <code>HidUsb</code> and <code>WinUSB</code>).</li>
+              <li>It automatically opens <code>http://localhost:18925</code> with your Razer devices already connected — or click <b>⚡ Connect Local Bridge</b> above.</li>
+              <li>Configure your onboard slots (<code>S1</code>–<code>S6</code>), actuation, Rapid Trigger, Snap Tap, and Chroma, click <b>💾 Flash to slot</b>, then close both the bridge and browser anytime.</li>
+            </ol>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <a id="lnkBannerDownloadBridge" href="./websynapse-bridge.cmd" download="websynapse-bridge.cmd" class="ws-btn is-primary is-sm" style="text-decoration:none;">⬇ Download Local Bridge (.cmd)</a>
+              <a id="lnkBannerOpenLocalhost" href="http://localhost:18925/" class="ws-btn is-sm" style="text-decoration:none;">↗ Open Bridge Workspace (localhost:18925)</a>
+            </div>
+          </div>
+        </details>
+      </div>
+
       <main class="ws-content">
+        <!-- Compatibility / device requirement notice. No demo data is shown. -->
+        <section id="compatNotice" class="ws-panel" role="status" aria-live="polite" style="margin:14px 22px;padding:18px 20px;border-color:rgba(255,171,64,0.5);">
+          <h2 id="compatTitle" style="margin:0 0 6px;font-size:18px;">Checking browser compatibility…</h2>
+          <p id="compatText" class="ws-meta" style="line-height:1.55;margin:0 0 12px;">
+            This configurator connects directly via WebHID or our zero-admin Windows Local USB Bridge for 1st-gen firmware devices.
+          </p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button id="btnCompatBridge" type="button" class="ws-btn is-primary is-sm">⚡ Connect Local Bridge</button>
+            <a id="lnkCompatDownloadBridge" href="./websynapse-bridge.cmd" download="websynapse-bridge.cmd" class="ws-btn is-sm" style="text-decoration:none;">⬇ Download Local Bridge (.cmd)</a>
+            <button id="btnCompatPair" type="button" class="ws-btn is-sm">Connect WebHID</button>
+            <button id="btnCompatCatalog" type="button" class="ws-btn is-sm">Check supported devices</button>
+          </div>
+        </section>
+
         <!-- ================================================================
              VIEW 1: DEVICE WORKSPACE
              ================================================================ -->
-        <section id="viewWorkspace" class="ws-page">
+        <section id="viewWorkspace" class="ws-page" hidden>
           <!-- Hardware Telemetry Figures + Sparkline Row -->
           <div class="ws-overview-top">
             <section class="ws-panel is-lit">
               <header class="ws-panel-head">
-                <h2 id="overviewDeviceTitle">Razer Huntsman V3 Pro Tenkeyless</h2>
-                <span class="ws-meta" id="overviewDeviceMeta">Connected · Native HID.node · Zero cloud</span>
+                <h2 id="overviewDeviceTitle">No device connected</h2>
+                <span class="ws-meta" id="overviewDeviceMeta">USB · No device</span>
                 <div class="ws-end">
                   <div class="segmented" id="deviceModeGroup" role="group" aria-label="Operating mode">
                     <button type="button" class="mode-seg selected" data-mode="normal">Onboard (0x00)</button>
@@ -225,8 +282,8 @@
               <div style="display:grid;gap:12px;">
                 <div class="setting-heading">
                   <div>
-                    <h2>Razer Viper V3 Pro · HyperPolling Wireless</h2>
-                    <p>Focus Pro 35K Optical Gen-2 · 8000 Hz Wireless Dongle · Transaction ID 0xFF</p>
+                    <h2 id="mouseStageTitle">Mouse controls</h2>
+                    <p id="mouseStageSubtitle">Focus Pro 35K Optical Gen-2 · 8000 Hz Wireless Dongle · Protocol 25</p>
                   </div>
                   <output id="mouseActiveStageBadge">1600 DPI (Stage 3)</output>
                 </div>
@@ -791,7 +848,7 @@
                 <div class="setting-heading">
                   <div>
                     <h2>6-Button &amp; Hypershift assignment</h2>
-                    <p>Configure primary and Hypershift bindings for Viper V3 Pro</p>
+                    <p>Configure primary and Hypershift bindings for your Razer mouse</p>
                   </div>
                   <div class="segmented" id="mouseLayerToggle">
                     <button type="button" class="layer-btn selected active" data-mouse-layer="standard">Standard</button>
@@ -802,19 +859,265 @@
               </article>
             </div>
           </div>
+
+          <!-- ==============================================================
+               AUDIO / HEADSETS / SPEAKERS / BROADCASTER PANELS
+               ============================================================== -->
+          <div id="audioPanelsWrap" class="settings-grid" hidden>
+            <article class="setting-card">
+              <div class="setting-heading">
+                <div>
+                  <h2>Audio Output, Microphone &amp; Sidetone</h2>
+                  <p>Protocol 25 Class 0x08 &amp; 0x18 hardware mixer, mic gain, and real-time sidetone monitoring</p>
+                </div>
+                <output id="valAudioVolumeBadge" class="val-pill">80%</output>
+              </div>
+              <div style="display:grid;gap:14px;">
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Master Volume</span>
+                    <output id="valAudioVolume">80%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngAudioVolume" min="0" max="100" step="1" value="80" />
+                    <button type="button" id="btnAudioMute" class="ws-btn is-sm">🔊 Unmuted</button>
+                  </div>
+                </div>
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Microphone Gain</span>
+                    <output id="valMicVolume">80%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngMicVolume" min="0" max="100" step="1" value="80" />
+                    <button type="button" id="btnMicMute" class="ws-btn is-sm">🎙️ Mic Active</button>
+                  </div>
+                </div>
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Microphone Sidetone (0–100%)</span>
+                    <output id="valSidetone">35%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngSidetone" min="0" max="100" step="1" value="35" />
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="setting-card">
+              <div class="setting-heading">
+                <div>
+                  <h2>THX / Sensa HD Haptics &amp; Enhancements</h2>
+                  <p>Hardware DSP bass boost, voice clarity, and Razer Sensa HD / HyperSense haptic intensity</p>
+                </div>
+                <output id="valHapticsBadge" class="val-pill">50%</output>
+              </div>
+              <div style="display:grid;gap:14px;">
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Sensa HD / HyperSense Haptics</span>
+                    <output id="valHapticsIntensity">50%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngHapticsIntensity" min="0" max="100" step="1" value="50" />
+                  </div>
+                </div>
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Bass Boost</span>
+                    <output id="valBassBoost">40%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngBassBoost" min="0" max="100" step="1" value="40" />
+                  </div>
+                </div>
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Voice Clarity / AI Noise Gate</span>
+                    <output id="valVoiceClarity">60%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngVoiceClarity" min="0" max="100" step="1" value="60" />
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="setting-card" style="grid-column: 1 / -1;">
+              <div class="setting-heading">
+                <div>
+                  <h2>10-Band Hardware Graphic Equalizer (-12 dB to +12 dB)</h2>
+                  <p>Flashes 10-band custom EQ curve directly to headset/speaker DSP via Protocol 25 (Class 0x18, Cmd 0x01)</p>
+                </div>
+                <div class="preset-group" id="audioEqPresetsGroup">
+                  <button type="button" class="preset-btn active" data-eq-preset="0">Default (Flat)</button>
+                  <button type="button" class="preset-btn" data-eq-preset="1">🎮 Game / Esports</button>
+                  <button type="button" class="preset-btn" data-eq-preset="2">🎬 Movie</button>
+                  <button type="button" class="preset-btn" data-eq-preset="3">🎵 Music</button>
+                  <button type="button" class="preset-btn" data-eq-preset="4">⚙️ Custom</button>
+                </div>
+              </div>
+              <div id="audioEqBandsGrid" style="display:grid;grid-template-columns:repeat(10,minmax(44px,1fr));gap:10px;padding-top:8px;text-align:center;"></div>
+            </article>
+          </div>
+
+          <!-- ==============================================================
+               CONTROLLERS & FIGHTSTICKS PANELS (Wolverine / Kitsune / Raiju)
+               ============================================================== -->
+          <div id="controllerPanelsWrap" class="settings-grid" hidden>
+            <article class="setting-card">
+              <div class="setting-heading">
+                <div>
+                  <h2>Hall-Effect Thumbstick Deadzones &amp; Clutch</h2>
+                  <p>Protocol 25 Class 0x0C thumbstick deadzone calibration (0–30%), circularity mode, and sensitivity clutch</p>
+                </div>
+                <output id="valCtrlDeadzoneBadge" class="val-pill">5% / 5%</output>
+              </div>
+              <div style="display:grid;gap:14px;">
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Left Stick Deadzone</span>
+                    <output id="valLeftDeadzone">5%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngLeftDeadzone" min="0" max="30" step="1" value="5" />
+                  </div>
+                </div>
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Right Stick Deadzone</span>
+                    <output id="valRightDeadzone">5%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngRightDeadzone" min="0" max="30" step="1" value="5" />
+                  </div>
+                </div>
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Sensitivity Clutch Factor</span>
+                    <output id="valCtrlClutch">50%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngCtrlClutch" min="10" max="100" step="5" value="50" />
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                  <span class="ws-label">Thumbstick Circularity</span>
+                  <div class="segmented" id="ctrlCircularityGroup">
+                    <button type="button" class="mode-seg selected" data-circularity="0">Standard Axis</button>
+                    <button type="button" class="mode-seg" data-circularity="1">Raw Circular</button>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="setting-card">
+              <div class="setting-heading">
+                <div>
+                  <h2>Razer Pro HyperTriggers &amp; Haptic Rumble</h2>
+                  <p>Instant digital mouse-click hair triggers, analog travel range (10–100%), and dual-motor rumble scaling</p>
+                </div>
+                <output id="valCtrlRumbleBadge" class="val-pill">80% Rumble</output>
+              </div>
+              <div style="display:grid;gap:14px;">
+                <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                  <button type="button" id="btnLeftHairTrigger" class="ws-btn is-primary is-sm">⚡ Left Hair Trigger: ON</button>
+                  <button type="button" id="btnRightHairTrigger" class="ws-btn is-primary is-sm">⚡ Right Hair Trigger: ON</button>
+                </div>
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Trigger Actuation Range (LT / RT)</span>
+                    <output id="valCtrlTriggerRange">40%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngCtrlTriggerRange" min="10" max="100" step="5" value="40" />
+                  </div>
+                </div>
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Haptic Vibration Intensity (Left &amp; Right Motors)</span>
+                    <output id="valCtrlVibration">80%</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngCtrlVibration" min="0" max="100" step="5" value="80" />
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <!-- ==============================================================
+               MOUSE MATS, DOCKS & CHROMA ARGB ACCESSORIES PANELS
+               ============================================================== -->
+          <div id="accessoryPanelsWrap" class="settings-grid" hidden>
+            <article class="setting-card" style="grid-column: 1 / -1;">
+              <div class="setting-heading">
+                <div>
+                  <h2>Multi-Zone Chroma RGB &amp; Addressable ARGB Studio</h2>
+                  <p>Configure addressable LED zone count (1–60 LEDs), per-zone colors, hardware effect, and brightness via Protocol 25 Class 0x0F</p>
+                </div>
+                <output id="valAccLedCountBadge" class="val-pill">15 Addressable Zones</output>
+              </div>
+              <div style="display:grid;gap:14px;">
+                <div id="accessoryZoneStrip" style="display:grid;grid-template-columns:repeat(15,1fr);gap:6px;padding:12px;background:rgba(0,0,0,0.35);border-radius:10px;border:1px solid var(--line-1);"></div>
+                <div class="stepper-slider">
+                  <div class="stepper-slider-head">
+                    <span class="stepper-slider-title">Addressable LED Zone Count</span>
+                    <output id="valAccLedCount">15 LEDs</output>
+                  </div>
+                  <div class="stepper-slider-inputs">
+                    <input type="range" id="rngAccLedCount" min="1" max="60" step="1" value="15" />
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
         </section>
 
         <!-- ================================================================
-             VIEW 2: DEVICES SHELF
+             VIEW 2: DEVICES SHELF & FULL SYNAPSE 4.0 CATALOG
              ================================================================ -->
         <section id="viewShelf" class="ws-page" hidden>
           <header class="ws-page-head">
             <div>
-              <h1>Connected devices</h1>
-              <p class="ws-meta">Live hardware discovered via local HID.node bridge — works in any browser without WebHID prompts</p>
+              <h1>Active workspace devices</h1>
+              <p class="ws-meta">Devices currently loaded in your workspace or paired via WebHID/WebUSB (`0x1532`)</p>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button id="btnShelfConnectBridge" type="button" class="ws-btn is-primary is-sm">⚡ Connect Local Bridge</button>
+              <button id="btnShelfPairWebHid" type="button" class="ws-btn is-sm">Pair via WebHID</button>
             </div>
           </header>
           <div id="devicesShelfGrid" class="ws-shelf-grid"></div>
+
+          <section class="ws-panel" style="margin-top:18px;padding:18px;">
+            <header class="ws-panel-head" style="padding:0 0 14px;flex-wrap:wrap;gap:12px;">
+              <div>
+                <h2 style="font-size:16px;">Razer Synapse 4.0 Complete Hardware Catalog</h2>
+                <span class="ws-meta">All 341 official Razer Synapse 4.0 models (488 Wired, 2.4GHz HyperSpeed &amp; Bluetooth PIDs) — click any device to load its workspace</span>
+              </div>
+              <div class="ws-end" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <input
+                  type="search"
+                  id="inpCatalogSearch"
+                  placeholder="Search 341 devices or PID (e.g. Viper V3, BlackShark, Wolverine, 0x02A7)..."
+                  style="min-width:290px;padding:7px 12px;border-radius:8px;border:1px solid var(--line-2);background:var(--bg-0);color:var(--ink-0);font-size:12.5px;"
+                />
+                <span id="catalogCountBadge" class="ws-badge is-ok">341 Models</span>
+              </div>
+            </header>
+            <div id="catalogCategoryFilters" class="segmented" style="margin-bottom:14px;display:flex;flex-wrap:wrap;gap:6px;">
+              <button type="button" class="toolbar-chip active" data-cat-filter="all">All Synapse 4 Devices</button>
+              <button type="button" class="toolbar-chip" data-cat-filter="mouse">🖱️ Mice &amp; Dongles</button>
+              <button type="button" class="toolbar-chip" data-cat-filter="keyboard-analog">⚡ Analog Keyboards</button>
+              <button type="button" class="toolbar-chip" data-cat-filter="keyboard">⌨️ Keyboards &amp; Laptops</button>
+              <button type="button" class="toolbar-chip" data-cat-filter="audio">🎧 Audio &amp; Broadcaster</button>
+              <button type="button" class="toolbar-chip" data-cat-filter="controller">🎮 Controllers &amp; Fightsticks</button>
+              <button type="button" class="toolbar-chip" data-cat-filter="mat-accessory">🌈 Mats, Docks &amp; Chroma</button>
+            </div>
+            <div id="synapseCatalogGrid" class="ws-shelf-grid"></div>
+          </section>
         </section>
 
         <!-- ================================================================
@@ -972,7 +1275,168 @@
               </div>
             </article>
           </div>
+
+          <!-- ================================================================
+               Legal, Privacy, Trademark Disclaimer & License Notice
+               (Impressum · Datenschutz · Razer-Disclaimer · Lizenzhinweis)
+               ================================================================ -->
+          <div id="legalSection" class="settings-grid" style="margin-top:16px;">
+            <p class="ws-meta" style="grid-column:1/-1;margin:0 0 4px;">Stand: 10. November 2026</p>
+            <article id="cardDisclaimer" class="setting-card">
+              <div class="setting-heading">
+                <div>
+                  <h2>Razer-Disclaimer · Non-Affiliation Notice</h2>
+                  <p>Unabhängiges Open-Source-Projekt · Not affiliated with Razer Inc.</p>
+                </div>
+                <span class="ws-badge">Trademark Notice</span>
+              </div>
+              <p class="ws-meta" style="line-height:1.55;color:var(--text-2);">
+                <strong>websynap.se</strong> is an independent, community-developed open-source hardware configurator and is
+                <strong>not affiliated with, endorsed by, sponsored by, or associated with Razer Inc.</strong> or any of its subsidiaries.
+              </p>
+              <p class="ws-meta" style="line-height:1.55;">
+                "Razer", "Razer Synapse", "Razer Chroma", "Hypershift", "HyperPolling", "Snap Tap", "Huntsman", "Viper", "DeathAdder",
+                "Basilisk", "BlackWidow", "BlackShark", "Kraken", "Wolverine", "Kitsune", "Firefly", and all other product names mentioned
+                are trademarks or registered trademarks of <strong>Razer Inc.</strong> They are used exclusively for descriptive hardware
+                compatibility identification (nominative fair use / § 23 MarkenG). Use of this software with your USB hardware is at your own risk.
+              </p>
+            </article>
+
+            <article id="cardLicense" class="setting-card">
+              <div class="setting-heading">
+                <div>
+                  <h2>Lizenzhinweis · Open-Source &amp; Font Licenses</h2>
+                  <p>MIT License (Application) &amp; SIL Open Font License 1.1 (DM Sans)</p>
+                </div>
+                <span class="ws-badge is-ok">MIT + OFL-1.1</span>
+              </div>
+              <p class="ws-meta" style="line-height:1.55;color:var(--text-2);">
+                <strong>Application Code (MIT License):</strong> Copyright &copy; 2026 websynap.se Contributors. Permission is hereby granted,
+                free of charge, to deal in the Software without restriction under the terms of the MIT License.
+              </p>
+              <p class="ws-meta" style="line-height:1.55;">
+                <strong>Bundled Variable Font (SIL Open Font License 1.1):</strong> The self-hosted <code>DM Sans</code> variable font
+                (<code>./fonts/DMSans-Variable.ttf</code>) is Copyright &copy; 2014 The DM Sans Project Authors and licensed under the
+                SIL Open Font License, Version 1.1.
+              </p>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">
+                <a href="./LICENSE" target="_blank" rel="noopener noreferrer" class="ws-btn is-sm" style="text-decoration:none;">📄 View MIT LICENSE</a>
+                <a href="./fonts/DM-Sans-OFL.txt" target="_blank" rel="noopener noreferrer" class="ws-btn is-sm" style="text-decoration:none;">🔤 View DM Sans OFL-1.1</a>
+              </div>
+            </article>
+
+            <article id="cardPrivacy" class="setting-card">
+              <div class="setting-heading">
+                <div>
+                  <h2>Datenschutzerklärung · Privacy Policy (DSGVO / GDPR)</h2>
+                  <p>100% Client-Side Execution · Zero Telemetry · Zero Cookies · Local WebHID/WebUSB</p>
+                </div>
+                <span class="ws-badge is-ok">Zero Cloud</span>
+              </div>
+              <div class="ws-meta" style="line-height:1.55;display:grid;gap:8px;">
+                <p>
+                  <strong>Verantwortlicher:</strong> Nick Leppelmeier, Betreiber von websynap.se.
+                  Kontakt für Datenschutz- und sonstige Anliegen:
+                  <span style="color:var(--accent);">contact(at)evfy.pro</span>.
+                </p>
+                <p>
+                  <strong>1. Keine Datenübertragung an Server (Zero-Exfiltration CSP):</strong> Alle Konfigurationsfunktionen und USB-Gerätezugriffe
+                  erfolgen ausschließlich lokal in Ihrem Webbrowser über die WebHID- oder WebUSB-Schnittstelle (<code>navigator.hid</code> / <code>navigator.usb</code>). Durch die technische
+                  Content-Security-Policy (<code>connect-src 'none'</code>) ist jegliche Netzwerkübertragung Ihrer Gerätedaten, Seriennummern oder
+                  Profile an unsere oder fremde Server technisch ausgeschlossen. Die WebHID-/WebUSB-Freigabe erteilen Sie ausdrücklich im Browser.
+                </p>
+                <p>
+                  <strong>2. Lokale Speicherung (localStorage):</strong> Ihre gewählten Einstellungen (Theme, Onboard-Slot-Vorschau) werden
+                  ausschließlich lokal auf Ihrem Endgerät im Browser-Speicher (<code>localStorage</code> unter den Schlüsseln
+                  <code>websynapse_state_v1</code> und <code>websynapse_prefs_v1</code>) abgelegt und niemals über das Internet übertragen.
+                  Es werden keine Cookies, Tracking-Cookies, Analyse-Skripte oder externe Schriftarten-CDNs (Schriftart <code>DM Sans</code> ist lokal
+                  gehostet) eingesetzt. Den lokalen Speicher können Sie jederzeit in den Browser-Einstellungen löschen.
+                </p>
+                <p>
+                  <strong>3. Server-Logfiles (Art. 6 Abs. 1 lit. f DSGVO):</strong> Beim Abruf dieser statischen Webseite verarbeitet der
+                  Webserver technisch notwendige Verbindungsdaten (IP-Adresse, Zeitpunkt des Abrufs, angeforderte Datei, User-Agent,
+                  HTTP-Status) zur Auslieferung der Seite und zur Abwehr von Angriffen. Rechtsgrundlage ist das berechtigte Interesse
+                  am sicheren und stabilen Betrieb. Die Logs werden nach spätestens 7 Tagen gelöscht, sofern sie nicht zur Aufklärung
+                  eines konkreten Sicherheitsvorfalls länger benötigt werden. Eine Weitergabe zu Werbe- oder Analysezwecken findet nicht statt.
+                </p>
+                <p>
+                  <strong>4. Hosting und Dienstleister:</strong> Die statische Website wird auf einem virtuellen Server von
+                  Google Cloud in der Europäischen Union bereitgestellt. Mit Google Cloud besteht ein
+                  Auftragsverarbeitungsvertrag (AVV) nach Art. 28 DSGVO. Die DNS-Auflösung erfolgt über Loopia
+                  (Loopia AB, Schweden); Loopia verarbeitet DNS-Anfragen als eigenständiger Verantwortlicher, für die
+                  Loopia-Dienste gelten die Loopia-Datenschutzbestimmungen. TLS-Zertifikate werden von Let's Encrypt
+                  ausgestellt. Dabei fallen die unter Punkt 3 genannten Verbindungsdaten an. Weitere Informationen zur
+                  Verarbeitung durch diese Dienstleister enthalten deren jeweilige Datenschutzerklärungen.
+                </p>
+                <p>
+                  <strong>5. Externe Links:</strong> Links zu GitHub oder anderen Seiten führen erst nach einem Klick zu einer
+                  Datenübermittlung an den jeweiligen Anbieter. Dort gelten die jeweiligen Datenschutzerklärungen.
+                </p>
+                <p>
+                  <strong>6. Ihre Rechte (Art. 15–21 DSGVO):</strong> Sie haben das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der
+                  Verarbeitung, Datenübertragbarkeit und Widerspruch sowie Beschwerde bei einer Datenschutz-Aufsichtsbehörde.
+                  Zur Ausübung genügt eine Nachricht an <span style="color:var(--accent);">contact(at)evfy.pro</span>.
+                </p>
+              </div>
+            </article>
+
+            <article id="cardImpressum" class="setting-card">
+              <div class="setting-heading">
+                <div>
+                  <h2>Impressum · Legal Disclosure</h2>
+                  <p>Freiwillige Angaben · Einordnung nach § 5 DDG</p>
+                </div>
+                <span class="ws-badge">Freiwillig</span>
+              </div>
+              <div class="ws-meta" style="line-height:1.6;display:grid;gap:6px;">
+                <p>
+                  <strong>Betreiber (Service Operator):</strong><br />
+                  Nick Leppelmeier · Projekt: <strong>websynap.se</strong><br />
+                  Kontakt: <span style="color:var(--accent);">contact(at)evfy.pro</span><br />
+                  Quellcode:
+                  <a href="https://github.com/nil-commits/razerwebdriver" target="_blank" rel="noopener noreferrer" style="color:var(--accent);">github.com/nil-commits/razerwebdriver</a>
+                </p>
+                <p>
+                  websynap.se ist ein privates, nicht kommerzielles Open-Source-Projekt. Die Seite dient ausschließlich der
+                  Konfiguration eigener Razer-Hardware und wird ehrenamtlich, ohne Gewinnerzielungsabsicht und ohne berufliche
+                  oder geschäftliche Selbstdarstellung betrieben.
+                </p>
+                <p>
+                  Es werden keine Waren oder Dienstleistungen gegen Entgelt angeboten, keine Werbung geschaltet, keine
+                  Affiliate-, Sponsoring- oder sonstigen kommerziellen Links verwendet und keine Monetarisierung betrieben.
+                  Die Nutzung ist kostenlos.
+                </p>
+                <p>
+                  Der Betreiber stellt klar: websynap.se ist kein geschäftsmäßiges, in der Regel gegen Entgelt angebotenes
+                  digitales Angebot. Die Voraussetzungen der Impressumspflicht nach § 5 DDG sind daher nicht erfüllt.
+                </p>
+                <p>
+                  Unabhängig von einer gesetzlichen Verpflichtung werden die folgenden Angaben freiwillig und aus Gründen der
+                  Transparenz bereitgestellt. Eine postalische Anschrift wird nicht veröffentlicht, da die Seite keine
+                  geschäftsmäßige Leistung anbietet und die Privatsphäre des Betreibers geschützt werden soll.
+                </p>
+                <p>
+                  websynap.se steht in keinem offiziellen Zusammenhang mit Razer Inc.; die Markenrechte liegen bei Razer Inc.
+                  Siehe auch den Razer-Disclaimer oben.
+                </p>
+              </div>
+            </article>
+          </div>
         </section>
+
+        <!-- Persistent Legal, Privacy & Non-Affiliation Footer -->
+        <footer class="ws-panel" style="margin-top:18px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+          <div class="ws-meta" style="font-size:11.5px;">
+            <strong>websynap.se</strong> — Independent Open-Source Configurator (MIT License · Font: DM Sans under SIL OFL-1.1).
+            <strong>Not affiliated with, endorsed by, or sponsored by Razer Inc.</strong>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button type="button" class="ws-btn is-ghost is-sm" data-open-legal="cardImpressum">Impressum</button>
+            <button type="button" class="ws-btn is-ghost is-sm" data-open-legal="cardPrivacy">Datenschutz</button>
+            <button type="button" class="ws-btn is-ghost is-sm" data-open-legal="cardDisclaimer">Razer-Disclaimer</button>
+            <button type="button" class="ws-btn is-ghost is-sm" data-open-legal="cardLicense">Lizenz (MIT &amp; OFL-1.1)</button>
+          </div>
+        </footer>
       </main>
 
       <!-- Floating Staged Apply Bar (shown when Instant Flash is off & changes are queued) -->
@@ -1001,10 +1465,65 @@
       <div id="packetList" class="packet-list"></div>
     </aside>
 
+    <!-- Limited WebHID Hardware / Firmware Warning Popup Modal -->
+    <div id="hidLimitationModal" class="ws-modal-backdrop" role="alertdialog" aria-modal="true" aria-labelledby="hidModalTitle" aria-describedby="hidModalDesc" hidden>
+      <div class="ws-modal-dialog">
+        <header class="ws-modal-head">
+          <div class="ws-modal-badge-row">
+            <span class="ws-modal-badge">⚠ Limited WebHID Support</span>
+            <span id="hidModalDeviceTag" class="ws-meta">Razer USB Device</span>
+          </div>
+          <button id="btnCloseHidModal" type="button" class="ws-icon-btn" aria-label="Close warning dialog">✕</button>
+        </header>
+        <div class="ws-modal-body">
+          <h2 id="hidModalTitle" class="ws-modal-title">Hardware / Firmware Does Not Expose Full WebHID</h2>
+          <p id="hidModalDesc" class="ws-modal-desc">
+            Your connected Razer device's current firmware hides its onboard-memory control interface from the browser on this operating system, so permanent hardware writes are unavailable without a Razer firmware descriptor update.
+          </p>
+          <div class="ws-modal-grid">
+            <div class="ws-modal-box is-ok">
+              <div class="ws-modal-box-title">✓ Works in Preview Mode</div>
+              <ul class="ws-modal-list">
+                <li>Live Chroma RGB lighting preview via USB <code>LampArray</code> while this browser tab stays open.</li>
+                <li>Safe exit handoff — closing this tab returns your device to its stored hardware lighting without resetting your active slot.</li>
+              </ul>
+            </div>
+            <div class="ws-modal-box is-warn">
+              <div class="ws-modal-box-title">✕ Blocked in Pure WebHID</div>
+              <ul class="ws-modal-list">
+                <li>Switching or saving onboard memory slots (<code>S1</code>–<code>S6</code>) so settings persist after closing the browser.</li>
+                <li>Key actuation point, Rapid Trigger, Snap Tap, polling rate, DPI stages, and hardware key remaps.</li>
+              </ul>
+            </div>
+          </div>
+          <div id="hidModalBridgeBox" class="ws-modal-box is-zadig">
+            <div class="ws-modal-box-title">⚡ Unlock Full Onboard Slot Saving on Windows (No Admin · No Zadig · No Install)</div>
+            <ol class="ws-modal-list">
+              <li>Download <code>websynapse-bridge.cmd</code> below and double-click it — zero admin rights, zero driver changes, works with both standard Windows <code>HidUsb</code> and <code>WinUSB</code>.</li>
+              <li>It opens <code>http://localhost:18925</code> automatically (or click <b>⚡ Connect Local Bridge</b> below) with full Protocol 25 access to <code id="modalMiCode">Interface 3</code>.</li>
+              <li>Switch &amp; customize slots <code>S1</code>–<code>S6</code>, click <b>💾 Flash to slot</b>, then close both the bridge and browser — your settings remain saved in hardware.</li>
+            </ol>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+              <a id="lnkModalDownloadBridge" href="./websynapse-bridge.cmd" download="websynapse-bridge.cmd" class="ws-btn is-primary is-sm" style="text-decoration:none;">⬇ Download Local Bridge (.cmd)</a>
+              <a id="lnkModalOpenLocalhost" href="http://localhost:18925/" class="ws-btn is-sm" style="text-decoration:none;">↗ Open Bridge Workspace (localhost:18925)</a>
+            </div>
+          </div>
+          <p id="hidModalTechNote" class="ws-modal-note">
+            Technical detail: USB Protocol 25 Feature Report <code>0x00</code> is unreachable from browser sandboxes on this firmware/OS combination.
+          </p>
+        </div>
+        <footer class="ws-modal-foot">
+          <button id="btnModalDismiss" type="button" class="ws-btn is-sm">Preview Only</button>
+          <button id="btnModalRecheck" type="button" class="ws-btn is-sm">↻ Re-check Device</button>
+          <button id="btnModalConnectBridge" type="button" class="ws-btn is-primary is-sm">⚡ Connect Local Bridge</button>
+        </footer>
+      </div>
+    </div>
+
     <div id="toastContainer" class="toast-stack"></div>
   </div>
 
-  <script src="/protocol25.js"></script>
-  <script src="/app.js"></script>
+  <script src="./protocol25.js"></script>
+  <script src="./app.js"></script>
 </body>
 </html>
