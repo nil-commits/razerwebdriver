@@ -1100,6 +1100,15 @@
       ledId = 0x00,
       transactionId = 0x1f,
     } = {}) {
+      // UI speed uses 1 = Slow, 2 = Medium, 3 = Fast.
+      // Razer Protocol 25 (0x0F/0x02) args[4] encodes duration/period where LOWER = FASTER:
+      //   Reactive (0x05) & Starlight (0x07): 0x01 = Fast (500ms), 0x02 = Medium (1000ms), 0x03 = Slow (1500ms)
+      //   Wave (0x04), Ripple (0x06), Wheel (0x0A): 0x14 = Fast, 0x28 = Medium, 0x50 = Slow
+      //   Fire (0x09): 0x32 = Fast, 0x5A = Medium, 0x8C = Slow
+      const uiSpd = Number(speed) || 2;
+      const hwDurationEnum = uiSpd <= 1 ? 0x03 : uiSpd >= 3 ? 0x01 : 0x02;
+      const hwWavePeriod = uiSpd <= 1 ? 0x50 : uiSpd >= 3 ? 0x14 : 0x28;
+      const hwFirePeriod = uiSpd <= 1 ? 0x8c : uiSpd >= 3 ? 0x32 : 0x5a;
       let args;
       switch (effect) {
         case "off":
@@ -1131,22 +1140,22 @@
           args = [varStore, ledId, 0x03, 0x00, 0x00, 0x00];
           break;
         case "wave":
-          args = [varStore, ledId, 0x04, direction & 0xff, 0x28, 0x00];
+          args = [varStore, ledId, 0x04, direction & 0xff, hwWavePeriod, 0x00];
           break;
         case "reactive":
-          args = [varStore, ledId, 0x05, 0x00, speed & 0xff, 0x01, r & 0xff, g & 0xff, b & 0xff];
+          args = [varStore, ledId, 0x05, 0x00, hwDurationEnum, 0x01, r & 0xff, g & 0xff, b & 0xff];
           break;
         case "ripple":
-          args = [varStore, ledId, 0x06, 0x00, 0x28, 0x01, r & 0xff, g & 0xff, b & 0xff];
+          args = [varStore, ledId, 0x06, 0x00, hwWavePeriod, 0x01, r & 0xff, g & 0xff, b & 0xff];
           break;
         case "starlight":
-          args = [varStore, ledId, 0x07, 0x01, speed & 0xff, 0x01, r & 0xff, g & 0xff, b & 0xff];
+          args = [varStore, ledId, 0x07, 0x01, hwDurationEnum, 0x01, r & 0xff, g & 0xff, b & 0xff];
           break;
         case "fire":
-          args = [varStore, ledId, 0x09, 0x00, 0x5a, 0x01, 0xff, 0x00, 0x00];
+          args = [varStore, ledId, 0x09, 0x00, hwFirePeriod, 0x01, 0xff, 0x00, 0x00];
           break;
         case "wheel":
-          args = [varStore, ledId, 0x0a, direction & 0xff, 0x28, 0x00];
+          args = [varStore, ledId, 0x0a, direction & 0xff, hwWavePeriod, 0x00];
           break;
         case "rain":
         case "scanner":

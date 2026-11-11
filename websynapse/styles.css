@@ -1332,44 +1332,44 @@ button {
 }
 .keyboard-chassis[data-chroma-effect="breathing"] .keycap,
 .keyboard-chassis[data-chroma-effect="breathingDual"] .keycap {
-  animation: chroma-breathe 2.8s ease-in-out infinite;
+  animation: chroma-breathe calc(2.8s * var(--chroma-dur-mult, 1)) ease-in-out infinite;
 }
 .keyboard-chassis[data-chroma-effect="spectrum"] .keycap {
-  animation: chroma-spectrum 5s linear infinite;
+  animation: chroma-spectrum calc(5s * var(--chroma-dur-mult, 1)) linear infinite;
 }
 .keyboard-chassis[data-chroma-effect="wave"] .keycap {
-  animation: chroma-spectrum 2.4s linear infinite;
+  animation: chroma-spectrum calc(2.4s * var(--chroma-dur-mult, 1)) linear infinite;
   animation-delay: calc(var(--col-idx, 0) * -110ms);
 }
 .keyboard-chassis[data-chroma-effect="wheel"] .keycap {
-  animation: chroma-spectrum 2.8s linear infinite;
+  animation: chroma-spectrum calc(2.8s * var(--chroma-dur-mult, 1)) linear infinite;
   animation-delay: calc((var(--col-idx, 0) + var(--row-idx, 0) * 2) * -95ms);
 }
 .keyboard-chassis[data-chroma-effect="starlight"] .keycap {
-  animation: chroma-breathe 2.0s ease-in-out infinite;
+  animation: chroma-breathe calc(2.0s * var(--chroma-dur-mult, 1)) ease-in-out infinite;
   animation-delay: calc(var(--col-idx, 0) * -210ms);
 }
 .keyboard-chassis[data-chroma-effect="fire"] .keycap {
   color: hsl(calc(8deg + (5 - var(--row-idx, 3)) * 8deg) 96% 58%);
-  animation: chroma-breathe 1.2s ease-in-out infinite;
+  animation: chroma-breathe calc(1.2s * var(--chroma-dur-mult, 1)) ease-in-out infinite;
   animation-delay: calc((var(--col-idx, 0) * -130ms) + (var(--row-idx, 0) * -90ms));
 }
 .keyboard-chassis[data-chroma-effect="rain"] .keycap {
-  animation: chroma-breathe 1.4s linear infinite;
+  animation: chroma-breathe calc(1.4s * var(--chroma-dur-mult, 1)) linear infinite;
   animation-delay: calc((var(--row-idx, 0) * 140ms) - (var(--col-idx, 0) * 190ms));
 }
 .keyboard-chassis[data-chroma-effect="scanner"] .keycap {
-  animation: chroma-breathe 1.8s ease-in-out infinite;
+  animation: chroma-breathe calc(1.8s * var(--chroma-dur-mult, 1)) ease-in-out infinite;
   animation-delay: calc(var(--col-idx, 0) * -90ms);
 }
 .keyboard-chassis[data-chroma-effect="aurora"] .keycap,
 .keyboard-chassis[data-chroma-effect="gradient"] .keycap {
   color: color-mix(in srgb, var(--key-color) calc((16 - var(--col-idx, 0)) * 6%), var(--key-color-2, #00d2ff));
-  animation: chroma-breathe 3.2s ease-in-out infinite;
+  animation: chroma-breathe calc(3.2s * var(--chroma-dur-mult, 1)) ease-in-out infinite;
   animation-delay: calc(var(--col-idx, 0) * -120ms);
 }
 .keyboard-chassis[data-chroma-effect="disco"] .keycap {
-  animation: chroma-spectrum 0.9s steps(6, end) infinite;
+  animation: chroma-spectrum calc(0.9s * var(--chroma-dur-mult, 1)) steps(6, end) infinite;
   animation-delay: calc((var(--col-idx, 0) * -170ms) + (var(--row-idx, 0) * -230ms));
 }
 .keycap.is-reactive-lit {

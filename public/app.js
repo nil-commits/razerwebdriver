@@ -4697,12 +4697,35 @@
         if (c2) out.color2 = c2;
         break;
       case 0x03: out.effect = "spectrum"; break;
-      case 0x04: out.effect = "wave"; out.waveDirection = p1 === 2 ? 2 : 1; break;
-      case 0x05: out.effect = "reactive"; out.speed = p2 || out.speed || 2; out.color1 = c1; break;
-      case 0x06: out.effect = "ripple"; out.color1 = c1; break;
-      case 0x07: out.effect = "starlight"; out.speed = p2 || out.speed || 2; out.color1 = c1; break;
-      case 0x09: out.effect = "fire"; break;
-      case 0x0a: out.effect = "wheel"; out.waveDirection = p1 === 2 ? 2 : 1; break;
+      case 0x04:
+        out.effect = "wave";
+        out.waveDirection = p1 === 2 ? 2 : 1;
+        if (p2 > 0) out.speed = p2 <= 0x1c ? 3 : p2 >= 0x3c ? 1 : 2;
+        break;
+      case 0x05:
+        out.effect = "reactive";
+        out.speed = p2 === 1 ? 3 : p2 === 3 ? 1 : 2;
+        out.color1 = c1;
+        break;
+      case 0x06:
+        out.effect = "ripple";
+        if (p2 > 0) out.speed = p2 <= 0x1c ? 3 : p2 >= 0x3c ? 1 : 2;
+        out.color1 = c1;
+        break;
+      case 0x07:
+        out.effect = "starlight";
+        out.speed = p2 === 1 ? 3 : p2 === 3 ? 1 : 2;
+        out.color1 = c1;
+        break;
+      case 0x09:
+        out.effect = "fire";
+        if (p2 > 0) out.speed = p2 <= 0x44 ? 3 : p2 >= 0x70 ? 1 : 2;
+        break;
+      case 0x0a:
+        out.effect = "wheel";
+        out.waveDirection = p1 === 2 ? 2 : 1;
+        if (p2 > 0) out.speed = p2 <= 0x1c ? 3 : p2 >= 0x3c ? 1 : 2;
+        break;
       default: return null;
     }
     return out;
@@ -4898,8 +4921,11 @@
     const g2 = (num2 >> 8) & 0xff;
     const b2 = num2 & 0xff;
     const scale = eff === "off" ? 0 : brPct / 100;
+    const spdVal = Number(light.speed || 2);
+    const durMult = spdVal <= 1 ? 1.65 : spdVal >= 3 ? 0.55 : 1;
 
     container.dataset.chromaEffect = eff;
+    container.style.setProperty("--chroma-dur-mult", String(durMult));
     container.style.setProperty("--key-color-2", `rgba(${r2}, ${g2}, ${b2}, ${Math.max(0.35, scale).toFixed(2)})`);
     if (eff === "off" || scale <= 0.01) {
       container.style.setProperty("--key-color", "#6e7785");
