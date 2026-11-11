@@ -2250,6 +2250,10 @@ select option {
 .ws-modal-box.is-warn {
   border-color: rgb(255 179 0 / 0.32);
 }
+.ws-modal-box.is-zadig {
+  border-color: rgb(var(--accent-rgb) / 0.42);
+  background: linear-gradient(180deg, rgb(var(--accent-rgb) / 0.08), var(--well));
+}
 .ws-modal-box-title {
   font-size: 12.5px;
   font-weight: 650;
@@ -2260,6 +2264,9 @@ select option {
 }
 .ws-modal-box.is-warn .ws-modal-box-title {
   color: var(--warn);
+}
+.ws-modal-box.is-zadig .ws-modal-box-title {
+  color: var(--accent);
 }
 .ws-modal-list {
   margin: 0;
