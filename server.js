@@ -345,6 +345,8 @@ async function discoverDevices({ rescanBridge = false } = {}) {
         restoreCommands: [],
         hidInterfaces: [],
         firmware: b.firmware || null,
+        hasLampArray: Boolean(b.hasLampArray),
+        lampCount: Number(b.lampCount) || 0,
         source: "native-bridge",
         connectedLive: true,
       });
@@ -354,6 +356,8 @@ async function discoverDevices({ rescanBridge = false } = {}) {
       existing.source = "native-bridge";
       existing.transportLayer = b.transport || existing.transportLayer;
       if (b.firmware) existing.firmware = b.firmware;
+      if (b.hasLampArray !== undefined) existing.hasLampArray = Boolean(b.hasLampArray);
+      if (b.lampCount) existing.lampCount = Number(b.lampCount);
     }
     byPid.get(pid).hidInterfaces.push({
       path: `${b.transport || "USB"}:IF_${b.interfaceNumber ?? 0}`,
@@ -933,6 +937,7 @@ const server = http.createServer(async (req, res) => {
             // ignore
           }
         }
+        const hidHasLamp = Array.isArray(dev.hidInterfaces) && dev.hidInterfaces.some((i) => i.usagePage === 0x0059);
         liveDevices.push({
           vendorId: dev.vendorId || Protocol25.RAZER_VENDOR_ID,
           productId: dev.productId,
@@ -942,6 +947,8 @@ const server = http.createServer(async (req, res) => {
           transport: dev.transportLayer || "HID",
           tid: dev.defaultTransactionId || 0x1f,
           firmware: fw || "v1.00",
+          hasLampArray: Boolean(dev.hasLampArray || hidHasLamp),
+          lampCount: Number(dev.lampCount) || (hidHasLamp ? 87 : 0),
         });
       }
       return sendJson(res, 200, {
@@ -949,6 +956,21 @@ const server = http.createServer(async (req, res) => {
         version: "3.0.0-node",
         devices: liveDevices,
       });
+    }
+
+    if (pathname === "/lamparray" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const pid = Number(body.pid || body.productId || 0);
+      const reportsB64 = Array.isArray(body.reportsB64) ? body.reportsB64 : [];
+      if (!pid || reportsB64.length === 0 || reportsB64.length > 64) {
+        return sendJson(res, 400, { ok: false, error: "pid and 1..64 reportsB64 entries required" });
+      }
+      if (process.platform === "win32") {
+        await ensureNativeBridge();
+        const bridgeRes = await callNativeBridge("POST", "/lamparray", { pid, reportsB64 }, 1800);
+        return sendJson(res, 200, bridgeRes);
+      }
+      return sendJson(res, 400, { ok: false, error: "Native LampArray bridge requires Windows" });
     }
 
     if (pathname === "/transfer" && req.method === "POST") {

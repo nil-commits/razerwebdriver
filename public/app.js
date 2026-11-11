@@ -883,14 +883,79 @@
     });
   }
 
+  function uint8ToBase64(bytes) {
+    let bin = "";
+    for (let i = 0; i < bytes.length; i++) {
+      bin += String.fromCharCode(bytes[i] & 0xff);
+    }
+    return btoa(bin);
+  }
+
+  async function sendBridgeLampArrayReports(numPid, rawReportsWithId, { keepalive = false } = {}) {
+    if (!rawReportsWithId || rawReportsWithId.length === 0) return false;
+    const reportsB64 = rawReportsWithId.map((arr) => uint8ToBase64(arr));
+    const resp = await fetch(`${activeBridgeUrl}/lamparray`, {
+      method: "POST",
+      keepalive: Boolean(keepalive),
+      headers: {
+        "Content-Type": "application/json",
+        "X-WebSynapse-Bridge": "1",
+      },
+      body: JSON.stringify({
+        pid: Number(numPid),
+        reportsB64,
+      }),
+    });
+    if (!resp.ok) throw new Error(`LampArray bridge HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (!data?.ok) throw new Error(data?.error || "LampArray bridge transfer failed");
+    return true;
+  }
+
+  const bridgeLampAdapterByPid = new Map();
+  function getBridgeLampArrayAdapter(numPid) {
+    const bDev = bridgeDevicesByPid.get(Number(numPid));
+    if (!localBridgeOnline || !bDev || !bDev.hasLampArray) return null;
+    let adapter = bridgeLampAdapterByPid.get(Number(numPid));
+    if (!adapter) {
+      adapter = {
+        isBridgeLamp: true,
+        opened: true,
+        async open() {},
+        async receiveFeatureReport(reportId) {
+          const count = Number(bridgeDevicesByPid.get(Number(numPid))?.lampCount) || 87;
+          if (reportId === 1) {
+            const buf = new Uint8Array([1, count & 0xff, (count >> 8) & 0xff]);
+            return new DataView(buf.buffer);
+          }
+          return new DataView(new Uint8Array(8).buffer);
+        },
+        async sendFeatureReport(reportId, payload) {
+          const raw = new Uint8Array(1 + payload.length);
+          raw[0] = reportId & 0xff;
+          raw.set(payload, 1);
+          await sendBridgeLampArrayReports(numPid, [raw]);
+        },
+        async sendFeatureReportBatch(rawReportsWithId) {
+          await sendBridgeLampArrayReports(numPid, rawReportsWithId);
+        },
+      };
+      bridgeLampAdapterByPid.set(Number(numPid), adapter);
+    }
+    return adapter;
+  }
+
   function deviceHasLampArray(dev) {
     const cols = dev?.collections || [];
     return cols.some((c) => c.usagePage === 0x0059 && (c.featureReports || []).length > 0);
   }
 
   function findLampArrayDevice(pidKey) {
-    const list = webHidHandlesByPid.get(Number(pidKey)) || [];
-    return list.find((d) => deviceHasLampArray(d)) || null;
+    const numPid = Number(pidKey);
+    const list = webHidHandlesByPid.get(numPid) || [];
+    const webHidLamp = list.find((d) => deviceHasLampArray(d)) || null;
+    if (webHidLamp) return webHidLamp;
+    return getBridgeLampArrayAdapter(numPid);
   }
 
   function scoreWebHidCollection(dev) {
@@ -1268,18 +1333,25 @@
       }
 
       if (!lampHostControlPids.has(pid)) continue;
-      const list = webHidHandlesByPid.get(pid) || [];
-      const lampDev = list.find((d) => deviceHasLampArray(d));
+      const lampDev = findLampArrayDevice(pid);
       if (!lampDev || !lampDev.opened) continue;
 
       try {
         // Close any interrupted multi-packet Report ID 4 frame with LampUpdateComplete = 1
+        // and switch hardware back to AutonomousMode = 1 (onboard effect engine)
         const finishRep4 = new Uint8Array(50);
         finishRep4[0] = 1;
         finishRep4[1] = 1;
-        void lampDev.sendFeatureReport(4, finishRep4).catch(() => {});
-        // Switch hardware back to AutonomousMode = 1 (onboard effect engine)
-        void lampDev.sendFeatureReport(6, new Uint8Array([1])).catch(() => {});
+        if (lampDev.isBridgeLamp) {
+          const r4 = new Uint8Array(51);
+          r4[0] = 4;
+          r4.set(finishRep4, 1);
+          const r6 = new Uint8Array([6, 1]);
+          void sendBridgeLampArrayReports(pid, [r4, r6], { keepalive: true }).catch(() => {});
+        } else {
+          void lampDev.sendFeatureReport(4, finishRep4).catch(() => {});
+          void lampDev.sendFeatureReport(6, new Uint8Array([1])).catch(() => {});
+        }
         lampHostControlPids.delete(pid);
         dispatchedAny = true;
       } catch {
@@ -1514,6 +1586,7 @@
       const sendLampSubset = async (entries) => {
         if (!entries || entries.length === 0 || isPageUnloading) return;
         await runExclusiveLampBatch(async () => {
+          const batchedWithId = typeof lampDev.sendFeatureReportBatch === "function" ? [] : null;
           for (let baseIdx = 0; baseIdx < entries.length; baseIdx += 8) {
             if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
             const count = Math.min(8, entries.length - baseIdx);
@@ -1532,7 +1605,17 @@
               rep4[colOff + 2] = Math.round(item.b * brScale) & 0xff;
               rep4[colOff + 3] = (item.i ?? 255) & 0xff;
             }
-            await lampDev.sendFeatureReport(4, rep4);
+            if (batchedWithId) {
+              const raw51 = new Uint8Array(51);
+              raw51[0] = 4;
+              raw51.set(rep4, 1);
+              batchedWithId.push(raw51);
+            } else {
+              await lampDev.sendFeatureReport(4, rep4);
+            }
+          }
+          if (batchedWithId && batchedWithId.length > 0) {
+            await lampDev.sendFeatureReportBatch(batchedWithId);
           }
         });
       };
@@ -1585,6 +1668,7 @@
         if (isPageUnloading) return;
         const ids = layout.sortedIdsByX;
         await runExclusiveLampBatch(async () => {
+          const batchedWithId = typeof lampDev.sendFeatureReportBatch === "function" ? [] : null;
           for (let baseIdx = 0; baseIdx < ids.length; baseIdx += 8) {
             if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
             const count = Math.min(8, ids.length - baseIdx);
@@ -1605,7 +1689,17 @@
               rep4[colOff + 2] = Math.round(b * brScale) & 0xff;
               rep4[colOff + 3] = 255;
             }
-            await lampDev.sendFeatureReport(4, rep4);
+            if (batchedWithId) {
+              const raw51 = new Uint8Array(51);
+              raw51[0] = 4;
+              raw51.set(rep4, 1);
+              batchedWithId.push(raw51);
+            } else {
+              await lampDev.sendFeatureReport(4, rep4);
+            }
+          }
+          if (batchedWithId && batchedWithId.length > 0) {
+            await lampDev.sendFeatureReportBatch(batchedWithId);
           }
         });
       };
@@ -1624,6 +1718,7 @@
         const si = intensity & 0xff;
         const ids = layout.sortedIdsByX;
         await runExclusiveLampBatch(async () => {
+          const batchedWithId = typeof lampDev.sendFeatureReportBatch === "function" ? [] : null;
           for (let baseIdx = 0; baseIdx < ids.length; baseIdx += 8) {
             if (isPageUnloading || lampArrayGenByPid.get(numPid) !== gen || !lampDev.opened) return;
             const count = Math.min(8, ids.length - baseIdx);
@@ -1641,7 +1736,17 @@
               rep4[colOff + 2] = sb;
               rep4[colOff + 3] = si;
             }
-            await lampDev.sendFeatureReport(4, rep4);
+            if (batchedWithId) {
+              const raw51 = new Uint8Array(51);
+              raw51[0] = 4;
+              raw51.set(rep4, 1);
+              batchedWithId.push(raw51);
+            } else {
+              await lampDev.sendFeatureReport(4, rep4);
+            }
+          }
+          if (batchedWithId && batchedWithId.length > 0) {
+            await lampDev.sendFeatureReportBatch(batchedWithId);
           }
         });
       };
@@ -3357,6 +3462,12 @@
             // Make sure the onboard effect we just stored is what the keyboard shows
             await releaseLampArrayToHardwareAutonomous(pidKey);
           } else {
+            // Ensure ForceChromaCtrl (0x0F/0x10) is 0x00 so LampArray (MI_04) controls the physical LEDs
+            if (Protocol25.Builders?.setForceChromaCtrl) {
+              const unlockRaw = Protocol25.Builders.setForceChromaCtrl(false, body90[1] || 0x1f);
+              const unlock90 = validateOutgoingPacket90(unlockRaw.length === 91 ? unlockRaw.slice(1) : unlockRaw);
+              await transferProtocol25(handle, unlock90).catch(() => null);
+            }
             // Software-only animation (rain, aurora, ...) — live while the tab is open
             await applyLampArrayEffect(pidKey);
           }
@@ -5984,6 +6095,42 @@
         slot.lighting.brightness = Number(document.getElementById("rngBrightness")?.value ?? 100);
       }
       updateChromaVisuals();
+      if (!HARDWARE_NATIVE_CHROMA_EFFECTS.has(effect)) {
+        persistDriverState();
+        updateProfileKeyBox();
+        void (async () => {
+          const pid = Number(selectedPid);
+          let lampDev = findLampArrayDevice(pid);
+          if (!lampDev && navigator.hid && window.isSecureContext) {
+            try {
+              const picked = await navigator.hid.requestDevice({
+                filters: [{ vendorId: Protocol25.RAZER_VENDOR_ID, productId: pid, usagePage: 0x0059 }],
+              });
+              if (picked && picked.length > 0) {
+                await refreshAuthorizedWebHidDevices();
+                lampDev = findLampArrayDevice(pid);
+              }
+            } catch {
+              // ignore user cancel
+            }
+          }
+          if (!lampDev) {
+            showToast(`Studio Effect (${effect}) requires LampArray (MI_04) access`, false);
+            return;
+          }
+          if (Protocol25.Builders?.setForceChromaCtrl) {
+            await queryProtocol25(pid, Protocol25.Builders.setForceChromaCtrl(false));
+          }
+          const ok = await applyLampArrayEffect(pid);
+          if (ok) {
+            showToast(`Studio Effect (${effect}) → LIVE`);
+            void playUiTone("success");
+          } else {
+            showToast(`Studio Effect (${effect}) failed to start`, false);
+          }
+        })();
+        return;
+      }
       const num = parseInt(slot.lighting.color1.replace("#", ""), 16) || 0x00e676;
       const num2 = parseInt(slot.lighting.color2.replace("#", ""), 16) || 0x00d2ff;
       const pkt = Protocol25.Builders.setChromaEffect({

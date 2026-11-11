@@ -83,6 +83,37 @@ public static class RazerBridgeNative
     [DllImport("hid.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern bool HidD_GetProductString(IntPtr HidDeviceObject, byte[] Buffer, int BufferLength);
 
+    [DllImport("hid.dll", SetLastError = true)]
+    public static extern bool HidD_GetPreparsedData(IntPtr HidDeviceObject, out IntPtr PreparsedData);
+
+    [DllImport("hid.dll", SetLastError = true)]
+    public static extern bool HidD_FreePreparsedData(IntPtr PreparsedData);
+
+    [DllImport("hid.dll", SetLastError = true)]
+    public static extern int HidP_GetCaps(IntPtr PreparsedData, out HIDP_CAPS Capabilities);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct HIDP_CAPS
+    {
+        public ushort Usage;
+        public ushort UsagePage;
+        public ushort InputReportByteLength;
+        public ushort OutputReportByteLength;
+        public ushort FeatureReportByteLength;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 17)]
+        public ushort[] Reserved;
+        public ushort NumberLinkCollectionNodes;
+        public ushort NumberInputButtonCaps;
+        public ushort NumberInputValueCaps;
+        public ushort NumberInputDataIndices;
+        public ushort NumberOutputButtonCaps;
+        public ushort NumberOutputValueCaps;
+        public ushort NumberOutputDataIndices;
+        public ushort NumberFeatureButtonCaps;
+        public ushort NumberFeatureValueCaps;
+        public ushort NumberFeatureDataIndices;
+    }
+
     [DllImport("winusb.dll", SetLastError = true)]
     public static extern bool WinUsb_Initialize(IntPtr DeviceHandle, out IntPtr InterfaceHandle);
 
@@ -104,6 +135,8 @@ public static class RazerBridgeNative
         public string Name;
         public byte Tid = 0x1F;
         public string Firmware = "";
+        public string LampArrayPath = "";
+        public int LampCount = 0;
     }
 
     private static readonly object IoLock = new object();
@@ -359,6 +392,79 @@ public static class RazerBridgeNative
         }
     }
 
+    public static void AttachLampArrayInfo(RazerEndpoint ep)
+    {
+        if (ep == null) return;
+        try
+        {
+            Guid hidGuid;
+            HidD_GetHidGuid(out hidGuid);
+            string needle = string.Format("vid_1532&pid_{0:x4}", ep.Pid);
+            foreach (var p in GetInterfacePathsForGuid(hidGuid))
+            {
+                if (p.IndexOf(needle, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                IntPtr h = CreateFileW(p, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
+                if (h == INVALID_HANDLE_VALUE) continue;
+                try
+                {
+                    IntPtr ppd;
+                    if (!HidD_GetPreparsedData(h, out ppd)) continue;
+                    HIDP_CAPS caps;
+                    int st = HidP_GetCaps(ppd, out caps);
+                    HidD_FreePreparsedData(ppd);
+                    if (st < 0 || caps.UsagePage != 0x0059 || caps.FeatureReportByteLength < 4) continue;
+                    int count = 87;
+                    var rep1 = new byte[caps.FeatureReportByteLength];
+                    rep1[0] = 0x01;
+                    if (HidD_GetFeature(h, rep1, rep1.Length))
+                    {
+                        int parsed = rep1[1] | (rep1[2] << 8);
+                        if (parsed > 0 && parsed <= 256) count = parsed;
+                    }
+                    ep.LampArrayPath = p;
+                    ep.LampCount = count;
+                    return;
+                }
+                finally
+                {
+                    CloseHandle(h);
+                }
+            }
+        }
+        catch { }
+    }
+
+    public static bool SendLampArrayBase64(string lampPath, string[] reportsB64)
+    {
+        if (string.IsNullOrEmpty(lampPath) || reportsB64 == null || reportsB64.Length == 0)
+            return false;
+        if (reportsB64.Length > 64)
+            throw new ArgumentException("Too many LampArray reports in single batch");
+        lock (IoLock)
+        {
+            IntPtr hLamp = CreateFileW(lampPath, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
+            if (hLamp == INVALID_HANDLE_VALUE) return false;
+            try
+            {
+                for (int i = 0; i < reportsB64.Length; i++)
+                {
+                    if (string.IsNullOrEmpty(reportsB64[i])) continue;
+                    byte[] raw = Convert.FromBase64String(reportsB64[i]);
+                    if (raw == null || raw.Length < 2 || raw.Length > 64) continue;
+                    byte reportId = raw[0];
+                    if (reportId != 4 && reportId != 6) continue;
+                    if (!HidD_SetFeature(hLamp, raw, raw.Length))
+                        return false;
+                }
+                return true;
+            }
+            finally
+            {
+                CloseHandle(hLamp);
+            }
+        }
+    }
+
     public static string JsonEscape(string s)
     {
         if (s == null) return "";
@@ -384,16 +490,17 @@ public static class RazerBridgeNative
     public static string FormatDevicesJson(List<RazerEndpoint> verified)
     {
         var sb = new StringBuilder();
-        sb.Append("{\"ok\":true,\"bridgeVersion\":\"1.1.0\",\"devices\":[");
+        sb.Append("{\"ok\":true,\"bridgeVersion\":\"1.2.0\",\"devices\":[");
         for (int i = 0; i < verified.Count; i++)
         {
             if (i > 0) sb.Append(',');
             var v = verified[i];
             string hexPid = string.Format("0x{0:X4}", v.Pid);
             string name = !string.IsNullOrWhiteSpace(v.Name) ? v.Name : string.Format("Razer Device ({0})", hexPid);
+            bool hasLamp = !string.IsNullOrEmpty(v.LampArrayPath);
             sb.Append('{');
-            sb.AppendFormat("\"vendorId\":5426,\"productId\":{0},\"hexPid\":\"{1}\",\"productName\":\"{2}\",\"interfaceNumber\":{3},\"transport\":\"{4}\",\"firmware\":\"{5}\",\"tid\":{6}",
-                v.Pid, hexPid, JsonEscape(name), v.InterfaceNumber, JsonEscape(v.Mode), JsonEscape(v.Firmware ?? ""), (int)v.Tid);
+            sb.AppendFormat("\"vendorId\":5426,\"productId\":{0},\"hexPid\":\"{1}\",\"productName\":\"{2}\",\"interfaceNumber\":{3},\"transport\":\"{4}\",\"firmware\":\"{5}\",\"tid\":{6},\"hasLampArray\":{7},\"lampCount\":{8}",
+                v.Pid, hexPid, JsonEscape(name), v.InterfaceNumber, JsonEscape(v.Mode), JsonEscape(v.Firmware ?? ""), (int)v.Tid, hasLamp ? "true" : "false", v.LampCount);
             sb.Append('}');
         }
         sb.Append("]}");
@@ -443,6 +550,9 @@ function Resolve-RazerDevice([int]$pidNum) {
         if ($still) {
             $still.Tid = $cached.Tid
             $still.Firmware = $cached.Firmware
+            $still.LampArrayPath = $cached.LampArrayPath
+            $still.LampCount = $cached.LampCount
+            if (-not $still.LampArrayPath) { [RazerBridgeNative]::AttachLampArrayInfo($still) }
             if (-not $still.Name -and $cached.Name) { $still.Name = $cached.Name }
             return $still
         }
@@ -465,6 +575,7 @@ function Resolve-RazerDevice([int]$pidNum) {
                     $namedPeer = $all | Where-Object { $_.Name } | Select-Object -First 1
                     if ($namedPeer) { $ep.Name = $namedPeer.Name }
                 }
+                [RazerBridgeNative]::AttachLampArrayInfo($ep)
                 $script:VerifiedByPid[$pidNum] = $ep
                 return $ep
             }
@@ -496,6 +607,8 @@ $AllowedOrigins = @(
     "https://www.websynap.se",
     "http://localhost:18925",
     "http://127.0.0.1:18925",
+    "http://localhost:5426",
+    "http://127.0.0.1:5426",
     "http://localhost:8080",
     "http://127.0.0.1:8080",
     "http://localhost:8787",
@@ -718,6 +831,29 @@ while ($true) {
                     $jsonOut = '{"ok":false,"error":"USB Protocol 25 transfer failed"}'
                 } else {
                     $jsonOut = [RazerBridgeNative]::FormatTransferJson($ep, $rx91)
+                }
+            }
+        }
+        elseif ($method -eq "POST" -and $cleanPath -eq "/lamparray") {
+            $reqJson = $bodyStr | ConvertFrom-Json
+            $pidNum = [int]$reqJson.pid
+            $ep = Resolve-RazerDevice $pidNum
+            if (-not $ep -or -not $ep.LampArrayPath) {
+                $jsonOut = '{"ok":false,"error":"LampArray HID interface not available for this device"}'
+            } else {
+                $b64List = [string[]]@($reqJson.reportsB64)
+                $okLamp = [RazerBridgeNative]::SendLampArrayBase64($ep.LampArrayPath, $b64List)
+                if (-not $okLamp) {
+                    $ep.LampArrayPath = ""
+                    [RazerBridgeNative]::AttachLampArrayInfo($ep)
+                    if ($ep.LampArrayPath) {
+                        $okLamp = [RazerBridgeNative]::SendLampArrayBase64($ep.LampArrayPath, $b64List)
+                    }
+                }
+                if ($okLamp) {
+                    $jsonOut = "{`"ok`":true,`"lampCount`":$($ep.LampCount)}"
+                } else {
+                    $jsonOut = '{"ok":false,"error":"HidD_SetFeature failed on LampArray interface"}'
                 }
             }
         }
