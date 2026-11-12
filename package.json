@@ -1,7 +1,7 @@
 {
   "name": "razerwebdriver",
-  "version": "1.0.0",
-  "description": "Zero-internet, zero-bloat local browser driver for Razer peripherals (Protocol 25 HID + WebHID)",
+  "version": "1.1.0",
+  "description": "Zero-internet, zero-bloat local browser driver & Chroma Studio daemon for Razer peripherals (Protocol 25 HID + LampArray)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -13,6 +13,7 @@
     "protocol-25",
     "hid",
     "webhid",
+    "lamparray",
     "huntsman-v3-pro",
     "viper-v3-pro"
   ],

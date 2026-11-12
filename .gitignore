@@ -1,4 +1,5 @@
 node_modules/
 local-driver-state.json
 *.log
+*.pid
 .DS_Store

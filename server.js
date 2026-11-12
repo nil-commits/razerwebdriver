@@ -14,7 +14,106 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { pipeline } = require("stream");
 const { spawn } = require("child_process");
+
+const SUPERVISOR_PID_FILE = path.join(__dirname, "driver-supervisor.pid");
+const SUPERVISOR_LOG_FILE = path.join(__dirname, "driver-supervisor.log");
+
+function appendSupervisorLog(line) {
+  const entry = `[${new Date().toISOString()}] ${line}\n`;
+  try {
+    if (fs.existsSync(SUPERVISOR_LOG_FILE) && fs.statSync(SUPERVISOR_LOG_FILE).size > 262144) {
+      const tail = fs.readFileSync(SUPERVISOR_LOG_FILE, "utf8").slice(-131072);
+      fs.writeFileSync(SUPERVISOR_LOG_FILE, tail, "utf8");
+    }
+    fs.appendFileSync(SUPERVISOR_LOG_FILE, entry, "utf8");
+  } catch {
+    // ignore log write errors
+  }
+}
+
+if (process.env.RAZER_DRIVER_WORKER !== "1" && !process.argv.includes("--no-supervisor")) {
+  let activeChild = null;
+  let shuttingDown = false;
+  let consecutiveCrashes = 0;
+
+  try {
+    fs.writeFileSync(SUPERVISOR_PID_FILE, String(process.pid), "utf8");
+  } catch {
+    // ignore
+  }
+
+  const cleanupPidFile = () => {
+    try {
+      if (fs.existsSync(SUPERVISOR_PID_FILE)) {
+        const cur = fs.readFileSync(SUPERVISOR_PID_FILE, "utf8").trim();
+        if (cur === String(process.pid)) fs.unlinkSync(SUPERVISOR_PID_FILE);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const spawnWorker = () => {
+    if (shuttingDown) return;
+    const startedAt = Date.now();
+    appendSupervisorLog(`Starting server worker (supervisor PID ${process.pid})`);
+    const child = spawn(process.execPath, [__filename, ...process.argv.slice(2)], {
+      cwd: __dirname,
+      env: { ...process.env, RAZER_DRIVER_WORKER: "1" },
+      stdio: "inherit",
+      windowsHide: true,
+    });
+    activeChild = child;
+
+    child.on("exit", (code, signal) => {
+      activeChild = null;
+      if (shuttingDown || code === 0) {
+        appendSupervisorLog(`Worker exited cleanly (code=${code}, signal=${signal || "none"}). Stopping supervisor.`);
+        cleanupPidFile();
+        process.exit(0);
+      }
+      const uptimeMs = Date.now() - startedAt;
+      if (uptimeMs > 15000) {
+        consecutiveCrashes = 0;
+      } else {
+        consecutiveCrashes++;
+      }
+      const delayMs = Math.min(5000, 1000 * Math.max(1, consecutiveCrashes));
+      const msg = `Worker crashed (code=${code}, signal=${signal || "none"}, uptime=${uptimeMs}ms). Restarting in ${delayMs}ms...`;
+      appendSupervisorLog(msg);
+      console.error(`[Supervisor] ${msg}`);
+      setTimeout(spawnWorker, delayMs);
+    });
+  };
+
+  const shutdownSupervisor = (sig) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    appendSupervisorLog(`Supervisor received ${sig}, stopping worker...`);
+    cleanupPidFile();
+    if (activeChild && !activeChild.killed) {
+      try {
+        activeChild.kill("SIGTERM");
+      } catch {
+        // ignore
+      }
+      setTimeout(() => process.exit(0), 600).unref();
+    } else {
+      process.exit(0);
+    }
+  };
+
+  process.on("SIGINT", () => shutdownSupervisor("SIGINT"));
+  process.on("SIGTERM", () => shutdownSupervisor("SIGTERM"));
+  process.on("SIGHUP", () => shutdownSupervisor("SIGHUP"));
+  process.on("exit", cleanupPidFile);
+
+  spawnWorker();
+  return;
+}
+
 const Protocol25 = require("./protocol25");
 const { createStudioDaemon } = require("./studio-daemon");
 
@@ -265,6 +364,16 @@ process.on("SIGTERM", async () => {
   if (studioDaemon) await studioDaemon.stop().catch(() => {});
   cleanupSpawnedBridge();
   process.exit(0);
+});
+process.on("uncaughtException", (err) => {
+  const msg = `Uncaught exception recovered: ${err?.stack || err?.message || err}`;
+  appendSupervisorLog(msg);
+  console.error(`[Worker] ${msg}`);
+});
+process.on("unhandledRejection", (reason) => {
+  const msg = `Unhandled rejection recovered: ${reason?.stack || reason?.message || reason}`;
+  appendSupervisorLog(msg);
+  console.error(`[Worker] ${msg}`);
 });
 
 function validateOutgoingPacket90(rawPacket) {
@@ -884,12 +993,17 @@ const CORS_HEADERS = {
 };
 
 function sendJson(res, statusCode, data) {
-  res.writeHead(statusCode, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "no-store",
-    ...CORS_HEADERS,
-  });
-  res.end(JSON.stringify(data));
+  if (res.headersSent || res.writableEnded || res.destroyed) return;
+  try {
+    res.writeHead(statusCode, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      ...CORS_HEADERS,
+    });
+    res.end(JSON.stringify(data));
+  } catch {
+    // ignore socket write after client abort
+  }
 }
 
 async function handleApiElectronRpc(method, arg) {
@@ -1585,7 +1699,7 @@ const server = http.createServer(async (req, res) => {
         ...STATIC_SECURITY_HEADERS,
       });
       if (req.method === "HEAD") return res.end();
-      return fs.createReadStream(p25Path).pipe(res);
+      return pipeline(fs.createReadStream(p25Path), res, () => {});
     }
 
     const publicDir = path.join(__dirname, "public");
@@ -1608,7 +1722,7 @@ const server = http.createServer(async (req, res) => {
         ...STATIC_SECURITY_HEADERS,
       });
       if (req.method === "HEAD") return res.end();
-      return fs.createReadStream(safePath).pipe(res);
+      return pipeline(fs.createReadStream(safePath), res, () => {});
     }
 
     sendJson(res, 404, { ok: false, error: `Not found: ${pathname}` });
@@ -1620,6 +1734,18 @@ const server = http.createServer(async (req, res) => {
 server.keepAliveTimeout = 65000;
 server.on("connection", (socket) => {
   socket.setNoDelay(true);
+  socket.on("error", () => {});
+});
+
+server.on("error", (err) => {
+  if (err && err.code === "EADDRINUSE") {
+    appendSupervisorLog(`Port ${PORT} already in use — existing instance is active.`);
+    console.log(`[Info] Razer Local Web Driver is already running on http://${HOST}:${PORT}`);
+    process.exit(0);
+  }
+  appendSupervisorLog(`HTTP server error: ${err?.message || err}`);
+  console.error("[Server Error]", err);
+  process.exit(1);
 });
 
 server.listen(PORT, HOST, async () => {

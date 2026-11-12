@@ -10,20 +10,18 @@ Our REA MCP investigation uncovered three critical architectural facts:
 2. **Protocol 25 90-Byte HID Feature Reports** (`electron/Protocol/protocol25.js`, `electron/UsbRzDeviceAction.js`, and `Devices/Restore/5426_679.json`): All device configuration (Chroma RGB matrix, brightness, Huntsman V3 Pro TKL analog actuation & Rapid Trigger, Snap Tap, DPI, polling rate, device mode) is sent via 90-byte Protocol 25 packets (91 bytes with Report ID `0x00` prepended) where byte `88` is the XOR checksum of bytes `2..87`.
 3. **Dual Transport (Native Node HID + Browser WebHID)**: Any Chromium browser (Chrome, Edge, Brave) can also communicate directly with Razer USB HID interfaces (`VID 0x1532`) via `navigator.hid` (`sendFeatureReport` / `receiveFeatureReport`) using `protocol25.js`.
 
-## Quick Start
+## One-Script Setup & Auto-Restart
 
-### Option 1: Double-click `start-driver.bat` (or run from terminal)
-```powershell
-cd c:\Users\Nick\Downloads\rea-main\razer-web-driver
-.\start-driver.bat
-```
-Then open **`http://127.0.0.1:5426`** in any browser.
+Zero `npm install` or external dependencies required — **just run [`start-driver.bat`](./start-driver.bat)** (double-click in Explorer or run from terminal):
 
-### Option 2: Run with standard Node.js + Browser WebHID
-```powershell
-node c:\Users\Nick\Downloads\rea-main\razer-web-driver\server.js
+```bat
+start-driver.bat
 ```
-Open **`http://127.0.0.1:5426`** and click **"Connect Browser WebHID (0x1532)"** in the top bar to grant direct USB HID access from your browser.
+
+What `start-driver.bat` + `server.js` do automatically:
+1. Locates your installed Node.js LTS binary (`node.exe`) with zero package installation needed.
+2. Starts a **built-in Node.js crash-recovery supervisor** in [`server.js`](./server.js) (backed up by a `:watchdog_loop` in `start-driver.bat`) that automatically restarts the HTTP + Chroma Studio worker within 1 second if it ever crashes.
+3. Automatically launches the local USB/HID Bridge (`127.0.0.1:18925`) and opens **`http://localhost:5426`** in your browser.
 
 ## Verified Hardware Features (Protocol 25)
 - **Onboard Profile Slots (`0x05 / 0x04` & `0x05 / 0x84`)**: Switch and persist up to 6 onboard hardware slots with per-slot settings.

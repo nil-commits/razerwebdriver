@@ -1,14 +1,34 @@
 @echo off
-title websynap.se v3.0 · Local Node.js Chroma Studio (http://localhost:5426)
+setlocal
+title Razer Local Web Driver (http://localhost:5426)
 cd /d "%~dp0"
 
-set TOOLCHAIN_NODE=%~dp0..\toolchain\node-v24.22.2-win-x64\node.exe
-
-if exist "%TOOLCHAIN_NODE%" (
-    echo [websynap.se v3.0] Starting on http://localhost:5426 using workspace Node.js + WinUSB/HidUsb Native Bridge...
-    "%TOOLCHAIN_NODE%" "%~dp0server.js"
-) else (
-    echo [websynap.se v3.0] Starting on http://localhost:5426 using system Node.js + WinUSB/HidUsb Native Bridge...
-    node "%~dp0server.js"
+set "NODE_EXE="
+where node >nul 2>nul
+if %ERRORLEVEL% EQU 0 (
+    set "NODE_EXE=node"
+) else if exist "C:\Program Files\nodejs\node.exe" (
+    set "NODE_EXE=C:\Program Files\nodejs\node.exe"
+) else if exist "%LOCALAPPDATA%\Programs\nodejs\node.exe" (
+    set "NODE_EXE=%LOCALAPPDATA%\Programs\nodejs\node.exe"
 )
-pause
+
+if "%NODE_EXE%"=="" (
+    echo [Error] Node.js was not found. Please install Node.js LTS from https://nodejs.org/
+    pause
+    exit /b 1
+)
+
+if /I not "%~1"=="--no-browser" (
+    echo [Razer Local Web Driver] Opening http://localhost:5426 ...
+    start "" "http://localhost:5426"
+)
+
+:watchdog_loop
+"%NODE_EXE%" "%~dp0server.js" %*
+if %ERRORLEVEL% EQU 0 goto :eof
+
+echo.
+echo [Watchdog] server.js exited unexpectedly (code %ERRORLEVEL%). Restarting in 2 seconds...
+timeout /t 2 /nobreak >nul
+goto :watchdog_loop
